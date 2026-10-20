@@ -1,0 +1,628 @@
+//! Recherche globale (Ctrl+Espace) : barre au centre, par-dessus l'app, sur un fond flouté.
+//! Cherche dans les mails (chargés + recherche Gmail), l'annuaire, les événements et les dates
+//! du calendrier, Google Chat, les tâches, les fichiers partagés et les commandes de l'app.
+
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use chrono::{Datelike, Duration as CDuration, Local, NaiveDate, TimeZone};
+use eframe::egui::{self, Align2, Color32, ColorImage, CornerRadius, FontId, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, vec2};
+
+use crate::app::Tab;
+use crate::google::calendar::CalEvent;
+use crate::google::drive::DriveFile;
+use crate::google::gmail::SharedFile;
+use crate::google::{Account, Event, Summary, gmail};
+use crate::prefs::Prefs;
+use crate::tabs::calendar::CalendarState;
+use crate::tabs::mail::MailState;
+use crate::tabs::mail::contacts::fold;
+use crate::tabs::messages::ChatState;
+use crate::tasks::Tasks;
+use crate::theme;
+
+/// Destination d'un résultat.
+#[derive(Clone)]
+pub enum Target {
+    Mail(String),
+    Contact(String),
+    Event(CalEvent),
+    Date(NaiveDate),
+    Space(String),
+    Task,
+    Tab(Tab),
+    Compose,
+    NewEvent,
+    File(SharedFile),
+    Drive(DriveFile),
+    Note(String),
+    NewNote,
+}
+
+#[derive(Clone)]
+struct Hit {
+    group: &'static str,
+    icon: &'static str,
+    title: String,
+    sub: String,
+    target: Target,
+    /// Plus haut = plus pertinent (dans le groupe).
+    score: i32,
+}
+
+#[derive(Default)]
+pub struct Palette {
+    pub open: bool,
+    query: String,
+    selected: usize,
+    /// Fond flouté (capture de l'app au moment de l'ouverture).
+    shot: Arc<Mutex<Option<Arc<ColorImage>>>>,
+    backdrop: Option<egui::TextureHandle>,
+    /// Recherche Gmail côté serveur (complète les mails déjà chargés).
+    remote: Vec<Summary>,
+    remote_query: String,
+    /// Recherche Google Drive (même requête).
+    drive: Vec<DriveFile>,
+    edited: Option<Instant>,
+    opened_at: Option<Instant>,
+}
+
+impl Palette {
+    pub fn toggle(&mut self, ctx: &egui::Context) {
+        if self.open {
+            self.close();
+            return;
+        }
+        self.open = true;
+        self.query.clear();
+        self.selected = 0;
+        self.backdrop = None;
+        self.opened_at = Some(Instant::now());
+        let slot = self.shot.clone();
+        let c = ctx.clone();
+        ctx.request_screenshot(move |img| {
+            let blurred = blur(&img, 4, 3);
+            if let Ok(mut s) = slot.lock() {
+                *s = Some(Arc::new(blurred));
+            }
+            c.request_repaint();
+        });
+    }
+
+    fn close(&mut self) {
+        self.open = false;
+        self.backdrop = None;
+    }
+
+    /// Résultats de la recherche Google Drive.
+    pub fn on_drive(&mut self, query: String, files: Vec<DriveFile>) {
+        if query == self.remote_query {
+            self.drive = files;
+        }
+    }
+
+    /// Résultats de la recherche Gmail côté serveur.
+    pub fn on_remote(&mut self, query: String, list: Vec<Summary>) {
+        if query == self.remote_query {
+            self.remote = list;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        acc: &Account,
+        mail: &MailState,
+        cal: &CalendarState,
+        chat: &ChatState,
+        tasks: &Tasks,
+        notes: &crate::tabs::notes::NotesState,
+        prefs: &Prefs,
+    ) -> Option<Target> {
+        if !self.open {
+            return None;
+        }
+        let screen = ctx.content_rect();
+        if let Some(img) = self.shot.lock().ok().and_then(|mut s| s.take()) {
+            self.backdrop = Some(ctx.load_texture("wt_search_backdrop", img, egui::TextureOptions::LINEAR));
+        }
+        // Apparition en fondu.
+        let k = self.opened_at.map(|t| (t.elapsed().as_secs_f32() / 0.14).min(1.0)).unwrap_or(1.0);
+        if k < 1.0 {
+            ctx.request_repaint();
+        }
+
+        // Fond : capture floutée + voile sombre ; un clic à côté ferme.
+        let mut close = false;
+        egui::Area::new(egui::Id::unique("wt_search_backdrop"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(screen.min)
+            .show(ctx, |ui| {
+                let (r, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
+                let p = ui.painter();
+                if let Some(t) = &self.backdrop {
+                    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                    p.image(t.id(), r, uv, crate::theme::overlay((255.0 * k) as u8));
+                }
+                p.rect_filled(r, CornerRadius::ZERO, Color32::from_black_alpha((80.0 * k) as u8));
+                close |= resp.clicked();
+            });
+
+        // Recherche Gmail après une courte pause de frappe.
+        let q = self.query.trim().to_string();
+        if q.chars().count() >= 3 && q != self.remote_query && self.edited.is_some_and(|t| t.elapsed() > Duration::from_millis(350)) {
+            self.remote_query = q.clone();
+            self.remote.clear();
+            self.drive.clear();
+            let query = q.clone();
+            acc.run(move |s| {
+                let list = gmail::list(s, &format!("search:{query}"), 8).unwrap_or_default();
+                Ok(Event::MailSearch { query, list })
+            });
+            let query = q.clone();
+            acc.run(move |s| {
+                let files = crate::google::drive::list(s, &crate::google::drive::Source::Search(query.clone()), None).map(|r| r.0).unwrap_or_default();
+                Ok(Event::Drive(crate::google::drive::DriveEvent::Found { query, files }))
+            });
+        } else if self.edited.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(120));
+        }
+
+        let hits = if q.is_empty() { suggestions(cal, prefs) } else { search(&q, mail, cal, chat, tasks, notes, prefs, &self.remote, &self.drive) };
+        if self.selected >= hits.len() {
+            self.selected = hits.len().saturating_sub(1);
+        }
+        let mut go = None;
+        ctx.input_mut(|i| {
+            if i.consume_key(Modifiers::NONE, Key::Escape) {
+                close = true;
+            }
+            if i.consume_key(Modifiers::NONE, Key::ArrowDown) && !hits.is_empty() {
+                self.selected = (self.selected + 1) % hits.len();
+            }
+            if i.consume_key(Modifiers::NONE, Key::ArrowUp) && !hits.is_empty() {
+                self.selected = (self.selected + hits.len() - 1) % hits.len();
+            }
+            if i.consume_key(Modifiers::NONE, Key::Enter) {
+                go = hits.get(self.selected).map(|h| h.target.clone());
+            }
+        });
+
+        let w = 640.0_f32.min(screen.width() - 40.0);
+        let top = screen.top() + screen.height() * 0.16 - (1.0 - k) * 12.0;
+        egui::Area::new(egui::Id::unique("wt_search_box"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(Pos2::new(screen.center().x - w / 2.0, top))
+            .show(ctx, |ui| {
+                ui.multiply_opacity(k);
+                egui::Frame::new()
+                    .fill(Color32::from_rgba_premultiplied(0x1C, 0x1C, 0x1C, 0xF4))
+                    .stroke(Stroke::new(1.0, crate::theme::overlay(28)))
+                    .corner_radius(CornerRadius::same(16))
+                    .shadow(egui::Shadow { offset: [0, 18], blur: 48, spread: 0, color: Color32::from_black_alpha(170) })
+                    .inner_margin(egui::Margin::same(14))
+                    .show(ui, |ui| {
+                        ui.set_width(w - 28.0);
+                        ui.horizontal(|ui| {
+                            let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
+                            magnifier(ui.painter(), r.center(), theme::TEXT_MUTED());
+                            let te = ui.add(
+                                egui::TextEdit::singleline(&mut self.query)
+                                    .hint_text("Rechercher un mail, une date, un événement, une personne, une tâche…")
+                                    .font(FontId::proportional(18.0))
+                                    .frame(egui::Frame::NONE)
+                                    .desired_width(f32::INFINITY),
+                            );
+                            te.request_focus();
+                            if te.changed() {
+                                self.selected = 0;
+                                self.edited = Some(Instant::now());
+                            }
+                        });
+                        ui.add_space(8.0);
+                        ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, theme::BORDER()));
+                        ui.add_space(6.0);
+                        if hits.is_empty() {
+                            ui.add_space(14.0);
+                            ui.vertical_centered(|ui| {
+                                ui.label(RichText::new("Aucun résultat").color(theme::TEXT_MUTED()));
+                                ui.label(RichText::new("Essaie un nom, un sujet, « demain », « 25/10 »…").small().color(theme::TEXT_FAINT()));
+                            });
+                            ui.add_space(14.0);
+                        }
+                        egui::ScrollArea::vertical().max_height(screen.height() * 0.55).auto_shrink([false, true]).show(ui, |ui| {
+                            let mut group = "";
+                            for (i, h) in hits.iter().enumerate() {
+                                if h.group != group {
+                                    group = h.group;
+                                    ui.add_space(4.0);
+                                    ui.label(RichText::new(group.to_uppercase()).small().strong().color(theme::TEXT_FAINT()));
+                                }
+                                let sel = i == self.selected;
+                                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+                                let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                                if resp.hovered() && ui.input(|inp| inp.pointer.delta() != egui::Vec2::ZERO) {
+                                    self.selected = i;
+                                }
+                                let p = ui.painter();
+                                if sel {
+                                    p.rect_filled(r, CornerRadius::same(8), crate::theme::overlay(14));
+                                    ui.scroll_to_rect(r, None);
+                                }
+                                crate::emoji_img::paint(p, Rect::from_center_size(Pos2::new(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), h.icon, theme::TEXT());
+                                let left = r.left() + 40.0;
+                                let g = crate::tabs::mail::view::one_line(p, &h.title, theme::editor_font(14.0, sel), theme::TEXT(), r.right() - left - 70.0);
+                                p.galley(Pos2::new(left, r.top() + 3.0), g, theme::TEXT());
+                                let g = crate::tabs::mail::view::one_line(p, &h.sub, FontId::proportional(11.5), theme::TEXT_MUTED(), r.right() - left - 70.0);
+                                p.galley(Pos2::new(left, r.top() + 22.0), g, theme::TEXT_MUTED());
+                                if sel {
+                                    p.text(Pos2::new(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, "Entrée ↵", FontId::proportional(11.0), theme::TEXT_FAINT());
+                                }
+                                if resp.clicked() {
+                                    go = Some(h.target.clone());
+                                }
+                            }
+                        });
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("↑ ↓ naviguer · Entrée ouvrir · Échap fermer · Ctrl+Espace").small().color(theme::TEXT_FAINT()));
+                    });
+            });
+        if go.is_some() || close {
+            self.close();
+        }
+        go
+    }
+}
+
+fn magnifier(p: &egui::Painter, c: Pos2, color: Color32) {
+    p.circle_stroke(c + vec2(-2.0, -2.0), 6.0, Stroke::new(1.8, color));
+    p.line_segment([c + vec2(2.5, 2.5), c + vec2(7.0, 7.0)], Stroke::new(2.0, color));
+}
+
+// --- Recherche ---------------------------------------------------------------------------
+
+/// Score de correspondance : tous les mots de la requête doivent être présents.
+fn score(q: &[String], fields: &[&str]) -> Option<i32> {
+    let hay: Vec<String> = fields.iter().map(|f| fold(f)).collect();
+    let mut s = 0;
+    for w in q {
+        let mut best = None;
+        for (i, h) in hay.iter().enumerate() {
+            if let Some(pos) = h.find(w.as_str()) {
+                let starts = pos == 0 || !h[..pos].ends_with(char::is_alphanumeric);
+                let v = (if i == 0 { 20 } else { 8 }) + if starts { 10 } else { 0 };
+                best = best.max(Some(v));
+            }
+        }
+        s += best?;
+    }
+    Some(s)
+}
+
+fn date_label(d: NaiveDate) -> String {
+    let today = Local::now().date_naive();
+    let rel = if d == today {
+        " · aujourd'hui"
+    } else if d == today + CDuration::days(1) {
+        " · demain"
+    } else if d == today - CDuration::days(1) {
+        " · hier"
+    } else {
+        ""
+    };
+    format!("{} {} {} {}{rel}", crate::tabs::weekday_fr(d.weekday()), d.day(), crate::tabs::month_fr(d.month()), d.year())
+}
+
+/// Dates reconnues : aujourd'hui, demain, hier, lundi…, 25/10, 25/10/2026, 25 octobre (2026).
+pub fn parse_date(q: &str) -> Option<NaiveDate> {
+    let q = fold(q.trim());
+    let today = Local::now().date_naive();
+    match q.as_str() {
+        "aujourd'hui" | "aujourdhui" | "auj" => return Some(today),
+        "demain" => return Some(today + CDuration::days(1)),
+        "apres-demain" | "apres demain" => return Some(today + CDuration::days(2)),
+        "hier" => return Some(today - CDuration::days(1)),
+        _ => {}
+    }
+    let days = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
+    if let Some(i) = days.iter().position(|d| q == *d || (q.len() >= 3 && d.starts_with(q.as_str()) && q.len() >= 4)) {
+        let cur = today.weekday().num_days_from_monday() as i64;
+        let delta = (i as i64 - cur).rem_euclid(7);
+        return Some(today + CDuration::days(if delta == 0 { 7 } else { delta }));
+    }
+    // 25/10 ou 25/10/2026 (ou avec - ou .)
+    let nums: Vec<&str> = q.split(['/', '-', '.']).collect();
+    if (2..=3).contains(&nums.len()) && nums.iter().all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())) {
+        let d: u32 = nums[0].parse().ok()?;
+        let m: u32 = nums[1].parse().ok()?;
+        let y: i32 = match nums.get(2) {
+            Some(y) if y.len() == 2 => 2000 + y.parse::<i32>().ok()?,
+            Some(y) => y.parse().ok()?,
+            None => today.year(),
+        };
+        return NaiveDate::from_ymd_opt(y, m, d);
+    }
+    // 25 octobre (2026)
+    let parts: Vec<&str> = q.split_whitespace().collect();
+    if (2..=3).contains(&parts.len()) {
+        let d: u32 = parts[0].trim_end_matches("er").parse().ok()?;
+        let month = (1..=12).find(|m| fold(crate::tabs::month_fr(*m)).starts_with(parts[1]) && parts[1].len() >= 3)?;
+        let y: i32 = parts.get(2).and_then(|y| y.parse().ok()).unwrap_or(today.year());
+        return NaiveDate::from_ymd_opt(y, month, d);
+    }
+    None
+}
+
+fn hhmm(ms: i64) -> String {
+    Local.timestamp_millis_opt(ms).single().map(|d| d.format("%H:%M").to_string()).unwrap_or_default()
+}
+
+fn event_sub(e: &CalEvent) -> String {
+    let d = Local.timestamp_millis_opt(e.start).single().map(|d| d.date_naive()).unwrap_or_default();
+    let time = if e.all_day { "journée".to_string() } else { format!("{} – {}", hhmm(e.start), hhmm(e.end)) };
+    let mut s = format!("{} · {time}", date_label(d));
+    if !e.location.is_empty() {
+        s.push_str(&format!(" · {}", e.location));
+    }
+    s
+}
+
+/// Sans requête : prochains événements et commandes rapides.
+fn suggestions(cal: &CalendarState, prefs: &Prefs) -> Vec<Hit> {
+    let now = Local::now().timestamp_millis();
+    let mut out = Vec::new();
+    let mut next: Vec<&CalEvent> = cal
+        .events
+        .values()
+        .flatten()
+        .filter(|e| !prefs.hidden_calendars.contains(&e.calendar) && e.end > now)
+        .collect();
+    next.sort_by_key(|e| e.start);
+    next.dedup_by_key(|e| e.id.clone());
+    for e in next.into_iter().take(3) {
+        out.push(Hit { group: "À venir", icon: "📅", title: e.title.clone(), sub: event_sub(e), target: Target::Event(e.clone()), score: 0 });
+    }
+    out.extend(commands());
+    out
+}
+
+fn commands() -> Vec<Hit> {
+    let c = |icon, title: &str, sub: &str, target| Hit { group: "Actions", icon, title: title.into(), sub: sub.into(), target, score: 0 };
+    vec![
+        c("✉️", "Nouveau message", "Mail · écrire un mail", Target::Compose),
+        c("🗓️", "Nouvel événement", "Calendrier · créer un rendez-vous", Target::NewEvent),
+        c("📝", "Nouvelle note", "Prise de notes · créer une note", Target::NewNote),
+        c("🏠", "Tableau de bord", "Aller à l'onglet", Target::Tab(Tab::Dashboard)),
+        c("📆", "Calendrier", "Aller à l'onglet", Target::Tab(Tab::Calendar)),
+        c("📬", "Mail", "Aller à l'onglet", Target::Tab(Tab::Mail)),
+        c("💬", "Messages", "Google Chat", Target::Tab(Tab::Messages)),
+        c("📝", "Prise de notes", "Aller à l'onglet", Target::Tab(Tab::Notes)),
+        c("📁", "Fichiers", "Aller à l'onglet", Target::Tab(Tab::Files)),
+        c("⚙️", "Réglages", "Compte Google, animations…", Target::Tab(Tab::Settings)),
+    ]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search(q: &str, mail: &MailState, cal: &CalendarState, chat: &ChatState, tasks: &Tasks, notes: &crate::tabs::notes::NotesState, prefs: &Prefs, remote: &[Summary], drive: &[DriveFile]) -> Vec<Hit> {
+    let words: Vec<String> = fold(q).split_whitespace().map(str::to_string).collect();
+    let mut out: Vec<Hit> = Vec::new();
+    let push = |out: &mut Vec<Hit>, h: Hit| out.push(h);
+
+    // Date du calendrier.
+    if let Some(d) = parse_date(q) {
+        push(&mut out, Hit { group: "Date", icon: "📆", title: date_label(d), sub: "Ouvrir ce jour dans le calendrier".into(), target: Target::Date(d), score: 100 });
+    }
+
+    // Commandes.
+    for mut h in commands() {
+        if let Some(s) = score(&words, &[&h.title, &h.sub]) {
+            h.score = s;
+            push(&mut out, h);
+        }
+    }
+
+    // Mails chargés (boîte, favoris, épinglés) puis résultats Gmail.
+    let mut seen = std::collections::HashSet::new();
+    let local = mail.messages.iter().chain(mail.starred.iter()).chain(mail.pinned.list.iter());
+    for m in local.chain(remote.iter()) {
+        if !seen.insert(m.id.clone()) {
+            continue;
+        }
+        let from_remote = remote.iter().any(|r| r.id == m.id);
+        let s = score(&words, &[&m.subject, m.sender_name(), &m.from, &m.snippet]).or(from_remote.then_some(1));
+        if let Some(s) = s {
+            let subject = if m.subject.is_empty() { "(sans objet)".to_string() } else { m.subject.clone() };
+            push(&mut out, Hit {
+                group: "Mails",
+                icon: if m.unread() { "📩" } else { "✉️" },
+                title: subject,
+                sub: format!("{} · {}", m.sender_name(), crate::tabs::mail::view::short_date(m.date)),
+                target: Target::Mail(m.id.clone()),
+                score: s + (m.date / 86_400_000 / 30) as i32 % 3,
+            });
+        }
+    }
+
+    // Annuaire.
+    for c in mail.contacts.search(q, 6) {
+        push(&mut out, Hit { group: "Contacts", icon: if c.favorite { "⭐" } else { "👤" }, title: c.display_name().to_string(), sub: c.email.clone(), target: Target::Contact(c.email.clone()), score: 30 });
+    }
+
+    // Événements (agendas affichés).
+    let mut evs: Vec<&CalEvent> = cal.events.values().flatten().filter(|e| !prefs.hidden_calendars.contains(&e.calendar)).collect();
+    evs.sort_by_key(|e| e.start);
+    evs.dedup_by_key(|e| e.id.clone());
+    let now = Local::now().timestamp_millis();
+    for e in evs {
+        if let Some(s) = score(&words, &[&e.title, &e.location, &e.description]) {
+            // Les prochains d'abord.
+            let bonus = if e.end >= now { 10 } else { 0 };
+            push(&mut out, Hit { group: "Calendrier", icon: "📅", title: if e.title.is_empty() { "(Sans titre)".into() } else { e.title.clone() }, sub: event_sub(e), target: Target::Event(e.clone()), score: s + bonus });
+        }
+    }
+
+    // Google Chat : conversations et messages chargés.
+    for sp in &chat.spaces {
+        let title = chat.title(sp);
+        if let Some(s) = score(&words, &[&title]) {
+            push(&mut out, Hit { group: "Google Chat", icon: "💬", title, sub: "Conversation".into(), target: Target::Space(sp.name.clone()), score: s + 5 });
+        }
+    }
+    for (space, list) in &chat.msgs {
+        for m in list.iter().rev().take(200) {
+            if let Some(s) = score(&words, &[&m.text]) {
+                let sp_title = chat.space(space).map(|x| chat.title(x)).unwrap_or_default();
+                push(&mut out, Hit {
+                    group: "Google Chat",
+                    icon: "💬",
+                    title: m.text.lines().next().unwrap_or_default().chars().take(90).collect(),
+                    sub: format!("{} · {} · {}", chat.name_of(&m.sender), sp_title, crate::tabs::mail::view::short_date(m.created)),
+                    target: Target::Space(space.clone()),
+                    score: s,
+                });
+            }
+        }
+    }
+
+    // Tâches (y compris archives).
+    for t in tasks.list.iter().chain(tasks.archive.iter()) {
+        if let Some(s) = score(&words, &[&t.title]) {
+            let archived = tasks.archive.iter().any(|a| a.id == t.id);
+            let sub = if archived { "Tâche archivée".to_string() } else { format!("Tâche · {}", t.status.label()) };
+            push(&mut out, Hit { group: "Tâches", icon: "✅", title: t.title.clone(), sub, target: Target::Task, score: s });
+        }
+    }
+
+    // Notes (texte des notes protégées non consulté).
+    for (id, title, text, updated, protected) in notes.entries() {
+        let s = score(&words, &[&title]).map(|s| s + 10).or_else(|| score(&words, &[&text]));
+        if let Some(s) = s {
+            let sub = if protected { "Note protégée".to_string() } else { text.chars().take(80).collect::<String>() };
+            let sub = format!("{} · {sub}", crate::tabs::mail::view::short_date(updated));
+            push(&mut out, Hit { group: "Notes", icon: if protected { "🔒" } else { "📝" }, title, sub, target: Target::Note(id), score: s });
+        }
+    }
+
+    // Fichiers partagés.
+    for (m, f) in &mail.shared_files {
+        if let Some(s) = score(&words, &[&f.title, m.sender_name()]) {
+            push(&mut out, Hit { group: "Fichiers", icon: "📄", title: f.title.clone(), sub: format!("{} · {}", m.sender_name(), crate::tabs::mail::view::short_date(m.date)), target: Target::File(f.clone()), score: s });
+        }
+    }
+
+    // Google Drive (recherche côté serveur : nom ou contenu).
+    for f in drive {
+        let s = score(&words, &[&f.name]).unwrap_or(1);
+        let icon = if f.is_folder() { "📁" } else { "📄" };
+        let sub = format!("Drive · {}{}", crate::google::drive::kind_label(f), if f.owner.is_empty() { String::new() } else { format!(" · {}", f.owner) });
+        push(&mut out, Hit { group: "Drive", icon, title: f.name.clone(), sub, target: Target::Drive(f.clone()), score: s });
+    }
+
+    // Tri : par groupe (ordre ci-dessous), puis pertinence ; 6 résultats par groupe.
+    // Priorité : contacts, agenda (événements puis dates), mails, chat, Drive, notes, puis le reste.
+    const ORDER: [&str; 11] = ["Contacts", "Calendrier", "Date", "Mails", "Google Chat", "Drive", "Notes", "Tâches", "Fichiers", "Actions", "À venir"];
+    out.sort_by_key(|h| (ORDER.iter().position(|g| *g == h.group).unwrap_or(99), -h.score));
+    let mut counts = std::collections::HashMap::new();
+    out.retain(|h| {
+        let n = counts.entry(h.group).or_insert(0);
+        *n += 1;
+        *n <= if h.group == "Actions" { 3 } else { 6 }
+    });
+    out
+}
+
+// --- Flou ----------------------------------------------------------------------------------
+
+/// Flou approchant un flou gaussien : réduction d'un facteur `down`, puis `passes` flous boîte.
+pub fn blur(img: &ColorImage, down: usize, passes: usize) -> ColorImage {
+    let (w, h) = (img.size[0], img.size[1]);
+    let (sw, sh) = ((w / down).max(1), (h / down).max(1));
+    let mut px: Vec<[f32; 3]> = vec![[0.0; 3]; sw * sh];
+    for y in 0..sh {
+        for x in 0..sw {
+            let mut acc = [0.0f32; 3];
+            let mut n = 0.0;
+            for dy in 0..down {
+                for dx in 0..down {
+                    let (ix, iy) = (x * down + dx, y * down + dy);
+                    if ix < w && iy < h {
+                        let c = img.pixels[iy * w + ix];
+                        acc[0] += c.r() as f32;
+                        acc[1] += c.g() as f32;
+                        acc[2] += c.b() as f32;
+                        n += 1.0;
+                    }
+                }
+            }
+            px[y * sw + x] = [acc[0] / n, acc[1] / n, acc[2] / n];
+        }
+    }
+    let r = 3i64;
+    for _ in 0..passes {
+        let mut tmp = px.clone();
+        for y in 0..sh {
+            for x in 0..sw {
+                let mut acc = [0.0f32; 3];
+                let mut n = 0.0;
+                for k in -r..=r {
+                    let xx = (x as i64 + k).clamp(0, sw as i64 - 1) as usize;
+                    let c = px[y * sw + xx];
+                    acc[0] += c[0];
+                    acc[1] += c[1];
+                    acc[2] += c[2];
+                    n += 1.0;
+                }
+                tmp[y * sw + x] = [acc[0] / n, acc[1] / n, acc[2] / n];
+            }
+        }
+        for y in 0..sh {
+            for x in 0..sw {
+                let mut acc = [0.0f32; 3];
+                let mut n = 0.0;
+                for k in -r..=r {
+                    let yy = (y as i64 + k).clamp(0, sh as i64 - 1) as usize;
+                    let c = tmp[yy * sw + x];
+                    acc[0] += c[0];
+                    acc[1] += c[1];
+                    acc[2] += c[2];
+                    n += 1.0;
+                }
+                px[y * sw + x] = [acc[0] / n, acc[1] / n, acc[2] / n];
+            }
+        }
+    }
+    let rgba: Vec<u8> = px.iter().flat_map(|c| [c[0] as u8, c[1] as u8, c[2] as u8, 255]).collect();
+    ColorImage::from_rgba_unmultiplied([sw, sh], &rgba)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dates_are_understood() {
+        let today = Local::now().date_naive();
+        assert_eq!(parse_date("demain"), Some(today + CDuration::days(1)));
+        assert_eq!(parse_date("25/10/2026"), NaiveDate::from_ymd_opt(2026, 10, 25));
+        assert_eq!(parse_date("3 novembre 2026"), NaiveDate::from_ymd_opt(2026, 11, 3));
+        assert_eq!(parse_date("1er déc 2026"), NaiveDate::from_ymd_opt(2026, 12, 1));
+        assert!(parse_date("rendu projet").is_none());
+        assert!(parse_date("lundi").is_some_and(|d| d.weekday() == chrono::Weekday::Mon && d > today));
+    }
+
+    #[test]
+    fn scoring_needs_every_word() {
+        let q: Vec<String> = vec!["rendu".into(), "gmtk".into()];
+        assert!(score(&q, &["Rendu du projet GMTK"]).is_some());
+        assert!(score(&q, &["Rendu du projet"]).is_none());
+        assert!(score(&["lea".into()], &["Léa Martin"]).is_some());
+    }
+
+    #[test]
+    fn blur_keeps_size_ratio() {
+        let img = ColorImage::new([40, 20], vec![Color32::WHITE; 800]);
+        let b = blur(&img, 4, 2);
+        assert_eq!(b.size, [10, 5]);
+    }
+}

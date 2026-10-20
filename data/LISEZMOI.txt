@@ -1,0 +1,3 @@
+Données de WorkTable (transportables avec le projet).
+config : réglages, tâches, contacts, liens… — data : notes — cache : émojis
+secrets : identifiants Google — à ne pas publier (ignoré par git).

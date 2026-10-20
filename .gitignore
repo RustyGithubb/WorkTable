@@ -1,0 +1,5 @@
+/target
+# Identifiants Google (client OAuth + jeton de connexion) : ne jamais publier.
+/data/secrets/
+# Journal de plantage local.
+/data/config/crash.log

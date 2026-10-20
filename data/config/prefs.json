@@ -1,0 +1,105 @@
+{
+  "groups": [
+    {
+      "address": "theothers@artfx.fr",
+      "color": [
+        178,
+        124,
+        255
+      ]
+    }
+  ],
+  "animation": {
+    "duration_ms": 350.0,
+    "opacity": 0.7,
+    "curve": "Elastic"
+  },
+  "categories_collapsed": true,
+  "mail_list_hidden": false,
+  "groups_collapsed": true,
+  "hidden_calendars": [
+    "dominique.peyronnet@artfx.fr",
+    "fr.french#holiday@group.v.calendar.google.com",
+    "laurent.letz@artfx.fr",
+    "lrousselle@artfx.fr",
+    "ng6210ilf9a37m1ohohlukm1j34243ut@import.calendar.google.com",
+    "marie.legrand@artfx.fr",
+    "sblanchot@artfx.fr",
+    "c_6923202aa8b7f540c066200ea439ee774b2d71eb3eedf1cb11d290f03a3cd7e0@group.calendar.google.com",
+    "fred.audouard@artfx.fr"
+  ],
+  "known_calendars": [
+    "dnoirel@artfx.fr",
+    "c_5e5b99e18ee5094322fb830bbd8cb505d59b7e5029e3e17d565d01515c6183ed@group.calendar.google.com",
+    "dominique.peyronnet@artfx.fr",
+    "0dh1fqqte28jf8jvc2g1mlr08m26qm0f@import.calendar.google.com",
+    "c_6923202aa8b7f540c066200ea439ee774b2d71eb3eedf1cb11d290f03a3cd7e0@group.calendar.google.com",
+    "fred.audouard@artfx.fr",
+    "fr.french#holiday@group.v.calendar.google.com",
+    "laurent.letz@artfx.fr",
+    "lrousselle@artfx.fr",
+    "ng6210ilf9a37m1ohohlukm1j34243ut@import.calendar.google.com",
+    "marie.legrand@artfx.fr",
+    "e_2_fr#weeknum@group.v.calendar.google.com",
+    "sblanchot@artfx.fr"
+  ],
+  "calendar_days": 7,
+  "calendar_side_hidden": false,
+  "chat_favorites": [
+    "spaces/AAAA5LfFxmk"
+  ],
+  "chat_side_hidden": false,
+  "chat_people_hidden": false,
+  "chat_muted": [
+    "spaces/AAQALmrxudE",
+    "spaces/AAQAFalIAF4",
+    "spaces/AAQAORoqlIg",
+    "spaces/AAQA0bEczqQ",
+    "spaces/AAQAvYEtcmg",
+    "spaces/AAQArLhmmP4",
+    "spaces/AAQAAZu5V5M",
+    "spaces/AAQAiAkK3JU",
+    "spaces/AAQAQz1f-Ko",
+    "spaces/AAQA_DlnxM8",
+    "spaces/AAQASelOdls",
+    "spaces/AAQAUFIaEs4",
+    "spaces/AAQAhvIvIJM",
+    "spaces/AAQAJHji_H0",
+    "spaces/AAQA_sUr_Xk",
+    "spaces/AAQATpqwYx0",
+    "spaces/AAQAAcgqan0",
+    "spaces/AAQAum1B0y0"
+  ],
+  "chat_recent_emojis": [
+    "😐",
+    "🖥️",
+    "🏥",
+    "🫡"
+  ],
+  "files_side_hidden": false,
+  "fonts": {
+    "titles": {
+      "font": "Inter",
+      "scale": 1.0
+    },
+    "interface": {
+      "font": "Ubuntu",
+      "scale": 1.0
+    },
+    "content": {
+      "font": "Inter",
+      "scale": 1.0
+    },
+    "code": {
+      "font": "Hack",
+      "scale": 1.0
+    }
+  },
+  "theme": "Monochrome",
+  "notif_no_mail": false,
+  "notif_no_chat": false,
+  "notif_no_share": false,
+  "notif_no_event": false,
+  "notif_no_system": false,
+  "notif_event_minutes": 0
+}
