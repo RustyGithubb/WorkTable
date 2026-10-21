@@ -336,6 +336,9 @@ impl Note {
         let mut note = Note::new();
         note.id = id.to_string();
         note.dirty = false;
+        // Fins de ligne Windows (git autocrlf, éditeurs) et BOM : ramenées au format d'origine.
+        let text = text.trim_start_matches('\u{feff}').replace("\r\n", "\n");
+        let text = text.as_str();
         let mut body = text;
         if let Some(rest) = text.strip_prefix("---\n") {
             if let Some(end) = rest.find("\n---\n") {
@@ -613,5 +616,15 @@ mod tests {
         let wrong = derive("autre", b"0123456789abcdef").unwrap();
         assert!(decrypt(&wrong, &nonce, &ct).is_err());
         assert!(!String::from_utf8_lossy(&ct).contains("bonjour"));
+    }
+
+    #[test]
+    fn crlf_front_matter() {
+        let text = "\u{feff}---\r\nworktable: {\"title\":\"Transfert\",\"created\":1,\"updated\":2,\"favorite\":true,\"readonly\":false,\"links\":[]}\r\n---\r\n# Titre\r\nligne\r\n";
+        let n = Note::load_md("x", text);
+        assert_eq!(n.title, "Transfert");
+        assert!(n.favorite);
+        assert!(!n.to_markdown().contains('\r'));
+        assert!(!n.to_markdown().contains("worktable"));
     }
 }
