@@ -324,6 +324,7 @@ pub fn set_fonts(ctx: &egui::Context, prefs: &FontPrefs) {
     let code = add("wt-code-data", prefs.code.font, false, prefs.code.scale);
     // Bandeau de notification « succès » : police fixe, indépendante des réglages.
     let achievement = add("wt-achievement-data", FontChoice::Lato, false, 1.0);
+    let achievement_bold = add("wt-achievement-bold-data", FontChoice::Lato, true, 1.0);
 
     // Replis (émojis, symboles) après la police principale de chaque famille.
     let fallback: Vec<String> =
@@ -341,6 +342,7 @@ pub fn set_fonts(ctx: &egui::Context, prefs: &FontPrefs) {
     fonts.families.insert(FontFamily::Name(EDITOR_FONT_BOLD.into()), chain(&content_b));
     fonts.families.insert(FontFamily::Name(TITLE_FONT.into()), chain(&title));
     fonts.families.insert(FontFamily::Name(ACHIEVEMENT_FONT.into()), chain(&achievement));
+    fonts.families.insert(FontFamily::Name(ACHIEVEMENT_FONT_BOLD.into()), chain(&achievement_bold));
     // Famille « émojis seuls » : sert à vérifier qu'un émoji a un vrai dessin (et pas un repli).
     if fonts.font_data.contains_key("NotoEmoji-Regular") {
         fonts.families.insert(FontFamily::Name(EMOJI_FONT.into()), vec!["NotoEmoji-Regular".to_string()]);
@@ -350,6 +352,7 @@ pub fn set_fonts(ctx: &egui::Context, prefs: &FontPrefs) {
 
 /// Famille de police du bandeau de notification (voir `set_fonts`).
 pub const ACHIEVEMENT_FONT: &str = "wt-achievement";
+pub const ACHIEVEMENT_FONT_BOLD: &str = "wt-achievement-bold";
 
 /// Famille de police ne contenant que les émojis (voir `set_fonts`).
 pub const EMOJI_FONT: &str = "wt-emoji-only";

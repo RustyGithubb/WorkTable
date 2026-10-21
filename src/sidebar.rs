@@ -83,8 +83,8 @@ pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usi
                     ui.spacing_mut().item_spacing.y = 8.0;
 
                     // Logo
-                    let (logo, _) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::hover());
-                    paint_logo(ui.painter(), Rect::from_center_size(logo.center(), vec2(28.0, 28.0)), theme::TEXT());
+                    let (logo, logo_resp) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click());
+                    spinning_logo(ui, logo, logo_resp.clicked());
 
                     // Séparateur
                     let (sep, _) = ui.allocate_exact_size(vec2(BUTTON, 1.0), Sense::hover());
@@ -255,7 +255,7 @@ fn draw_peek(ctx: &egui::Context, x: f32, anchor: Rect, tab: Tab, list: &[PeekIt
     let area = egui::Area::new(egui::Id::unique("wt_sidebar_peek")).order(Order::Foreground).fixed_pos(full.min).constrain(false).show(ctx, |ui| {
         let p = ui.painter().with_clip_rect(ctx.content_rect());
         // Pont liquide entre l'icône et la goutte (épais au départ, il s'amincit et disparaît).
-        let fill = theme::SURFACE();
+        let fill = theme::SIDEBAR_BG();
         let cy = anchor.center().y.clamp(blob.top() + radius, (blob.bottom() - radius).max(blob.top() + radius));
         let x0 = anchor.right() - 6.0;
         let x1 = blob.left() + radius.min(12.0);
@@ -299,7 +299,7 @@ fn draw_peek(ctx: &egui::Context, x: f32, anchor: Rect, tab: Tab, list: &[PeekIt
             ui.horizontal(|ui| {
                 ui.add_space(6.0);
                 ui.label(egui::RichText::new(tab.label().to_uppercase()).small().strong().color(theme::TEXT_MUTED()));
-                ui.label(egui::RichText::new(format!("{} en attente", list.len())).small().color(theme::TODAY()));
+                ui.label(egui::RichText::new(format!("{} en attente", list.len())).small().color(theme::TEXT_MUTED()));
             });
             ui.add_space(4.0);
             for item in list.iter().take(PEEK_MAX) {
@@ -320,7 +320,7 @@ fn draw_peek(ctx: &egui::Context, x: f32, anchor: Rect, tab: Tab, list: &[PeekIt
             if resp.hovered() {
                 ui.painter().rect_filled(r, CornerRadius::same(10), theme::SURFACE_HI());
             }
-            ui.painter().text(r.left_center() + vec2(10.0, 0.0), egui::Align2::LEFT_CENTER, format!("Ouvrir {} →", tab.label()), egui::FontId::proportional(13.0), theme::LINK());
+            ui.painter().text(r.left_center() + vec2(10.0, 0.0), egui::Align2::LEFT_CENTER, format!("Ouvrir {} →", tab.label()), egui::FontId::proportional(13.0), if resp.hovered() { theme::TEXT() } else { theme::TEXT_MUTED() });
             if resp.clicked() && content > 0.5 {
                 go = Some(Target::Tab(tab));
             }
@@ -337,8 +337,13 @@ fn peek_row(ui: &mut egui::Ui, item: &PeekItem) -> egui::Response {
     if resp.hovered() {
         p.rect_filled(r, CornerRadius::same(10), theme::SURFACE_HI());
     }
-    crate::emoji_img::paint(p, Rect::from_center_size(Pos2::new(r.left() + 20.0, r.center().y), vec2(20.0, 20.0)), item.icon, theme::TEXT());
-    let x = r.left() + 40.0;
+    // Même pastille que les bandeaux de notification (couleurs de la sélection de la barre).
+    let c = Pos2::new(r.left() + 22.0, r.center().y);
+    p.circle_filled(c, 15.0, theme::TEXT());
+    // Icône de l'onglet, comme dans le bandeau de notification.
+    let tab = if item.icon == "✉️" { Tab::Mail } else { Tab::Messages };
+    draw_icon(p, Rect::from_center_size(c, vec2(16.0, 16.0)), tab, theme::BG(), 1.0);
+    let x = r.left() + 46.0;
     let when = when_label(item.when);
     let wg = p.layout_no_wrap(when, egui::FontId::proportional(11.0), theme::TEXT_FAINT());
     let right = r.right() - 10.0;
@@ -347,7 +352,7 @@ fn peek_row(ui: &mut egui::Ui, item: &PeekItem) -> egui::Response {
         j.wrap = egui::text::TextWrapping { max_width: max, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
         ui.fonts_mut(|f| f.layout_job(j))
     };
-    let title = one_line(&item.title, egui::FontId::proportional(13.5), theme::TEXT(), right - x - wg.size().x - 8.0);
+    let title = one_line(&item.title, theme::title_font(13.5), theme::TEXT(), right - x - wg.size().x - 8.0);
     let text = one_line(&item.text, egui::FontId::proportional(12.5), theme::TEXT_MUTED(), right - x);
     p.galley(Pos2::new(x, r.top() + 6.0), title, theme::TEXT());
     p.galley(Pos2::new(right - wg.size().x, r.top() + 8.0), wg, theme::TEXT_FAINT());
@@ -360,6 +365,69 @@ fn when_label(ms: i64) -> String {
     use chrono::TimeZone;
     let Some(t) = chrono::Local.timestamp_millis_opt(ms).single() else { return String::new() };
     if t.date_naive() == chrono::Local::now().date_naive() { t.format("%H:%M").to_string() } else { t.format("%d/%m").to_string() }
+}
+
+/// Rotation du logo : chaque clic l'accélère et le fait grossir (effet élastique), puis il
+/// freine doucement et revient à sa position et à sa taille d'origine.
+#[derive(Default)]
+struct Spin {
+    angle: f32,
+    vel: f32,
+    scale: f32,
+    scale_vel: f32,
+}
+
+static SPIN: Mutex<Option<Spin>> = Mutex::new(None);
+
+fn spinning_logo(ui: &mut egui::Ui, cell: Rect, clicked: bool) {
+    use std::f32::consts::TAU;
+    let dt = ui.input(|i| i.stable_dt).clamp(0.0, 1.0 / 30.0);
+    let mut guard = SPIN.lock().unwrap();
+    let s = guard.get_or_insert_with(|| Spin { scale: 1.0, ..Default::default() });
+    if clicked {
+        // Plus on clique, plus il tourne vite (impulsion croissante) et plus il grossit.
+        s.vel += 8.0 + s.vel * 0.4;
+        s.scale_vel += 3.0;
+    }
+    // Freinage doux, puis retour à l'endroit (tour complet le plus proche) quand il ralentit.
+    s.vel *= (-1.0 * dt).exp();
+    let target = (s.angle / TAU).round() * TAU;
+    if s.vel.abs() < 3.0 {
+        s.vel += (25.0 * (target - s.angle) - 7.0 * s.vel) * dt;
+    }
+    s.angle += s.vel * dt;
+    // Taille : suit la vitesse, avec un ressort qui rebondit (élastique).
+    let goal = 1.0 + (s.vel.abs() / 25.0).min(0.7);
+    s.scale_vel += (160.0 * (goal - s.scale) - 10.0 * s.scale_vel) * dt;
+    s.scale += s.scale_vel * dt;
+    let resting = s.vel.abs() < 0.02 && (s.angle - target).abs() < 0.002 && (s.scale - 1.0).abs() < 0.001 && s.scale_vel.abs() < 0.01;
+    if resting {
+        *s = Spin { scale: 1.0, ..Default::default() };
+        paint_logo(ui.painter(), Rect::from_center_size(cell.center(), vec2(28.0, 28.0)), theme::TEXT());
+        return;
+    }
+    ui.ctx().request_repaint();
+    let size = 28.0 * s.scale;
+    let tex = logo_glyph(ui.ctx());
+    let mut mesh = egui::Mesh::with_texture(tex.id());
+    mesh.add_rect_with_uv(Rect::from_center_size(cell.center(), vec2(size, size)), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), theme::TEXT());
+    mesh.rotate(egui::emath::Rot2::from_angle(s.angle), cell.center());
+    // Au-dessus du reste de la barre pendant qu'il est agrandi.
+    ui.ctx().layer_painter(egui::LayerId::new(Order::Tooltip, egui::Id::unique("wt_logo_spin"))).add(mesh);
+}
+
+/// Logo en blanc sur fond transparent (teinté à l'affichage), pour le faire tourner.
+fn logo_glyph(ctx: &egui::Context) -> egui::TextureHandle {
+    let id = egui::Id::unique("wt_logo_glyph");
+    if let Some(t) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return t;
+    }
+    let img = image::load_from_memory(include_bytes!("../assets/logo-glyph.png")).map(|i| i.to_rgba8()).unwrap_or_else(|_| image::RgbaImage::new(1, 1));
+    let color = egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw());
+    let opts = egui::TextureOptions { mipmap_mode: Some(egui::TextureFilter::Linear), ..egui::TextureOptions::LINEAR };
+    let t = ctx.load_texture("wt_logo_glyph", color, opts);
+    ctx.data_mut(|d| d.insert_temp(id, t.clone()));
+    t
 }
 
 /// Logo de l'app, dessiné en vectoriel (net à toutes les tailles) dans la couleur du texte :
@@ -550,7 +618,8 @@ fn draw_gear(p: &Painter, r: Rect, c: Color32, phase: f32) {
 /// Icônes vectorielles ; `phase` (0 → 1) anime l'icône juste après un clic :
 /// tableau de bord = les tuiles s'écartent, calendrier = saut + page qui se tourne,
 /// mail = l'enveloppe s'ouvre et la lettre sort, notes = les lignes se réécrivent.
-fn draw_icon(p: &Painter, r: Rect, tab: Tab, c: Color32, phase: f32) {
+/// Icône d'un onglet (`phase` : animation de clic, 1 = au repos). Sert aussi aux notifications.
+pub(crate) fn draw_icon(p: &Painter, r: Rect, tab: Tab, c: Color32, phase: f32) {
     let w = (r.width() / 18.0).max(0.5);
     let s = Stroke::new(1.6 * w.sqrt(), c);
     let k = CornerRadius::same(2);

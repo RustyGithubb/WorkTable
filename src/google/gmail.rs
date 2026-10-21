@@ -635,6 +635,34 @@ pub fn modify(s: &Session, id: &str, add: &[String], remove: &[String]) -> Resul
     Ok(labels)
 }
 
+/// Met un message à la corbeille (`trash = true`) ou l'en sort ; renvoie ses libellés.
+pub fn trash(s: &Session, id: &str, trash: bool) -> Result<Vec<String>, String> {
+    let verb = if trash { "trash" } else { "untrash" };
+    let v = s.post(&format!("{API}/messages/{id}/{verb}"), json!({}))?;
+    let labels = parse::<RawMessage>(v)?.label_ids;
+    if let Some(m) = s.cache.lock().map_err(|_| "verrou")?.get_mut(id) {
+        m.labels = labels.clone();
+    }
+    Ok(labels)
+}
+
+/// Met toute une conversation à la corbeille (ou l'en sort) ; renvoie les libellés de chaque
+/// message : `(identifiant, libellés)`.
+pub fn trash_thread(s: &Session, thread_id: &str, trash: bool) -> Result<Vec<(String, Vec<String>)>, String> {
+    let verb = if trash { "trash" } else { "untrash" };
+    let v = s.post(&format!("{API}/threads/{thread_id}/{verb}"), json!({}))?;
+    let mut out = Vec::new();
+    for m in v["messages"].as_array().cloned().unwrap_or_default() {
+        let id = m["id"].as_str().unwrap_or_default().to_string();
+        let labels: Vec<String> = m["labelIds"].as_array().map(|a| a.iter().filter_map(|l| l.as_str().map(str::to_string)).collect()).unwrap_or_default();
+        if let Some(c) = s.cache.lock().map_err(|_| "verrou")?.get_mut(&id) {
+            c.labels = labels.clone();
+        }
+        out.push((id, labels));
+    }
+    Ok(out)
+}
+
 /// Envoie un message MIME déjà construit.
 /// Passe par le point d'entrée de téléversement (jusqu'à 35 Mo, contre ~5 Mo en JSON),
 /// nécessaire pour les images et pièces jointes.

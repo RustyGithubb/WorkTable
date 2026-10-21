@@ -133,10 +133,10 @@ fn section(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str, Value)]) {
     ui.add_space(12.0);
 }
 
-/// Notifications : types actifs, avance des rappels, notifications Windows.
+/// Notifications : types actifs, avance des rappels, son.
 fn notifications(ui: &mut egui::Ui, prefs: &mut Prefs) {
     widgets::card(ui, "Notifications", 0.0, |ui| {
-        ui.label(RichText::new("Affichées en haut à droite de l'app (un clic y mène) et dans le centre de notifications de Windows.").small().color(theme::TEXT_FAINT()));
+        ui.label(RichText::new("Bandeau en haut au centre de l'écran, par-dessus les autres fenêtres (un clic y mène).").small().color(theme::TEXT_FAINT()));
         ui.add_space(8.0);
         let toggle = |ui: &mut egui::Ui, off: &mut bool, label: &str| {
             let mut on = !*off;
@@ -155,7 +155,6 @@ fn notifications(ui: &mut egui::Ui, prefs: &mut Prefs) {
             }
         });
         ui.add_space(4.0);
-        toggle(ui, &mut prefs.notif_no_system, "Aussi dans les notifications Windows (même app en arrière-plan)");
         toggle(ui, &mut prefs.notif_no_sound, "Petit son à l'arrivée d'un mail ou d'un message");
     });
     ui.add_space(12.0);
@@ -166,6 +165,11 @@ fn themes(ui: &mut egui::Ui, prefs: &mut Prefs) {
     use crate::theme::{ThemeId, rgb};
     widgets::card(ui, "Apparence", 0.0, |ui| {
         ui.label(RichText::new("Thème de couleurs, appliqué immédiatement à toute l'application.").small().color(theme::TEXT_FAINT()));
+        ui.add_space(6.0);
+        let mut clock = !prefs.clock_hidden;
+        if ui.checkbox(&mut clock, "Heure en haut à droite (un clic dessus la masque)").changed() {
+            prefs.clock_hidden = !clock;
+        }
         ui.add_space(10.0);
         let gap = 10.0;
         let cols = 3;

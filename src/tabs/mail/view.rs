@@ -29,6 +29,8 @@ enum Action {
     Pin(Summary),
     /// (identifiant, true = mettre en spam / false = ce n'est pas un spam)
     Spam(String, bool),
+    /// (identifiant, true = mettre à la corbeille / false = la restaurer)
+    Trash(String, bool),
     Move(String, Label),
     StartCategory,
     CreateCategory(String),
@@ -111,6 +113,14 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
     preview_modal(ui, mail, &mut actions);
     toast(ui, mail);
 
+    // Suppr : mail ouvert à la corbeille (hors saisie de texte).
+    if !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::Delete)) {
+        if let Some(s) = mail.open.as_ref().map(|m| &m.summary) {
+            let in_trash = s.labels.iter().any(|l| l == "TRASH");
+            actions.push(Action::Trash(s.id.clone(), !in_trash));
+        }
+    }
+
     for a in actions {
         match a {
             Action::Folder(id) => {
@@ -144,6 +154,7 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
             Action::Star(m) => mail.toggle_star(acc, &m),
             Action::Pin(m) => mail.toggle_pin(&m),
             Action::Spam(id, spam) => mail.mark_spam(acc, &id, spam),
+            Action::Trash(id, trash) => mail.trash(acc, &id, trash),
             Action::Move(id, l) => mail.move_to(acc, &id, &l),
             Action::StartCategory => mail.new_category = Some(String::new()),
             Action::CreateCategory(n) => {
@@ -646,8 +657,14 @@ fn message_row(
         if ui.button(label).clicked() {
             actions.push(Action::Spam(m.id.clone(), !is_spam));
         }
+        let in_trash = m.labels.iter().any(|l| l == "TRASH");
+        if ui.button(if in_trash { "Restaurer de la corbeille" } else { "Mettre à la corbeille" }).clicked() {
+            actions.push(Action::Trash(m.id.clone(), !in_trash));
+        }
     });
 
+    // Épingle, étoile et nom du groupe : seulement au survol de la ligne.
+    let hover = ui.rect_contains_pointer(rect);
     let p = ui.painter();
     // Mail épinglé : fond plus clair.
     if pinned {
@@ -666,10 +683,12 @@ fn message_row(
         p.rect_filled(rect, CornerRadius::same(8), c.gamma_multiply(0.10));
         let bar = Rect::from_min_size(rect.left_top() + vec2(0.0, 8.0), vec2(3.0, rect.height() - 16.0));
         p.rect_filled(bar, CornerRadius::same(2), c);
-        let name = g.address.split('@').next().unwrap_or(&g.address);
-        let tag = one_line(p, name, FontId::proportional(10.5), c, 110.0);
-        tag_w = tag.size().x + 8.0;
-        p.galley(Pos2::new(rect.right() - 56.0 - tag.size().x, rect.top() + 46.0), tag, c);
+        if hover {
+            let name = g.address.split('@').next().unwrap_or(&g.address);
+            let tag = one_line(p, name, FontId::proportional(10.5), c, 110.0);
+            tag_w = tag.size().x + 8.0;
+            p.galley(Pos2::new(rect.right() - 56.0 - tag.size().x, rect.top() + 46.0), tag, c);
+        }
     }
 
     let unread = m.unread();
@@ -713,6 +732,9 @@ fn message_row(
     } else {
         theme::TEXT_FAINT()
     };
+    if !hover {
+        return;
+    }
     draw_star(p, star_rect.center(), 7.0, m.starred(), star_color);
     let pin_color = if pinned {
         theme::TEXT()
@@ -881,6 +903,15 @@ fn reading_pane(
         };
         if ui.button(spam_label).on_hover_text(spam_tip).clicked() {
             actions.push(Action::Spam(s.id.clone(), !is_spam));
+        }
+        let in_trash = s.labels.iter().any(|l| l == "TRASH");
+        let (trash_label, trash_tip) = if in_trash {
+            ("Restaurer", "Sortir ce mail de la corbeille (retour dans la boîte de réception)")
+        } else {
+            ("🗑 Corbeille", "Mettre ce mail à la corbeille (Suppr)")
+        };
+        if ui.button(trash_label).on_hover_text(trash_tip).clicked() {
+            actions.push(Action::Trash(s.id.clone(), !in_trash));
         }
         let fav = if s.starred() { "Retirer des favoris" } else { "Ajouter aux favoris" };
         if icon_button(ui, fav, |p, c, col| draw_star(p, c, 8.0, s.starred(), col), s.starred()).clicked() {

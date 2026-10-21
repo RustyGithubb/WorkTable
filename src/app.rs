@@ -245,6 +245,11 @@ impl eframe::App for WorkTableApp {
             self.current = Tab::Mail;
         }
 
+        // Heure en haut à droite : un clic la masque ou la réaffiche (animation élastique).
+        if crate::widgets::clock(ui.ctx(), window_rect, self.prefs.clock_hidden) {
+            self.prefs.clock_hidden = !self.prefs.clock_hidden;
+        }
+
         // 2. Barre de navigation verticale en pilule, dessinée par-dessus (pastilles « non lus »).
         let badges = [(Tab::Mail, self.mail.inbox_unread), (Tab::Messages, self.chat.unread_count())];
         let peeks = [(Tab::Mail, self.mail_peek()), (Tab::Messages, self.chat_peek())];
@@ -270,6 +275,9 @@ impl eframe::App for WorkTableApp {
         if sidebar::settings_button(ui.ctx(), window_rect, self.current == Tab::Settings) {
             self.current = Tab::Settings;
         }
+
+        // Barre de titre intégrée : déplacement, réduire / agrandir / fermer, redimensionnement.
+        crate::titlebar::show(ui.ctx(), window_rect);
 
         // 4. Recherche globale (Ctrl+Espace), par-dessus tout le reste.
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Space)) {

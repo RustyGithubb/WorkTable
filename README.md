@@ -153,6 +153,9 @@ Enregistrement automatique une seconde après la dernière frappe.
   et nouvelle tentative automatique (1 s, 2 s, 4 s, 8 s) si Gmail répond « trop de requêtes ».
 - Lecture : texte du mail avec ses images à leur emplacement d'origine (images intégrées,
   hébergées ou encodées ; les pixels de suivi 1×1 sont ignorés). Ouvrir un mail le marque comme lu.
+- Corbeille : bouton « 🗑 Corbeille » dans la lecture, touche Suppr, ou clic droit sur un mail de la
+  liste — toute la conversation quitte la boîte de réception ; depuis le dossier Corbeille, « Restaurer » le remet dans la boîte de réception.
+- Liste : l'épingle, l'étoile et le nom du groupe coloré n'apparaissent qu'au survol d'un mail.
 - Mise en forme affichée :
   - HTML (ce que produit l'éditeur de Gmail) : gras `<b>`, italique `<i>`, souligné `<u>`,
     barré `<strike>`, tailles `<font size>` / `font-size`, titres `<h1>`…, alignement `text-align`,
@@ -274,8 +277,10 @@ Enregistrement automatique une seconde après la dernière frappe.
 
 ## Barre de navigation
 - Logo en haut : monochrome (équerres, cadre arrondi, grille 3 × 3), dessiné dans la couleur du texte
-  du thème. Icône de la fenêtre et de la barre des tâches : `assets/logo.png` (256 × 256),
+  du thème. Icône de la fenêtre et de la barre des tâches (logo sombre sur fond clair) : `assets/logo.png` (256 × 256),
   version HD `assets/logo-hd.png` (1024 × 1024).
+  Un clic sur le logo le fait tourner ; chaque clic accélère et le grossit (élastique), puis il
+  freine doucement et revient à sa place.
   Icône du fichier .exe : `assets/logo.ico` (16 à 256 px), intégrée à la compilation par `build.rs`.
 - Pastilles terracotta : nombre de non lus pour Mail et Messages.
 - Aperçu au survol : rester 0,3 s sur l'icône Mail ou Messages quand des notifications attendent
@@ -302,23 +307,33 @@ réactions, sélecteur). Chaque image est téléchargée une fois puis gardée d
 Un message composé uniquement d'émojis s'affiche en grand.
 
 ## Notifications
-Dans l'app (un clic mène au bon endroit) et dans le centre de notifications de Windows :
-- ✉️ nouveau mail reçu dans la boîte de réception (expéditeur, objet) ;
+Un seul système : un bandeau animé en haut au centre de l'écran, par-dessus toutes les fenêtres,
+façon « succès débloqué » Xbox One (pastille aux couleurs de la sélection de la barre de gauche,
+capsule aux couleurs des panneaux, titre en gras, barre de durée : 10 s pour un mail, 5 s pour le
+reste). Un clic mène au bon endroit.
+- ✉️ nouveau mail reçu dans la boîte de réception (expéditeur, objet, et le début du mail sur
+  3 lignes dans un bandeau plus haut) ;
 - 💬 nouveau message Google Chat (sauf conversations muettes ou déjà ouvertes à l'écran) ;
 - 📄 document partagé avec moi sur Google Drive (vérifié toutes les 5 minutes) ;
 - 📅 rendez-vous qui commence dans 10 minutes (délai réglable).
 
-Mails et messages s'affichent en haut au centre de l'écran, par-dessus toutes les fenêtres (même
-quand WorkTable est derrière une autre application), façon « succès débloqué » Xbox 360 : la
-pastille apparaît, la capsule se déploie, une barre se vide en 4 s puis tout se replie. S'il en
-arrive plusieurs, ils passent l'un après l'autre ; un clic ramène WorkTable au premier plan sur le
-mail ou la conversation. Sous Windows l'app utilise OpenGL pour cette fenêtre transparente ;
-en cas de souci d'affichage, lancer avec la variable `WORKTABLE_RENDERER=wgpu`. Documents partagés et rendez-vous : en haut à droite (30 s).
-Un petit son accompagne chaque bandeau (carillon de deux notes pour un mail, « blip » plus
-court et plus aigu pour un message), synthétisé par l'app — sans fichier audio.
-Chaque type s'active ou se coupe dans Réglages › Notifications. (son compris).
+Les bandeaux passent l'un après l'autre ; une petite pastille sur le pictogramme indique combien
+de notifications du même type attendent. Un petit son les accompagne (carillon pour un mail ou un
+rendez-vous, « blip » pour un message ou un document). Chaque type, et le son, s'active ou se coupe
+dans Réglages › Notifications. Il n'y a plus de notifications Windows.
+
+Sous Windows, l'app s'affiche avec DirectX 12 (mode « DirectComposition ») pour que le bandeau soit
+vraiment transparent, avec son ombre portée. Sans DirectX 12, elle passe sur OpenGL et le bandeau
+est découpé à sa forme (sans ombre). `WORKTABLE_RENDERER=glow` ou `=wgpu` force un moteur.
 
 ## Apparence commune
+- **Barre de titre intégrée** : plus de barre Windows ; on déplace la fenêtre par la bande du haut
+  (double-clic : agrandir / restaurer), boutons réduire, agrandir et fermer en haut à droite,
+  redimensionnement par les bords.
+- **Heure** en haut à droite, sur la ligne du titre de l'onglet et dans sa police, dans tous les
+  onglets. Un clic la fait disparaître avec un effet élastique, un clic au même endroit la fait
+  revenir ; masquée, elle réapparaît en transparence quand la souris s'approche (aussi réglable
+  dans Réglages › Apparence).
 - **Titres d'onglets** identiques partout : sur-titre en capitales + grand titre (police « Titres »),
   avec une info à côté (non lus, semaine, nombre de notes). Le contenu de chaque onglet commence
   à la même distance de la barre verticale.

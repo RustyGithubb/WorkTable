@@ -114,9 +114,10 @@ pub struct Prefs {
     pub notif_no_chat: bool,
     pub notif_no_share: bool,
     pub notif_no_event: bool,
-    pub notif_no_system: bool,
     /// Pas de son à l'arrivée d'un mail ou d'un message.
     pub notif_no_sound: bool,
+    /// Heure en haut à droite masquée (clic dessus ; réaffichable dans Réglages › Apparence).
+    pub clock_hidden: bool,
     pub notif_event_minutes: u32,
 }
 

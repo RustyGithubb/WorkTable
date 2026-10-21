@@ -16,7 +16,6 @@ html2text = "0.17.4"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
 lettre = { version = "0.11.23", default-features = false, features = ["builder"] }
-notify-rust = "4"
 open = "5.4.4"
 rfd = "0.17.2"
 scraper = "0.27.0"
@@ -29,7 +28,7 @@ webbrowser = "1.2.4"
 
 [target.'cfg(windows)'.dependencies]
 # Bordure de la fenêtre du bandeau de notification, sons de notification.
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_Media_Audio"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_Media_Audio", "Win32_Graphics_Gdi"] }
 
 [build-dependencies]
 # Icône du fichier .exe (Explorateur Windows), à partir de assets/logo.ico.

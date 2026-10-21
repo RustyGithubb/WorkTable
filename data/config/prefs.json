@@ -100,7 +100,7 @@
   "notif_no_chat": false,
   "notif_no_share": false,
   "notif_no_event": false,
-  "notif_no_system": false,
   "notif_no_sound": false,
+  "clock_hidden": false,
   "notif_event_minutes": 0
 }

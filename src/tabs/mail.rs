@@ -432,7 +432,7 @@ impl MailState {
     fn count_unread(&mut self) {
         if self.folder == INBOX {
             let mut seen = HashSet::new();
-            self.inbox_unread = self.messages.iter().filter(|m| m.unread() && seen.insert(m.thread_id.clone())).count();
+            self.inbox_unread = self.messages.iter().filter(|m| m.unread() && !m.labels.iter().any(|l| l == "TRASH") && seen.insert(m.thread_id.clone())).count();
         }
     }
 
@@ -532,6 +532,57 @@ impl MailState {
         }
     }
 
+    /// Met un mail à la corbeille (ou l'en sort depuis le dossier Corbeille).
+    pub fn trash(&mut self, acc: &Account, id: &str, trash: bool) {
+        // Toute la conversation (une ligne de la liste = une conversation), comme dans Gmail.
+        let thread = self.messages.iter().chain(self.starred.iter()).chain(self.open.iter().map(|m| &m.summary)).find(|m| m.id == id).map(|m| m.thread_id.clone()).filter(|t| !t.is_empty());
+        let mut ids: Vec<String> = vec![id.to_string()];
+        if let Some(t) = &thread {
+            for m in self.messages.iter().chain(self.starred.iter()).chain(self.pinned.list.iter()) {
+                if &m.thread_id == t && !ids.contains(&m.id) {
+                    ids.push(m.id.clone());
+                }
+            }
+        }
+        // Mise à jour locale immédiate : la conversation quitte la boîte de réception.
+        for i in &ids {
+            if let Some(mut labels) = self.labels_of(i) {
+                if trash {
+                    labels.retain(|l| l != INBOX && l != "SPAM" && l != "TRASH");
+                    labels.push("TRASH".into());
+                } else {
+                    labels.retain(|l| l != "TRASH" && l != INBOX);
+                    labels.push(INBOX.into());
+                }
+                self.apply_labels(i, &labels);
+            }
+        }
+        if trash {
+            for i in &ids {
+                self.pinned.remove(i);
+            }
+        }
+        self.info(if trash { "Mail mis à la corbeille".into() } else { "Mail replacé dans la boîte de réception".into() });
+        if self.open.as_ref().is_some_and(|m| m.summary.id == id) {
+            self.open = None;
+        }
+        self.count_unread();
+        let id = id.to_string();
+        acc.run(move |s| {
+            let labels = match &thread {
+                Some(t) => gmail::trash_thread(s, t, trash)?.into_iter().find(|(i, _)| *i == id).map(|(_, l)| l).unwrap_or_default(),
+                None => gmail::trash(s, &id, trash)?,
+            };
+            Ok(Event::Modified { labels, id })
+        });
+    }
+
+    /// Un message fait-il partie du dossier affiché ? (Ceux de la corbeille n'apparaissent que
+    /// dans le dossier Corbeille, même s'ils gardent le libellé « boîte de réception ».)
+    fn belongs(&self, labels: &[String]) -> bool {
+        labels.contains(&self.folder) && (self.folder == "TRASH" || !labels.iter().any(|l| l == "TRASH"))
+    }
+
     pub fn create_category(&mut self, acc: &Account, name: String) {
         let name = name.trim().to_string();
         if name.is_empty() {
@@ -610,8 +661,9 @@ impl MailState {
         }
         self.pinned.set_labels(id, labels);
         // Le message a quitté le dossier affiché (rangé ailleurs).
-        let folder = self.folder.clone();
-        self.messages.retain(|m| m.id != id || m.labels.contains(&folder));
+        let keep: Vec<bool> = self.messages.iter().map(|m| m.id != id || self.belongs(&m.labels)).collect();
+        let mut k = keep.into_iter();
+        self.messages.retain(|_| k.next().unwrap_or(true));
 
         if let Some(open) = self.open.as_mut().filter(|m| m.summary.id == id) {
             open.summary.labels = labels.to_vec();
@@ -641,7 +693,7 @@ impl MailState {
         }
         let in_folder = match self.folder.strip_prefix("from:") {
             Some(addr) => contacts::parse_mailbox(&m.from).is_some_and(|(_, e)| e == addr),
-            None => m.labels.contains(&self.folder),
+            None => self.belongs(&m.labels),
         };
         let known = self.messages.iter().any(|x| x.id == m.id);
         // Un mail ancien hors de la page affichée n'y est pas ajouté.

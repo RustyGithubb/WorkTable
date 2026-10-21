@@ -639,7 +639,7 @@ fn chip(ui: &mut egui::Ui, l: &NoteLink, edit: bool) -> (bool, bool) {
         NoteLink::Chat { title, text, .. } => ("💬", title.clone(), text.clone()),
         NoteLink::Task { title, .. } => ("✅", title.clone(), String::new()),
     };
-    let mut del = false;
+    let mut cross = None;
     let resp = egui::Frame::new()
         .fill(theme::SURFACE())
         .stroke(Stroke::new(1.0, theme::BORDER()))
@@ -650,12 +650,28 @@ fn chip(ui: &mut egui::Ui, l: &NoteLink, edit: bool) -> (bool, bool) {
             ui.label(RichText::new(icon).size(13.0));
             let short: String = if label.chars().count() > 38 { label.chars().take(36).collect::<String>() + "…" } else { label.clone() };
             ui.label(RichText::new(short).size(12.5));
-            if edit && ui.add(egui::Button::new(RichText::new("×").color(theme::TEXT_MUTED())).frame(false).small()).on_hover_text("Détacher").clicked() {
-                del = true;
+            if edit {
+                // Place de la croix ; elle est rendue cliquable après la pastille (par-dessus).
+                cross = Some(ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover()).0);
             }
         })
         .response;
     let resp = ui.interact(resp.rect, egui::Id::unique(("wt_note_chip", format!("{l:?}"))), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+    // Croix « Détacher » : interagie en dernier pour passer devant la pastille.
+    let mut del = false;
+    if let Some(x) = cross {
+        let xr = ui.interact(x, egui::Id::unique(("wt_note_chip_x", format!("{l:?}"))), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Détacher de la note");
+        let p = ui.painter();
+        if xr.hovered() {
+            p.circle_filled(x.center(), 9.0, theme::SURFACE_HI());
+        }
+        let c = x.center();
+        let k = 3.5;
+        let st = Stroke::new(1.4, if xr.hovered() { theme::TEXT() } else { theme::TEXT_MUTED() });
+        p.line_segment([c + vec2(-k, -k), c + vec2(k, k)], st);
+        p.line_segment([c + vec2(-k, k), c + vec2(k, -k)], st);
+        del = xr.clicked();
+    }
     let tip = match l {
         NoteLink::Event { .. } => "Ouvrir dans le calendrier",
         NoteLink::Date { .. } => "Afficher ce jour dans le calendrier",
