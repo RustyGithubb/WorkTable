@@ -190,8 +190,13 @@ pub fn download(s: &Session, f: &DriveFile) -> Result<(Vec<u8>, String), String>
 /// Miniature (lien temporaire de Drive, demandé avec le jeton).
 pub fn thumbnail(s: &Session, url: &str) -> Result<Vec<u8>, String> {
     // Taille plus grande que la valeur par défaut (=s220).
+    thumbnail_sized(s, url, 600)
+}
+
+/// Aperçu de `side` pixels (côté le plus long) : sert aussi à la visionneuse (version nette).
+pub fn thumbnail_sized(s: &Session, url: &str, side: u32) -> Result<Vec<u8>, String> {
     let u = match url.rfind("=s") {
-        Some(i) => format!("{}=s600", &url[..i]),
+        Some(i) => format!("{}=s{side}", &url[..i]),
         None => url.to_string(),
     };
     s.get_bytes(&u, &[], 8 * 1024 * 1024)

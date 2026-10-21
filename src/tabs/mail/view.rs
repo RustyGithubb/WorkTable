@@ -1409,12 +1409,18 @@ fn body_image(ui: &mut egui::Ui, state: Option<&inline::ImgState>, alt: &str, sp
     ui.allocate_ui_with_layout(vec2(avail, 0.0), layout, |ui| match state {
         Some(inline::ImgState::Ready { image, texture: Some(tex) }) => {
             let size = image_size(vec2(image.size[0] as f32, image.size[1] as f32), spec, avail);
-            let sense = if link.is_some() { Sense::click() } else { Sense::hover() };
-            let mut r = ui.add(egui::Image::new((tex.id(), size)).sense(sense));
+            let mut r = ui.add(egui::Image::new((tex.id(), size)).sense(Sense::click()));
             if let Some(url) = link {
                 r = r.on_hover_text(url).on_hover_cursor(egui::CursorIcon::PointingHand);
+                clicked = r.clicked();
+            } else {
+                // Image sans lien : en grand dans la visionneuse.
+                r = r.on_hover_cursor(egui::CursorIcon::ZoomIn);
+                if r.clicked() {
+                    let name = if alt.trim().is_empty() { "Image".to_string() } else { alt.to_string() };
+                    crate::lightbox::open(ui.ctx(), format!("mail:{:?}", tex.id()), tex.clone(), name, crate::lightbox::OpenWith::None);
+                }
             }
-            clicked = r.clicked();
         }
         Some(inline::ImgState::Loading) | Some(inline::ImgState::Ready { .. }) => {
             // Emplacement réservé à la taille annoncée, pour éviter les sauts de mise en page.
@@ -1545,7 +1551,10 @@ fn preview_modal(ui: &mut egui::Ui, mail: &mut MailState, actions: &mut Vec<Acti
                     let avail = vec2(max.x, max.y - 60.0);
                     let scale = (avail.x / w as f32).min(avail.y / h as f32).min(1.0);
                     ui.vertical_centered(|ui| {
-                        ui.image((tex.id(), vec2(w as f32 * scale, h as f32 * scale)));
+                        let r = ui.add(egui::Image::new((tex.id(), vec2(w as f32 * scale, h as f32 * scale))).sense(Sense::click()));
+                        if r.on_hover_text("Agrandir").on_hover_cursor(egui::CursorIcon::ZoomIn).clicked() {
+                            crate::lightbox::open(ui.ctx(), format!("mail-att:{:?}", tex.id()), tex.clone(), p.att.filename.clone(), crate::lightbox::OpenWith::None);
+                        }
                     });
                 }
                 (Content::Text(t), _) => {

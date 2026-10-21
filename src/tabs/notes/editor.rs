@@ -168,11 +168,24 @@ pub fn body(ui: &mut egui::Ui, note: &mut Note, ed: &mut Ed, edit: bool) -> Opti
                         let (r, resp) = ui.allocate_exact_size(vec2(width, sz.y + 8.0), Sense::click());
                         let img_rect = Rect::from_min_size(Pos2::new(r.left(), r.top() + 4.0), sz);
                         ui.painter().add(egui::epaint::RectShape::filled(img_rect, CornerRadius::same(6), Color32::WHITE).with_texture(t.id(), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))));
-                        if edit && (resp.hovered() || ui.rect_contains_pointer(img_rect)) && delete_button(ui, img_rect) {
+                        let deleting = edit && (resp.hovered() || ui.rect_contains_pointer(img_rect)) && delete_button(ui, img_rect);
+                        if deleting {
                             ops.push(Op::Remove(i));
                         }
-                        if resp.double_clicked() {
-                            clicked_link = Some(rel.clone());
+                        // Clic : l'image en grand (sauf sur le bouton de suppression).
+                        let del = Rect::from_min_size(img_rect.right_top() + vec2(-32.0, 6.0), vec2(26.0, 26.0));
+                        let on_image = ui.rect_contains_pointer(img_rect) && !(edit && ui.rect_contains_pointer(del));
+                        if on_image {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ZoomIn);
+                        }
+                        if resp.clicked() && on_image && !deleting {
+                            let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+                            // Note protégée : pas de copie en clair sur le disque, donc pas d'« Ouvrir ».
+                            let open = match crate::notes_store::dir() {
+                                Some(d) if !note.protected => crate::lightbox::OpenWith::Path(d.join(&rel)),
+                                _ => crate::lightbox::OpenWith::None,
+                            };
+                            crate::lightbox::open(&ctx, key.clone(), t.clone(), name, open);
                         }
                     }
                     None => {

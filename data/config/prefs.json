@@ -16,7 +16,7 @@
   },
   "categories_collapsed": true,
   "mail_list_hidden": false,
-  "groups_collapsed": true,
+  "groups_collapsed": false,
   "hidden_calendars": [
     "dominique.peyronnet@artfx.fr",
     "fr.french#holiday@group.v.calendar.google.com",
@@ -43,7 +43,7 @@
     "e_2_fr#weeknum@group.v.calendar.google.com",
     "sblanchot@artfx.fr"
   ],
-  "calendar_days": 7,
+  "calendar_days": 3,
   "calendar_side_hidden": false,
   "chat_favorites": [
     "spaces/AAAA5LfFxmk"
@@ -71,10 +71,10 @@
     "spaces/AAQAum1B0y0"
   ],
   "chat_recent_emojis": [
+    "🫡",
     "😐",
     "🖥️",
-    "🏥",
-    "🫡"
+    "🏥"
   ],
   "files_side_hidden": false,
   "fonts": {
@@ -101,5 +101,6 @@
   "notif_no_share": false,
   "notif_no_event": false,
   "notif_no_system": false,
+  "notif_no_sound": false,
   "notif_event_minutes": 0
 }

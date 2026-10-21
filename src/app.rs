@@ -49,6 +49,43 @@ pub struct WorkTableApp {
 }
 
 impl WorkTableApp {
+    /// Mails non lus de la boîte de réception (aperçu au survol de l'icône Mail).
+    fn mail_peek(&self) -> Vec<sidebar::PeekItem> {
+        let mut seen = std::collections::HashSet::new();
+        let mut v: Vec<&crate::google::gmail::Summary> = self
+            .mail
+            .messages
+            .iter()
+            .filter(|m| m.unread() && m.labels.iter().any(|l| l == "INBOX") && seen.insert(m.thread_id.clone()))
+            .collect();
+        v.sort_by_key(|m| -m.date);
+        v.into_iter()
+            .map(|m| sidebar::PeekItem {
+                icon: "✉️",
+                title: m.sender_name().to_string(),
+                text: if m.subject.trim().is_empty() { "(sans objet)".into() } else { m.subject.clone() },
+                when: m.date,
+                target: crate::search::Target::Mail(m.id.clone()),
+            })
+            .collect()
+    }
+
+    /// Conversations Chat non lues (aperçu au survol de l'icône Messages).
+    fn chat_peek(&self) -> Vec<sidebar::PeekItem> {
+        let mut v: Vec<_> = self.chat.spaces.iter().filter(|s| self.chat.unread(s) && !self.chat.is_muted(&s.name)).collect();
+        v.sort_by_key(|s| -s.last_active);
+        v.into_iter()
+            .map(|sp| {
+                let last = self.chat.msgs.get(&sp.name).and_then(|l| l.iter().rev().find(|m| !m.text.trim().is_empty()));
+                let text = match last {
+                    Some(m) => format!("{} : {}", self.chat.name_of(&m.sender), m.text.replace(['\n', '\r'], " ")),
+                    None => "Nouveaux messages".into(),
+                };
+                sidebar::PeekItem { icon: "💬", title: self.chat.title(sp), text, when: sp.last_active, target: crate::search::Target::Space(sp.name.clone()) }
+            })
+            .collect()
+    }
+
     pub fn new(ctx: &egui::Context) -> Self {
         let mut prefs = Prefs::load();
         if prefs.theme == theme::ThemeId::Retired {
@@ -75,10 +112,18 @@ impl WorkTableApp {
 }
 
 impl eframe::App for WorkTableApp {
+    /// Fond transparent : la fenêtre du bandeau de notification ne montre que la capsule
+    /// (la fenêtre principale est entièrement recouverte par l'interface).
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0; 4]
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let window_rect = ui.max_rect();
         crate::liquid::set_settings(ui.ctx(), self.prefs.animation);
         let prefs_before = self.prefs.clone();
+        // Visionneuse d'images (avant les onglets : elle prend Échap pour elle).
+        crate::lightbox::show(ui.ctx());
 
         // Résultats des requêtes Google arrivés depuis la dernière frame.
         for ev in self.account.poll() {
@@ -202,8 +247,11 @@ impl eframe::App for WorkTableApp {
 
         // 2. Barre de navigation verticale en pilule, dessinée par-dessus (pastilles « non lus »).
         let badges = [(Tab::Mail, self.mail.inbox_unread), (Tab::Messages, self.chat.unread_count())];
-        if let Some(tab) = sidebar::show(ui.ctx(), window_rect, self.current, &badges) {
-            self.current = tab;
+        let peeks = [(Tab::Mail, self.mail_peek()), (Tab::Messages, self.chat_peek())];
+        match sidebar::show(ui.ctx(), window_rect, self.current, &badges, &peeks) {
+            Some(sidebar::Nav::Tab(tab)) => self.current = tab,
+            Some(sidebar::Nav::Go(t)) => self.go_to(t),
+            None => {}
         }
 
         // Notifications (mail, message, document partagé, rendez-vous proche) : clic = y aller.

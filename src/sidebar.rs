@@ -4,16 +4,61 @@ use eframe::egui::{
     self, Color32, CornerRadius, Margin, Order, Painter, Pos2, Rect, Sense, Shadow, Stroke, vec2,
 };
 
+use std::sync::Mutex;
+
 use crate::app::Tab;
 use crate::liquid::Liquid;
+use crate::search::Target;
 use crate::theme;
+
+/// Survol prolongé d'une icône avant d'ouvrir l'aperçu des notifications (secondes).
+const PEEK_DELAY: f64 = 0.3;
+/// Vitesse de l'animation de l'aperçu (1 = vitesse d'origine).
+const PEEK_SPEED: f32 = 1.5;
+/// Distance au-delà de laquelle l'aperçu se referme (points).
+const PEEK_KEEP: f32 = 48.0;
+const PEEK_W: f32 = 320.0;
+const PEEK_MAX: usize = 6;
+
+/// Notification en attente, affichée dans l'aperçu flottant d'un onglet.
+pub struct PeekItem {
+    pub icon: &'static str,
+    pub title: String,
+    pub text: String,
+    /// Date (ms).
+    pub when: i64,
+    pub target: Target,
+}
+
+/// Résultat d'un clic dans la barre.
+pub enum Nav {
+    Tab(Tab),
+    Go(Target),
+}
+
+#[derive(Default)]
+struct PeekState {
+    /// Icône survolée et depuis quand.
+    hover: Option<(Tab, f64)>,
+    /// Aperçu ouvert, position de l'icône, rectangle de l'aperçu (image précédente).
+    open: Option<(Tab, Rect)>,
+    panel: Option<Rect>,
+    /// Début de l'animation d'ouverture (s).
+    opened_at: f64,
+    /// Fermeture animée en cours : onglet, icône, aperçu, début (s).
+    closing: Option<(Tab, Rect, Rect, f64)>,
+}
+
+static PEEK: Mutex<Option<PeekState>> = Mutex::new(None);
 
 const PILL_WIDTH: f32 = 56.0;
 const BUTTON: f32 = 40.0;
 const SCREEN_MARGIN: f32 = 16.0;
 
-/// Affiche la barre et renvoie l'onglet cliqué, le cas échéant.
-pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usize)]) -> Option<Tab> {
+/// Affiche la barre et renvoie l'onglet cliqué (ou la notification choisie dans un aperçu).
+/// Survol d'une icône pendant 1 s avec des notifications en attente : petit panneau flottant à
+/// droite, avec un raccourci vers chacune.
+pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usize)], peeks: &[(Tab, Vec<PeekItem>)]) -> Option<Nav> {
     // Hauteur : logo + séparateur + boutons.
     let n = Tab::ALL.len() as f32;
     let inner_h = BUTTON + 17.0 + n * BUTTON + (n - 1.0) * 8.0;
@@ -26,6 +71,7 @@ pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usi
     let pos = Pos2::new(window.left() + SCREEN_MARGIN, y);
 
     let mut clicked = None;
+    let mut hovered: Option<(Tab, Rect)> = None;
 
     egui::Area::new(egui::Id::unique("worktable_sidebar"))
         .order(Order::Foreground)
@@ -37,15 +83,8 @@ pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usi
                     ui.spacing_mut().item_spacing.y = 8.0;
 
                     // Logo
-                    // Logo
                     let (logo, _) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::hover());
-                    ui.painter().text(
-                        logo.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "W",
-                        egui::FontId::proportional(18.0),
-                        theme::TEXT(),
-                    );
+                    paint_logo(ui.painter(), Rect::from_center_size(logo.center(), vec2(28.0, 28.0)), theme::TEXT());
 
                     // Séparateur
                     let (sep, _) = ui.allocate_exact_size(vec2(BUTTON, 1.0), Sense::hover());
@@ -58,10 +97,14 @@ pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usi
                     // La pastille blanche de sélection s'écoule d'un onglet à l'autre.
                     let mut hl = Liquid::begin(ui, "sidebar_nav");
                     let mut dots = Vec::new();
+                    let peek_open = PEEK.lock().unwrap().as_ref().and_then(|p| p.open.map(|o| o.0));
                     for tab in Tab::ALL {
-                        let r = nav_button(ui, tab, tab == current, &mut hl);
+                        let r = nav_button(ui, tab, tab == current, &mut hl, peek_open != Some(tab));
                         if r.clicked() {
                             clicked = Some(tab);
+                        }
+                        if r.hovered() {
+                            hovered = Some((tab, r.rect));
                         }
                         if let Some((_, n)) = badges.iter().find(|(t, n)| *t == tab && *n > 0) {
                             dots.push((r.rect, *n));
@@ -75,8 +118,277 @@ pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usi
                 });
         });
 
-    clicked
+    let go = peek(ctx, pos.x + PILL_WIDTH + 10.0, hovered, clicked, peeks);
+    match (go, clicked) {
+        (Some(t), _) => Some(Nav::Go(t)),
+        (None, Some(t)) => Some(Nav::Tab(t)),
+        _ => None,
+    }
 }
+
+/// Ressort amorti (0 → 1 avec dépassement) : effet élastique.
+fn spring(t: f32, omega: f32, zeta: f32) -> f32 {
+    if t <= 0.0 {
+        return 0.0;
+    }
+    let wd = omega * (1.0 - zeta * zeta).sqrt();
+    1.0 - (-zeta * omega * t).exp() * ((wd * t).cos() + zeta * omega / wd * (wd * t).sin())
+}
+
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+/// Gère l'aperçu flottant : ouverture après un survol prolongé, fermeture quand la souris
+/// s'éloigne ou qu'un autre onglet est choisi. Renvoie la notification cliquée.
+fn peek(ctx: &egui::Context, x: f32, hovered: Option<(Tab, Rect)>, clicked: Option<Tab>, peeks: &[(Tab, Vec<PeekItem>)]) -> Option<Target> {
+    let now = ctx.input(|i| i.time);
+    let pointer = ctx.input(|i| i.pointer.hover_pos());
+    let items = |t: Tab| peeks.iter().find(|(p, v)| *p == t && !v.is_empty()).map(|(_, v)| v);
+    let mut guard = PEEK.lock().unwrap();
+    let st = guard.get_or_insert_with(PeekState::default);
+
+    // Survol prolongé d'une icône qui a des notifications en attente.
+    match hovered {
+        Some((tab, rect)) if items(tab).is_some() => {
+            let since = match st.hover {
+                Some((t, s)) if t == tab => s,
+                _ => now,
+            };
+            st.hover = Some((tab, since));
+            if st.open.map(|o| o.0) != Some(tab) {
+                if now - since >= PEEK_DELAY {
+                    st.open = Some((tab, rect));
+                    st.panel = None;
+                    st.opened_at = now;
+                    st.closing = None;
+                } else {
+                    ctx.request_repaint_after(std::time::Duration::from_secs_f64(PEEK_DELAY - (now - since) + 0.01));
+                }
+            }
+        }
+        _ => st.hover = None,
+    }
+    // Fermeture : autre onglet cliqué, Échap, souris trop loin ou plus de notifications.
+    let mut close = false;
+    if let Some((tab, anchor)) = st.open {
+        let far = match pointer {
+            None => true,
+            Some(p) => !st.panel.map_or(anchor, |r| r.union(anchor)).expand(PEEK_KEEP).contains(p),
+        };
+        let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        close = clicked.is_some_and(|c| c != tab) || far || esc || items(tab).is_none();
+    }
+
+    let mut go = None;
+    if let Some((tab, anchor)) = st.open.filter(|_| !close) {
+        if let Some(list) = items(tab) {
+            let t = (now - st.opened_at) as f32 * PEEK_SPEED;
+            let (panel, clicked_item) = draw_peek(ctx, x, anchor, tab, list, st.panel, Grow::Open(t));
+            st.panel = Some(panel);
+            go = clicked_item;
+            if t < 1.0 {
+                ctx.request_repaint();
+            }
+        }
+    }
+    if close || go.is_some() {
+        if let (Some((tab, anchor)), Some(panel)) = (st.open, st.panel) {
+            st.closing = Some((tab, anchor, panel, now));
+        }
+        st.open = None;
+        st.panel = None;
+        st.hover = None;
+    }
+    // Fermeture : l'aperçu se rétracte dans l'icône.
+    if let Some((tab, anchor, panel, start)) = st.closing {
+        let t = (now - start) as f32 * PEEK_SPEED / 0.18;
+        match items(tab) {
+            Some(list) if t < 1.0 && st.open.is_none() => {
+                draw_peek(ctx, x, anchor, tab, list, Some(panel), Grow::Close(t));
+                ctx.request_repaint();
+            }
+            _ => st.closing = None,
+        }
+    }
+    go
+}
+
+enum Grow {
+    /// Secondes depuis l'ouverture.
+    Open(f32),
+    /// Avancement de la fermeture (0 → 1).
+    Close(f32),
+}
+
+/// Dessine l'aperçu. À l'ouverture, une goutte part de l'icône et s'étire jusqu'à la taille
+/// du panneau avec un rebond élastique (largeur d'abord, hauteur ensuite), reliée à l'icône
+/// par un pont « liquide » qui s'amincit puis se résorbe en petite pointe.
+fn draw_peek(ctx: &egui::Context, x: f32, anchor: Rect, tab: Tab, list: &[PeekItem], last: Option<Rect>, grow: Grow) -> (Rect, Option<Target>) {
+    let top = anchor.top() - 10.0;
+    // Taille finale : mesurée à l'image précédente, estimée la première fois.
+    let n = list.len().min(PEEK_MAX) as f32;
+    let est = vec2(PEEK_W, 16.0 + 22.0 + n * 48.0 + if list.len() > PEEK_MAX { 20.0 } else { 0.0 } + 36.0);
+    let full = Rect::from_min_size(Pos2::new(x, top), last.map_or(est, |r| r.size()));
+
+    let (kw, kh, neck, content) = match grow {
+        Grow::Open(t) => (
+            spring(t, 17.0, 0.42),
+            spring(t - 0.05, 15.0, 0.38),
+            1.0 - ((t - 0.12) / 0.4).clamp(0.0, 1.0),
+            ((t - 0.16) / 0.18).clamp(0.0, 1.0),
+        ),
+        Grow::Close(t) => {
+            let k = 1.0 - t * t;
+            (k, k * k, 0.0, (1.0 - t * 2.5).max(0.0))
+        }
+    };
+    // Goutte : du cercle de l'icône au panneau.
+    let seed = Rect::from_center_size(Pos2::new(x + 14.0, anchor.center().y), vec2(28.0, 28.0));
+    let blob = Rect::from_min_max(
+        Pos2::new(lerp(seed.left(), full.left(), kw.min(1.0)), lerp(seed.top(), full.top(), kh)),
+        Pos2::new(lerp(seed.right(), full.right(), kw), lerp(seed.bottom(), full.bottom(), kh)),
+    );
+    let radius = lerp(14.0, 16.0, kw.clamp(0.0, 1.0)).min(blob.height() / 2.0).min(blob.width() / 2.0).max(0.0);
+
+    let mut go = None;
+    let area = egui::Area::new(egui::Id::unique("wt_sidebar_peek")).order(Order::Foreground).fixed_pos(full.min).constrain(false).show(ctx, |ui| {
+        let p = ui.painter().with_clip_rect(ctx.content_rect());
+        // Pont liquide entre l'icône et la goutte (épais au départ, il s'amincit et disparaît).
+        let fill = theme::SURFACE();
+        let cy = anchor.center().y.clamp(blob.top() + radius, (blob.bottom() - radius).max(blob.top() + radius));
+        let x0 = anchor.right() - 6.0;
+        let x1 = blob.left() + radius.min(12.0);
+        if neck > 0.01 && x1 > x0 {
+            let mut mesh = egui::Mesh::default();
+            let steps = 16;
+            for i in 0..=steps {
+                let u = i as f32 / steps as f32;
+                // Plus étroit au milieu (aspect de goutte qui s'étire).
+                let h = lerp(13.0 * neck, 3.0 + 13.0 * neck, (2.0 * u - 1.0).powi(2));
+                let px = lerp(x0, x1, u);
+                mesh.colored_vertex(Pos2::new(px, cy - h), fill);
+                mesh.colored_vertex(Pos2::new(px, cy + h), fill);
+            }
+            for i in 0..steps as u32 {
+                let k = i * 2;
+                mesh.add_triangle(k, k + 1, k + 2);
+                mesh.add_triangle(k + 1, k + 3, k + 2);
+            }
+            p.add(mesh);
+        }
+        let round = CornerRadius::same(radius as u8);
+        p.add(Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha((110.0 * content.max(kw.clamp(0.0, 1.0) * 0.6)) as u8) }.as_shape(blob, round));
+        p.rect(blob, round, fill, Stroke::new(1.0, theme::BORDER()), egui::StrokeKind::Inside);
+        // Petite pointe vers l'icône, une fois le pont résorbé.
+        if neck <= 0.01 && content > 0.0 {
+            let ty = anchor.center().y.clamp(blob.top() + 18.0, blob.bottom() - 18.0);
+            let (a, b, c) = (Pos2::new(blob.left() + 1.0, ty - 7.0), Pos2::new(blob.left() - 6.0, ty), Pos2::new(blob.left() + 1.0, ty + 7.0));
+            p.add(egui::Shape::convex_polygon(vec![a, b, c], fill, Stroke::NONE));
+            let edge = Stroke::new(1.0, theme::BORDER().gamma_multiply(content));
+            p.line_segment([a, b], edge);
+            p.line_segment([b, c], edge);
+        }
+
+        // Contenu, coupé par la goutte, en fondu.
+        ui.set_clip_rect(blob.shrink(1.0));
+        ui.set_opacity(content);
+        egui::Frame::new().inner_margin(Margin::same(8)).show(ui, |ui| {
+            ui.set_width(PEEK_W - 16.0);
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.horizontal(|ui| {
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(tab.label().to_uppercase()).small().strong().color(theme::TEXT_MUTED()));
+                ui.label(egui::RichText::new(format!("{} en attente", list.len())).small().color(theme::TODAY()));
+            });
+            ui.add_space(4.0);
+            for item in list.iter().take(PEEK_MAX) {
+                if peek_row(ui, item).clicked() && content > 0.5 {
+                    go = Some(item.target.clone());
+                }
+            }
+            if list.len() > PEEK_MAX {
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(format!("+ {} autres", list.len() - PEEK_MAX)).small().color(theme::TEXT_FAINT()));
+                });
+            }
+            ui.add_space(4.0);
+            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+            if resp.hovered() {
+                ui.painter().rect_filled(r, CornerRadius::same(10), theme::SURFACE_HI());
+            }
+            ui.painter().text(r.left_center() + vec2(10.0, 0.0), egui::Align2::LEFT_CENTER, format!("Ouvrir {} →", tab.label()), egui::FontId::proportional(13.0), theme::LINK());
+            if resp.clicked() && content > 0.5 {
+                go = Some(Target::Tab(tab));
+            }
+        });
+    });
+    (Rect::from_min_size(full.min, area.response.rect.size()), go)
+}
+
+/// Ligne de l'aperçu : icône, titre et heure, texte sur une ligne.
+fn peek_row(ui: &mut egui::Ui, item: &PeekItem) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 46.0), Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let p = ui.painter();
+    if resp.hovered() {
+        p.rect_filled(r, CornerRadius::same(10), theme::SURFACE_HI());
+    }
+    crate::emoji_img::paint(p, Rect::from_center_size(Pos2::new(r.left() + 20.0, r.center().y), vec2(20.0, 20.0)), item.icon, theme::TEXT());
+    let x = r.left() + 40.0;
+    let when = when_label(item.when);
+    let wg = p.layout_no_wrap(when, egui::FontId::proportional(11.0), theme::TEXT_FAINT());
+    let right = r.right() - 10.0;
+    let one_line = |text: &str, font: egui::FontId, color: Color32, max: f32| {
+        let mut j = egui::text::LayoutJob::simple_singleline(text.to_string(), font, color);
+        j.wrap = egui::text::TextWrapping { max_width: max, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+        ui.fonts_mut(|f| f.layout_job(j))
+    };
+    let title = one_line(&item.title, egui::FontId::proportional(13.5), theme::TEXT(), right - x - wg.size().x - 8.0);
+    let text = one_line(&item.text, egui::FontId::proportional(12.5), theme::TEXT_MUTED(), right - x);
+    p.galley(Pos2::new(x, r.top() + 6.0), title, theme::TEXT());
+    p.galley(Pos2::new(right - wg.size().x, r.top() + 8.0), wg, theme::TEXT_FAINT());
+    p.galley(Pos2::new(x, r.top() + 25.0), text, theme::TEXT_MUTED());
+    resp
+}
+
+/// Heure si c'est aujourd'hui, sinon date courte.
+fn when_label(ms: i64) -> String {
+    use chrono::TimeZone;
+    let Some(t) = chrono::Local.timestamp_millis_opt(ms).single() else { return String::new() };
+    if t.date_naive() == chrono::Local::now().date_naive() { t.format("%H:%M").to_string() } else { t.format("%d/%m").to_string() }
+}
+
+/// Logo de l'app, dessiné en vectoriel (net à toutes les tailles) dans la couleur du texte :
+/// équerres aux coins, cadre arrondi, grille 3 × 3. Même tracé que `assets/logo.png`.
+pub fn paint_logo(p: &Painter, r: Rect, color: Color32) {
+    let k = r.width() / 100.0;
+    let at = |x: f32, y: f32| r.min + vec2(x * k, y * k);
+    let w = 5.0 * k;
+    let stroke = Stroke::new(w, color);
+    for (x0, y0, dx, dy) in [(8.0, 8.0, 1.0, 1.0), (92.0, 8.0, -1.0, 1.0), (8.0, 92.0, 1.0, -1.0), (92.0, 92.0, -1.0, -1.0)] {
+        let pts = [at(x0, y0 + 14.0 * dy), at(x0, y0), at(x0 + 14.0 * dx, y0)];
+        p.line_segment([pts[0], pts[1]], stroke);
+        p.line_segment([pts[1], pts[2]], stroke);
+        for q in pts {
+            p.circle_filled(q, w / 2.0, color);
+        }
+    }
+    p.rect_stroke(Rect::from_min_max(at(18.0, 18.0), at(82.0, 82.0)), CornerRadius::same((10.0 * k) as u8), stroke, egui::StrokeKind::Middle);
+    let t = (40.0 - 2.0 * 4.0) / 3.0;
+    for i in 0..3 {
+        for j in 0..3 {
+            let (x, y) = (30.0 + j as f32 * (t + 4.0), 30.0 + i as f32 * (t + 4.0));
+            p.rect_filled(Rect::from_min_max(at(x, y), at(x + t, y + t)), CornerRadius::same((2.5 * k).round() as u8), color);
+        }
+    }
+}
+
+/// Icône de la fenêtre (logo monochrome sur fond sombre arrondi).
+pub const LOGO_PNG: &[u8] = include_bytes!("../assets/logo.png");
 
 /// Petite pastille terracotta avec le nombre de non lus, en haut à droite de l'icône.
 fn badge(p: &Painter, rect: Rect, n: usize) {
@@ -88,11 +400,11 @@ fn badge(p: &Painter, rect: Rect, n: usize) {
     p.galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
 }
 
-fn nav_button(ui: &mut egui::Ui, tab: Tab, active: bool, hl: &mut Liquid) -> egui::Response {
+fn nav_button(ui: &mut egui::Ui, tab: Tab, active: bool, hl: &mut Liquid, tip: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click());
-    let resp = resp
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(tab.label());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    // Pas d'infobulle quand l'aperçu des notifications de cet onglet est ouvert.
+    let resp = if tip { resp.on_hover_text(tab.label()) } else { resp };
     if active {
         hl.target(rect, tab.label());
     }

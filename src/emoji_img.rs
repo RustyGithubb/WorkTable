@@ -88,7 +88,7 @@ pub fn texture(ctx: &egui::Context, emoji: &str) -> Option<TextureHandle> {
     match map.get(&code) {
         Some(Slot::Texture(t)) => return Some(t.clone()),
         Some(Slot::Ready(img)) => {
-            let t = ctx.load_texture(format!("emoji_{code}"), img.clone(), egui::TextureOptions::LINEAR);
+            let t = ctx.load_texture(format!("emoji_{code}"), img.clone(), egui::TextureOptions { mipmap_mode: Some(egui::TextureFilter::Linear), ..egui::TextureOptions::LINEAR });
             map.insert(code, Slot::Texture(t.clone()));
             return Some(t);
         }

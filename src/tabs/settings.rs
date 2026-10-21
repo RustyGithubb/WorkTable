@@ -156,6 +156,7 @@ fn notifications(ui: &mut egui::Ui, prefs: &mut Prefs) {
         });
         ui.add_space(4.0);
         toggle(ui, &mut prefs.notif_no_system, "Aussi dans les notifications Windows (même app en arrière-plan)");
+        toggle(ui, &mut prefs.notif_no_sound, "Petit son à l'arrivée d'un mail ou d'un message");
     });
     ui.add_space(12.0);
 }

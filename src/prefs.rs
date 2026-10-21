@@ -115,6 +115,8 @@ pub struct Prefs {
     pub notif_no_share: bool,
     pub notif_no_event: bool,
     pub notif_no_system: bool,
+    /// Pas de son à l'arrivée d'un mail ou d'un message.
+    pub notif_no_sound: bool,
     pub notif_event_minutes: u32,
 }
 

@@ -228,6 +228,16 @@ impl MailState {
                 if opening || refresh {
                     let pos = messages.iter().position(|m| m.summary.id == open_id).unwrap_or(messages.len().saturating_sub(1));
                     if pos < messages.len() {
+                        if opening {
+                            // Autres messages non lus de la conversation : lus aussi.
+                            let unread: Vec<String> = messages.iter().filter(|x| x.summary.unread() && x.summary.id != open_id).map(|x| x.summary.id.clone()).collect();
+                            for id in unread {
+                                self.modify(acc, &id, &[], &[UNREAD]);
+                            }
+                            for x in messages.iter_mut() {
+                                x.summary.labels.retain(|l| l != UNREAD);
+                            }
+                        }
                         let m = messages.remove(pos);
                         self.thread = messages;
                         if opening {
@@ -311,9 +321,8 @@ impl MailState {
     /// À appeler à chaque frame : relève automatiquement la boîte.
     pub fn tick(&mut self, acc: &Account, ctx: &eframe::egui::Context) {
         self.contacts.autosave();
-        if self.folder == INBOX && !self.loading {
-            let mut seen = HashSet::new();
-            self.inbox_unread = self.messages.iter().filter(|m| m.unread() && seen.insert(m.thread_id.clone())).count();
+        if !self.loading {
+            self.count_unread();
         }
         if acc.session().is_none() {
             return;
@@ -395,16 +404,44 @@ impl MailState {
             .find(|m| m.id == id)
             .map(|m| m.thread_id.clone())
             .filter(|t| !t.is_empty());
+        // Lu tout de suite (toute la conversation) : la pastille « non lus » disparaît sans
+        // attendre le chargement, d'où qu'on ouvre le mail (liste, tableau de bord, aperçu…).
+        self.mark_read(acc, &id, thread.as_deref());
         match thread {
             Some(t) => acc.run(move |s| Ok(Event::Thread { messages: gmail::get_thread(s, &t)?, open_id: id })),
             None => acc.run(move |s| Ok(Event::Opened(gmail::get_full(s, &id)?))),
         }
     }
 
-    fn set_open(&mut self, acc: &Account, m: FullMessage) {
+    /// Marque comme lus un message et les autres messages non lus de sa conversation.
+    fn mark_read(&mut self, acc: &Account, id: &str, thread: Option<&str>) {
+        let mut ids: Vec<String> = Vec::new();
+        for m in self.messages.iter().chain(self.starred.iter()).chain(self.pinned.list.iter()) {
+            let same = m.id == id || thread.is_some_and(|t| m.thread_id == t);
+            if same && m.unread() && !ids.contains(&m.id) {
+                ids.push(m.id.clone());
+            }
+        }
+        for i in ids {
+            self.modify(acc, &i, &[], &[UNREAD]);
+        }
+        self.count_unread();
+    }
+
+    /// Non lus de la boîte de réception (une conversation compte pour un).
+    fn count_unread(&mut self) {
+        if self.folder == INBOX {
+            let mut seen = HashSet::new();
+            self.inbox_unread = self.messages.iter().filter(|m| m.unread() && seen.insert(m.thread_id.clone())).count();
+        }
+    }
+
+    fn set_open(&mut self, acc: &Account, mut m: FullMessage) {
         self.opening = None;
         if m.summary.unread() {
             self.modify(acc, &m.summary.id, &[], &[UNREAD]);
+            // La copie reçue peut dater d'avant le marquage : on ne la laisse pas rétablir « non lu ».
+            m.summary.labels.retain(|l| l != UNREAD);
         }
         self.inline.request(acc, &m);
         self.jump = None;
@@ -531,15 +568,16 @@ impl MailState {
     }
 
     fn modify(&mut self, acc: &Account, id: &str, add: &[&str], remove: &[&str]) {
-        // Mise à jour locale immédiate, confirmée ensuite par la réponse de Gmail.
-        let mut labels = self.labels_of(id).unwrap_or_default();
-        labels.retain(|l| !remove.contains(&l.as_str()));
-        for a in add {
-            if !labels.iter().any(|l| l == a) {
-                labels.push(a.to_string());
+        // Mise à jour locale immédiate (si le message est connu), confirmée ensuite par Gmail.
+        if let Some(mut labels) = self.labels_of(id) {
+            labels.retain(|l| !remove.contains(&l.as_str()));
+            for a in add {
+                if !labels.iter().any(|l| l == a) {
+                    labels.push(a.to_string());
+                }
             }
+            self.apply_labels(id, &labels);
         }
-        self.apply_labels(id, &labels);
 
         let (id, add, remove) = (
             id.to_string(),

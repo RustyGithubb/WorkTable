@@ -114,8 +114,8 @@ pub struct ChatState {
     pub scroll_bottom: bool,
     /// Demandes vers l'onglet Mail (écrire un mail à cette adresse).
     pub mail_to: Option<String>,
-    /// Image ouverte en grand (visionneuse) et son zoom.
-    pub viewer: Option<(chat::ChatAttachment, f32)>,
+    /// Pièce jointe affichée dans la visionneuse.
+    pub viewer: Option<chat::ChatAttachment>,
     /// Conversation privée à ouvrir dès que possible (demandée depuis l'onglet Mail).
     pending_dm: Option<String>,
     last_spaces: Option<Instant>,

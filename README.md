@@ -273,7 +273,16 @@ Enregistrement automatique une seconde après la dernière frappe.
   (`chat_people.json`).
 
 ## Barre de navigation
+- Logo en haut : monochrome (équerres, cadre arrondi, grille 3 × 3), dessiné dans la couleur du texte
+  du thème. Icône de la fenêtre et de la barre des tâches : `assets/logo.png` (256 × 256),
+  version HD `assets/logo-hd.png` (1024 × 1024).
+  Icône du fichier .exe : `assets/logo.ico` (16 à 256 px), intégrée à la compilation par `build.rs`.
 - Pastilles terracotta : nombre de non lus pour Mail et Messages.
+- Aperçu au survol : rester 0,3 s sur l'icône Mail ou Messages quand des notifications attendent
+  ouvre un petit panneau à droite (expéditeur/conversation, objet ou dernier message, heure),
+  qui jaillit de l'icône comme une goutte avec un rebond élastique ;
+  un clic mène au mail ou à la conversation. Il reste ouvert tant que la souris est dessus ou
+  à proximité, et se ferme en s'éloignant, avec Échap ou en cliquant sur un autre onglet.
 - Loupe façon Dock macOS : l'icône survolée grossit (et ses voisines un peu), en douceur.
 - Animation au clic propre à chaque icône : tuiles qui s'écartent (tableau de bord), saut et page
   qui se tourne (calendrier), enveloppe qui s'ouvre (mail), lignes réécrites (notes),
@@ -293,13 +302,21 @@ réactions, sélecteur). Chaque image est téléchargée une fois puis gardée d
 Un message composé uniquement d'émojis s'affiche en grand.
 
 ## Notifications
-En haut à droite de l'app (30 s, un clic mène au bon endroit) et dans le centre de notifications
-de Windows :
-- ✉️ nouveau mail reçu dans la boîte de réception (expéditeur, objet, début du texte) ;
+Dans l'app (un clic mène au bon endroit) et dans le centre de notifications de Windows :
+- ✉️ nouveau mail reçu dans la boîte de réception (expéditeur, objet) ;
 - 💬 nouveau message Google Chat (sauf conversations muettes ou déjà ouvertes à l'écran) ;
 - 📄 document partagé avec moi sur Google Drive (vérifié toutes les 5 minutes) ;
 - 📅 rendez-vous qui commence dans 10 minutes (délai réglable).
-Chaque type s'active ou se coupe dans Réglages › Notifications.
+
+Mails et messages s'affichent en haut au centre de l'écran, par-dessus toutes les fenêtres (même
+quand WorkTable est derrière une autre application), façon « succès débloqué » Xbox 360 : la
+pastille apparaît, la capsule se déploie, une barre se vide en 4 s puis tout se replie. S'il en
+arrive plusieurs, ils passent l'un après l'autre ; un clic ramène WorkTable au premier plan sur le
+mail ou la conversation. Sous Windows l'app utilise OpenGL pour cette fenêtre transparente ;
+en cas de souci d'affichage, lancer avec la variable `WORKTABLE_RENDERER=wgpu`. Documents partagés et rendez-vous : en haut à droite (30 s).
+Un petit son accompagne chaque bandeau (carillon de deux notes pour un mail, « blip » plus
+court et plus aigu pour un message), synthétisé par l'app — sans fichier audio.
+Chaque type s'active ou se coupe dans Réglages › Notifications. (son compris).
 
 ## Apparence commune
 - **Titres d'onglets** identiques partout : sur-titre en capitales + grand titre (police « Titres »),
@@ -314,6 +331,11 @@ Chaque type s'active ou se coupe dans Réglages › Notifications.
 - **Polices** (Réglages › Polices) : une police et une taille par groupe — Titres, Interface,
   Texte (mails, notes, messages), Code. Choix : Inter, Ubuntu, IBM Plex Sans, Lato, IBM Plex Serif,
   Hack, IBM Plex Mono. Appliqué immédiatement dans tous les onglets.
+- **Images en grand** : un clic sur une image l'ouvre dans la même visionneuse partout — Chat,
+  Mail (images du corps sans lien, aperçu des pièces jointes), Notes, Drive (aperçu du panneau
+  Détails, rechargé en haute définition). Molette ou +/− pour zoomer, glisser pour déplacer,
+  double-clic 100 % / 200 %, 0 pour réinitialiser, Échap ou clic à côté pour fermer ; « Ouvrir »
+  lance l'application par défaut (ou Drive dans le navigateur). Notes protégées : pas d'« Ouvrir ».
 
 ## Licences
 - Police Inter : SIL Open Font License 1.1 — `assets/fonts/LICENSE-Inter.txt`.

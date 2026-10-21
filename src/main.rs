@@ -7,6 +7,7 @@ mod app;
 mod emoji_img;
 mod google;
 mod links;
+mod lightbox;
 mod liquid;
 mod notes_store;
 mod notify;
@@ -14,6 +15,7 @@ mod paths;
 mod prefs;
 mod search;
 mod sidebar;
+mod sound;
 mod tabs;
 mod tasks;
 mod theme;
@@ -49,7 +51,17 @@ fn main() -> eframe::Result<()> {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("WorkTable")
             .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([880.0, 560.0]),
+            .with_min_inner_size([880.0, 560.0])
+            // Icône de la fenêtre et de la barre des tâches.
+            .with_icon(eframe::icon_data::from_png_bytes(sidebar::LOGO_PNG).unwrap_or_default()),
+        // Windows : OpenGL, pour que la fenêtre du bandeau de notification soit vraiment transparente.
+        // `WORKTABLE_RENDERER=wgpu` repasse au moteur par défaut en cas de souci d'affichage.
+        renderer: match std::env::var("WORKTABLE_RENDERER").as_deref() {
+            Ok("wgpu") => eframe::Renderer::Wgpu,
+            Ok("glow") => eframe::Renderer::Glow,
+            _ if cfg!(windows) => eframe::Renderer::Glow,
+            _ => eframe::Renderer::Wgpu,
+        },
         ..Default::default()
     };
 

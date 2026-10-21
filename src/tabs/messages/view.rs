@@ -153,8 +153,11 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
         _ => thread_panel(ui, chat, &mut actions),
     });
     toast(ui, chat);
-    if let Some(a) = image_viewer(ui.ctx(), chat) {
-        chat.open_attachment(acc, &a);
+    // « Ouvrir » dans la visionneuse : téléchargement puis application par défaut.
+    if crate::lightbox::take_tag("chat:").is_some() {
+        if let Some(a) = chat.viewer.clone() {
+            chat.open_attachment(acc, &a);
+        }
     }
 
     for a in actions {
@@ -176,7 +179,14 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
                 chat.delete(acc, &m);
             }
             Action::OpenAttachment(a) => chat.open_attachment(acc, &a),
-            Action::ViewImage(a) => chat.viewer = Some((a, 1.0)),
+            Action::ViewImage(a) => {
+                let key = a.key();
+                if let Some(ImgState::Ready { texture: Some(t), .. }) = chat.images.peek(&key) {
+                    let tag = format!("chat:{key}");
+                    crate::lightbox::open(ui.ctx(), tag.clone(), t.clone(), a.name.clone(), crate::lightbox::OpenWith::Tag(tag));
+                    chat.viewer = Some(a);
+                }
+            }
             Action::Image(a) => chat.request_image(acc, &a),
             Action::Favorite(s) => {
                 if !prefs.chat_favorites.contains(&s) {
@@ -1679,84 +1689,4 @@ pub fn prepare_images(chat: &mut ChatState, ctx: &egui::Context) {
     for k in keys.into_iter().chain(photos) {
         let _ = chat.images.get(ctx, &k);
     }
-}
-
-/// Visionneuse : l'image en grand par-dessus l'app (molette ou +/- pour zoomer, glisser pour
-/// déplacer, Échap / clic à côté pour fermer). Renvoie la pièce jointe à ouvrir dans une application.
-fn image_viewer(ctx: &egui::Context, chat: &mut ChatState) -> Option<ChatAttachment> {
-    let (a, mut zoom) = chat.viewer.clone()?;
-    let Some((tex, size)) = texture_of(chat, ctx, &a.key()) else {
-        chat.viewer = None;
-        return None;
-    };
-    let screen = ctx.content_rect();
-    let mut close = ctx.input(|i| i.key_pressed(Key::Escape));
-    let mut open = None;
-    let pan_id = egui::Id::unique("wt_chat_viewer_pan");
-    let mut pan: egui::Vec2 = ctx.data(|d| d.get_temp(pan_id)).unwrap_or_default();
-    egui::Area::new(egui::Id::unique("wt_chat_viewer")).order(egui::Order::Foreground).fixed_pos(screen.min).show(ctx, |ui| {
-        let (bg, bg_resp) = ui.allocate_exact_size(screen.size(), Sense::click());
-        ui.painter().rect_filled(bg, CornerRadius::ZERO, Color32::from_black_alpha(215));
-        // Taille d'origine réduite pour tenir dans la fenêtre, puis zoom.
-        let avail = screen.size() - vec2(80.0, 140.0);
-        let fit = (avail.x / size.x).min(avail.y / size.y).min(1.0);
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll != 0.0 {
-            zoom = (zoom * (1.0 + scroll * 0.002)).clamp(0.2, 8.0);
-        }
-        if ui.input(|i| i.key_pressed(Key::Plus) || i.key_pressed(Key::Equals)) {
-            zoom = (zoom * 1.25).min(8.0);
-        }
-        if ui.input(|i| i.key_pressed(Key::Minus)) {
-            zoom = (zoom / 1.25).max(0.2);
-        }
-        if ui.input(|i| i.key_pressed(Key::Num0)) {
-            zoom = 1.0;
-            pan = egui::Vec2::ZERO;
-        }
-        let shown = size * fit * zoom;
-        let img = Rect::from_center_size(screen.center() - vec2(0.0, 20.0) + pan, shown);
-        let img_resp = ui.interact(img, egui::Id::unique("wt_chat_viewer_img"), Sense::click_and_drag());
-        if img_resp.dragged() {
-            pan += img_resp.drag_delta();
-        }
-        if img_resp.double_clicked() {
-            zoom = if zoom > 1.01 { 1.0 } else { 2.0 };
-            pan = egui::Vec2::ZERO;
-        }
-        ui.painter().image(tex, img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
-        // Barre du bas : nom, zoom, actions.
-        let bar = Rect::from_center_size(Pos2::new(screen.center().x, screen.bottom() - 44.0), vec2(520.0_f32.min(screen.width() - 40.0), 44.0));
-        ui.scope_builder(egui::UiBuilder::new().max_rect(bar), |ui| {
-            egui::Frame::new().fill(theme::SURFACE()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(255)).inner_margin(egui::Margin::symmetric(14, 6)).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add(egui::Label::new(RichText::new(&a.name).color(theme::TEXT())).truncate());
-                    ui.label(RichText::new(format!("{:.0} %", fit * zoom * 100.0)).small().color(theme::TEXT_MUTED()));
-                    if ui.small_button("−").on_hover_text("Dézoomer (−)").clicked() {
-                        zoom = (zoom / 1.25).max(0.2);
-                    }
-                    if ui.small_button("+").on_hover_text("Zoomer (+ ou molette)").clicked() {
-                        zoom = (zoom * 1.25).min(8.0);
-                    }
-                    if ui.small_button("Ouvrir").on_hover_text("Ouvrir avec l'application par défaut").clicked() {
-                        open = Some(a.clone());
-                    }
-                    if ui.small_button("✕").on_hover_text("Fermer (Échap)").clicked() {
-                        close = true;
-                    }
-                });
-            });
-        });
-        if bg_resp.clicked() && !img_resp.hovered() {
-            close = true;
-        }
-    });
-    ctx.data_mut(|d| d.insert_temp(pan_id, pan));
-    if close {
-        chat.viewer = None;
-        ctx.data_mut(|d| d.remove::<egui::Vec2>(pan_id));
-    } else {
-        chat.viewer = Some((a, zoom));
-    }
-    open
 }

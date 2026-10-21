@@ -228,6 +228,27 @@ impl DriveState {
         });
     }
 
+    /// Ouvre l'aperçu en grand et charge une version plus nette (remplacée dès qu'elle arrive).
+    fn view_large(&mut self, ctx: &egui::Context, acc: &Account, f: &DriveFile, tex: egui::TextureHandle) {
+        let key = format!("drive-hd:{}", f.id);
+        let open = match &f.web_link {
+            Some(u) => crate::lightbox::OpenWith::Url(u.clone()),
+            None => crate::lightbox::OpenWith::None,
+        };
+        let hd = match self.thumbs.get(ctx, &key) {
+            Some(ImgState::Ready { texture: Some(t), .. }) => t.clone(),
+            _ => tex,
+        };
+        crate::lightbox::open(ctx, key.clone(), hd, f.name.clone(), open);
+        let Some(url) = f.thumbnail.clone() else { return };
+        if self.thumbs.start(&key) {
+            run(acc, move |s| {
+                let image = drive::thumbnail_sized(s, &url, 2000).and_then(|d| inline::decode(&d));
+                Ok(DriveEvent::Thumb { key, image })
+            });
+        }
+    }
+
     fn info(&mut self, t: &str) {
         self.notice = Some((t.to_string(), false, Instant::now()));
     }
@@ -245,6 +266,12 @@ fn sanitize(name: &str) -> String {
 // --- Affichage ---------------------------------------------------------------------------
 
 pub fn show(ui: &mut egui::Ui, st: &mut DriveState, acc: &mut Account, prefs: &mut Prefs) {
+    // Visionneuse : la version nette remplace l'aperçu dès qu'elle est chargée.
+    if let Some(k) = crate::lightbox::current().filter(|k| k.starts_with("drive-hd:")) {
+        if let Some(ImgState::Ready { texture: Some(t), .. }) = st.thumbs.get(ui.ctx(), &k) {
+            crate::lightbox::upgrade(&k, t.clone());
+        }
+    }
     crate::widgets::page_header(ui, "Fichiers", "Google Drive");
 
     if acc.session().is_none() {
@@ -777,13 +804,19 @@ fn detail(ui: &mut egui::Ui, st: &mut DriveState, acc: &Account) {
     });
     ui.add_space(8.0);
     st.request_thumb(acc, &f);
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 180.0), Sense::hover());
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 180.0), Sense::click());
     ui.painter().rect_filled(r, CornerRadius::same(10), theme::BG());
-    match st.thumbs.get(ui.ctx(), &format!("drive:{}", f.id)) {
+    let ctx = ui.ctx().clone();
+    match st.thumbs.get(&ctx, &format!("drive:{}", f.id)) {
         Some(ImgState::Ready { texture: Some(t), .. }) => {
+            let t = t.clone();
             let s = t.size_vec2();
             let k = ((r.width() - 16.0) / s.x).min((r.height() - 16.0) / s.y);
             ui.painter().image(t.id(), Rect::from_center_size(r.center(), s * k), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+            // Clic : l'aperçu en grand.
+            if resp.on_hover_text("Agrandir l'aperçu").on_hover_cursor(egui::CursorIcon::ZoomIn).clicked() {
+                st.view_large(&ctx, acc, &f, t);
+            }
         }
         _ => file_icon(ui.painter(), Rect::from_center_size(r.center(), vec2(64.0, 64.0)), &f),
     }
