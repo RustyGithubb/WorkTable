@@ -1,1 +1,49 @@
-[]
+[
+  {
+    "id": "1a15984de92ba031",
+    "thread_id": "1a15984de92ba031",
+    "from": "Tessema CAILLET <tessema.caillet@artfx.fr>",
+    "subject": "🎲 🎲 ARTFX Boardgames #02 : Galérapagos ! 🎲 🎲",
+    "snippet": "Bonjours à tous !! Un mail un peu tardif mais voici la deuxième soirée Boardgame club Cette fois-ci, nous vous proposons un Galérapagos. un jeu où l'on va jouer tous ensemble (ou presque) à",
+    "date": 1792503226000,
+    "labels": [
+      "Label_3681320843880017657",
+      "CATEGORY_FORUMS",
+      "INBOX"
+    ],
+    "recipients": "etudiants-mtp@artfx.fr, profs-mtp@artfx.fr, equipe-mtp@artfx.fr",
+    "list_id": "<profs-mtp.artfx.fr>"
+  },
+  {
+    "id": "1a159f25df4a57f5",
+    "thread_id": "1a159f25df4a57f5",
+    "from": "Tyna DE ALMEIDA <tyna.dealmeida@artfx.fr>",
+    "subject": "Abscence",
+    "snippet": "Bonsoir Dorian, Je serais absente demain matin à cause d'un rendez vous médical à 8h45. Je t'enverrai le justificatif dès que possible. J'ai essayé d'utiliser le google form avec le QR",
+    "date": 1792510406000,
+    "labels": [
+      "Label_3681320843880017657",
+      "IMPORTANT",
+      "CATEGORY_PERSONAL",
+      "INBOX"
+    ],
+    "recipients": "Dorian NOIREL <dnoirel@artfx.fr>",
+    "list_id": ""
+  },
+  {
+    "id": "1a15ba70ad28837f",
+    "thread_id": "1a159ad99382c819",
+    "from": "Dorian NOIREL <dnoirel@artfx.fr>",
+    "subject": "Re: Test fonction dev",
+    "snippet": "Test 2 Le mer. 21 oct. 2026 à 01:29, Dorian NOIREL <dnoirel@artfx.fr> a écrit : Test réponse Le mar. 20 oct. 2026 à 16:18, <dnoirel@artfx.fr> a écrit : Test des nouvelles fonctions Test",
+    "date": 1792539036000,
+    "labels": [
+      "Label_3681320843880017657",
+      "IMPORTANT",
+      "SENT",
+      "INBOX"
+    ],
+    "recipients": "dnoirel@artfx.fr",
+    "list_id": ""
+  }
+]
