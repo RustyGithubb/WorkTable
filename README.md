@@ -60,7 +60,9 @@ L'emplacement dépend de la façon dont l'app est lancée (Réglages › Donnée
 | **Développement** | `cargo run` | `data\` du projet |
 | Forcé | variable `WORKTABLE_DATA=<dossier>` | ce dossier |
 
-Dans ce dossier :
+Ce dossier et ses sous-dossiers (`config\`, `data\notes\`, `secrets\`, cache) sont créés dès le
+premier lancement — et dès l'installation pour une installation par utilisateur —, puis recréés si
+l'un d'eux a été supprimé. Dans ce dossier :
 - `config\` : réglages (`prefs.json`), tâches, contacts, mails épinglés, liens et logos, icônes
   et annuaire Chat, `crash.log` ;
 - `data\notes\` : notes Markdown et leurs pièces jointes ;
@@ -78,7 +80,7 @@ Données › **Importer…** et choisir l'ancien dossier `data`.
 ```
 powershell -ExecutionPolicy Bypass -File installer\build.ps1
 ```
-Prérequis : Rust et [Inno Setup 6](https://jrsoftware.org/isdl.php). Le script compile la version
+Prérequis : Rust et [Inno Setup 7](https://jrsoftware.org/isdl.php) (ou 6). Le script compile la version
 finale, lit la version dans `Cargo.toml` et produit `installer\Output\WorkTable-<version>-setup.exe`.
 - Installation par utilisateur (sans droits administrateur) dans `%LOCALAPPDATA%\Programs\WorkTable`,
   ou pour tous les utilisateurs ; raccourcis menu Démarrer / Bureau, lancement à l'ouverture de

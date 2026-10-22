@@ -1,4 +1,4 @@
-﻿; Installeur Windows de WorkTable, en français et en anglais (Inno Setup 6 — https://jrsoftware.org/isinfo.php).
+﻿; Installeur Windows de WorkTable, en français et en anglais (Inno Setup 7 ou 6 — https://jrsoftware.org/isinfo.php).
 ; Construit par installer\build.ps1, qui compile l'app puis appelle ISCC avec la version de Cargo.toml.
 ;
 ; - Installation par utilisateur par défaut (pas besoin d'être administrateur) dans
@@ -38,6 +38,8 @@ CloseApplications=yes
 RestartApplications=no
 ; Langue de l'installeur : celle de Windows (français ou anglais), sans question.
 ShowLanguageDialog=auto
+; Dossiers du profil ([Dirs]) créés seulement pour une installation par utilisateur.
+UsedUserAreasWarning=no
 
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
@@ -58,6 +60,15 @@ english.DeleteData=Also delete your WorkTable data (settings, notes, Google cred
 [Tasks]
 Name: "desktopicon"; Description: "{cm:DesktopIcon}"; GroupDescription: "{cm:Shortcuts}"
 Name: "startup"; Description: "{cm:StartupIcon}"; GroupDescription: "{cm:Startup}"; Flags: unchecked
+
+[Dirs]
+; Dossier des données de l'utilisateur, créé dès l'installation (l'app le recrée aussi au
+; lancement, ce qui couvre l'installation « pour tous les utilisateurs ») ; jamais supprimé par
+; la désinstallation sans l'accord de l'utilisateur (question posée à la fin).
+Name: "{userappdata}\WorkTable\config"; Flags: uninsneveruninstall; Check: not IsAdminInstallMode
+Name: "{userappdata}\WorkTable\data\notes"; Flags: uninsneveruninstall; Check: not IsAdminInstallMode
+Name: "{userappdata}\WorkTable\secrets"; Flags: uninsneveruninstall; Check: not IsAdminInstallMode
+Name: "{localappdata}\WorkTable\cache"; Flags: uninsneveruninstall; Check: not IsAdminInstallMode
 
 [Files]
 Source: "..\target\dist\worktable.exe"; DestDir: "{app}"; DestName: "{#AppExe}"; Flags: ignoreversion

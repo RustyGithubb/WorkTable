@@ -147,6 +147,20 @@ pub fn import_from(dir: &Path) -> usize {
     n
 }
 
+/// Crée, à chaque lancement, l'arborescence des données de l'utilisateur (`config\`, `data\`,
+/// `secrets\`, cache) : elle existe dès le premier démarrage, avant toute écriture, et se
+/// recrée si un dossier a été supprimé. Renvoie les dossiers qui n'ont pas pu être créés.
+pub fn ensure_dirs() -> Vec<PathBuf> {
+    create_tree(root(), &layout().cache)
+}
+
+fn create_tree(root: &Path, cache: &Path) -> Vec<PathBuf> {
+    [root.join("config"), root.join("data"), root.join("data").join("notes"), root.join("secrets"), cache.to_path_buf()]
+        .into_iter()
+        .filter(|d| std::fs::create_dir_all(d).is_err())
+        .collect()
+}
+
 /// Rassemble une fois les données de l'ancien emplacement dans le dossier des données.
 pub fn migrate() {
     let root = root();
@@ -185,6 +199,17 @@ pub fn migrate() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_folders_are_created() {
+        let dir = std::env::temp_dir().join("wt_dirs_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(create_tree(&dir, &dir.join("cache")).is_empty());
+        for sub in ["config", "data", "data/notes", "secrets", "cache"] {
+            assert!(dir.join(sub).is_dir(), "{sub} manquant");
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn atomic_write_replaces_file() {

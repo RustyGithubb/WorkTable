@@ -75,7 +75,11 @@ fn app_creator() -> eframe::AppCreator<'static> {
 
 fn main() -> eframe::Result<()> {
     install_crash_log();
-    // Toutes les données dans le dossier `data\` (transportable) ; reprise de l'ancien emplacement.
+    // Dossier des données de l'utilisateur (config, data, secrets, cache) créé dès le lancement ;
+    // reprise de l'ancien emplacement.
+    for d in paths::ensure_dirs() {
+        eprintln!("WorkTable : impossible de créer le dossier {}", d.display());
+    }
     paths::migrate();
     // Windows : DirectX 12 avec une chaîne d'affichage « DirectComposition », la seule qui gère la
     // vraie transparence (bandeau de notification sans fond, avec son ombre). Si DirectX 12 n'est pas
