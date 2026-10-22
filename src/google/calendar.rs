@@ -188,7 +188,7 @@ fn notify(e: &CalEvent) -> &'static str {
 pub fn create(s: &Session, e: &CalEvent, add_meet: bool) -> Result<CalEvent, String> {
     let url = format!("{API}/calendars/{}/events", enc(&e.calendar));
     let v = s.send("POST", &url, &[("conferenceDataVersion", "1"), ("sendUpdates", notify(e))], Some(body(e, add_meet)))?;
-    parse_event(&e.calendar, &v).ok_or_else(|| "Réponse inattendue de Google Agenda".into())
+    parse_event(&e.calendar, &v).ok_or_else(|| t!("Réponse inattendue de Google Agenda", "Unexpected response from Google Calendar").into())
 }
 
 /// Modifie un événement ; s'il change d'agenda, il est d'abord déplacé.
@@ -199,7 +199,7 @@ pub fn update(s: &Session, e: &CalEvent, from_calendar: &str, add_meet: bool) ->
     }
     let url = format!("{API}/calendars/{}/events/{}", enc(&e.calendar), enc(&e.id));
     let v = s.send("PATCH", &url, &[("conferenceDataVersion", "1"), ("sendUpdates", notify(e))], Some(body(e, add_meet)))?;
-    parse_event(&e.calendar, &v).ok_or_else(|| "Réponse inattendue de Google Agenda".into())
+    parse_event(&e.calendar, &v).ok_or_else(|| t!("Réponse inattendue de Google Agenda", "Unexpected response from Google Calendar").into())
 }
 
 pub fn delete(s: &Session, calendar: &str, id: &str, notify_guests: bool) -> Result<(), String> {

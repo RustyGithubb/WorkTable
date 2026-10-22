@@ -12,7 +12,7 @@ use crate::notes_store::NoteLink;
 use crate::tabs::calendar::{CalendarState, date_of, hhmm};
 use crate::tabs::mail::MailState;
 use crate::tabs::messages::ChatState;
-use crate::tabs::{month_fr, weekday_fr};
+use crate::tabs::{long_date, month_name, month_short, weekday_short};
 use crate::tasks::Tasks;
 use crate::{theme, widgets};
 
@@ -78,7 +78,7 @@ impl Picker {
 }
 
 pub fn date_label(iso: &str) -> String {
-    NaiveDate::parse_from_str(iso, "%Y-%m-%d").map(|d| format!("{} {} {} {}", weekday_fr(d.weekday()), d.day(), month_fr(d.month()), d.year())).unwrap_or_else(|_| iso.to_string())
+    NaiveDate::parse_from_str(iso, "%Y-%m-%d").map(long_date).unwrap_or_else(|_| iso.to_string())
 }
 
 fn row(ui: &mut egui::Ui, icon: &str, color: Option<Color32>, title: &str, sub: &str) -> bool {
@@ -134,7 +134,7 @@ pub fn show(ctx: &egui::Context, p: &mut Picker, cal: &CalendarState, mail: &Mai
         ui.set_width(580.0);
         ui.set_min_height(470.0);
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Rattacher à la note").size(17.0).strong());
+            ui.label(RichText::new(t!("Rattacher à la note", "Link to the note")).size(17.0).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.add(egui::Button::new("✕").frame(false)).clicked() {
                     *close = true;
@@ -146,7 +146,7 @@ pub fn show(ctx: &egui::Context, p: &mut Picker, cal: &CalendarState, mail: &Mai
         widgets::segmented(
             ui,
             "note_links",
-            &[(Tab::Event, "Événement"), (Tab::Date, "Date"), (Tab::Mail, "Mail"), (Tab::Chat, "Message"), (Tab::Task, "Tâche"), (Tab::Drive, "Drive")],
+            &[(Tab::Event, t!("Événement", "Event")), (Tab::Date, "Date"), (Tab::Mail, "Mail"), (Tab::Chat, "Message"), (Tab::Task, t!("Tâche", "Task")), (Tab::Drive, "Drive")],
             &mut p.tab,
         );
         if p.tab != before {
@@ -158,11 +158,11 @@ pub fn show(ctx: &egui::Context, p: &mut Picker, cal: &CalendarState, mail: &Mai
 
         if p.tab != Tab::Date {
             let hint = match p.tab {
-                Tab::Event => "Rechercher un événement chargé…",
-                Tab::Mail => "Rechercher un mail (objet, expéditeur…)",
-                Tab::Chat => "Rechercher une conversation ou un message…",
-                Tab::Task => "Rechercher une tâche…",
-                _ => "Rechercher un fichier Drive…",
+                Tab::Event => t!("Rechercher un événement chargé…", "Search a loaded event…"),
+                Tab::Mail => t!("Rechercher un mail (objet, expéditeur…)", "Search a mail (subject, sender…)"),
+                Tab::Chat => t!("Rechercher une conversation ou un message…", "Search a conversation or message…"),
+                Tab::Task => t!("Rechercher une tâche…", "Search a task…"),
+                _ => t!("Rechercher un fichier Drive…", "Search a Drive file…"),
             };
             let r = ui.add(egui::TextEdit::singleline(&mut p.query).hint_text(hint).desired_width(f32::INFINITY).margin(vec2(10.0, 7.0)));
             if p.focus {
@@ -200,7 +200,7 @@ fn events(ui: &mut egui::Ui, p: &mut Picker, cal: &CalendarState) -> Option<Note
             if ui.button("◀").clicked() {
                 p.day -= CDuration::days(1);
             }
-            if ui.button("Aujourd'hui").clicked() {
+            if ui.button(t!("Aujourd'hui", "Today")).clicked() {
                 p.day = Local::now().date_naive();
             }
             if ui.button("▶").clicked() {
@@ -219,12 +219,20 @@ fn events(ui: &mut egui::Ui, p: &mut Picker, cal: &CalendarState) -> Option<Note
     }
     list.dedup_by(|a, b| a.id == b.id && a.calendar == b.calendar);
     if list.is_empty() {
-        widgets::empty_state(ui, "Aucun événement", "Seuls les événements déjà chargés par le calendrier apparaissent.");
+        widgets::empty_state(
+            ui,
+            t!("Aucun événement", "No events"),
+            t!("Seuls les événements déjà chargés par le calendrier apparaissent.", "Only events already loaded by the calendar appear."),
+        );
     }
     for e in list {
         let [r, g, b] = cal.color_of(e);
-        let when = if e.all_day { format!("{} · journée", short(date_of(e.start))) } else { format!("{} · {} – {}", short(date_of(e.start)), hhmm(e.start), hhmm(e.end)) };
-        let title = if e.title.is_empty() { "(sans titre)" } else { &e.title };
+        let when = if e.all_day {
+            tf!("{} · journée", "{} · all day", short(date_of(e.start)))
+        } else {
+            format!("{} · {} – {}", short(date_of(e.start)), hhmm(e.start), hhmm(e.end))
+        };
+        let title = if e.title.is_empty() { t!("(sans titre)", "(untitled)") } else { &e.title };
         if row(ui, "", Some(Color32::from_rgb(r, g, b)), title, &when) || std::mem::take(&mut pick) {
             return Some(NoteLink::Event { calendar: e.calendar.clone(), id: e.id.clone(), title: title.to_string(), start: e.start });
         }
@@ -233,14 +241,16 @@ fn events(ui: &mut egui::Ui, p: &mut Picker, cal: &CalendarState) -> Option<Note
 }
 
 fn short(d: NaiveDate) -> String {
-    format!("{} {} {}", &weekday_fr(d.weekday())[..3], d.day(), month_fr(d.month()).chars().take(4).collect::<String>())
+    format!("{} {} {}", weekday_short(d.weekday()), d.day(), month_short(d.month()))
 }
 
 fn dates(ui: &mut egui::Ui, p: &mut Picker) -> Option<NoteLink> {
     let today = Local::now().date_naive();
     let mut out = None;
     ui.horizontal(|ui| {
-        for (label, d) in [("Aujourd'hui", today), ("Demain", today + CDuration::days(1)), ("Dans une semaine", today + CDuration::days(7))] {
+        for (label, d) in
+            [(t!("Aujourd'hui", "Today"), today), (t!("Demain", "Tomorrow"), today + CDuration::days(1)), (t!("Dans une semaine", "In a week"), today + CDuration::days(7))]
+        {
             if ui.button(label).clicked() {
                 out = Some(d);
             }
@@ -251,7 +261,7 @@ fn dates(ui: &mut egui::Ui, p: &mut Picker) -> Option<NoteLink> {
         if ui.button("◀").clicked() {
             p.month = (p.month - CDuration::days(1)).with_day(1).unwrap_or(p.month);
         }
-        ui.label(RichText::new(format!("{} {}", month_fr(p.month.month()), p.month.year())).strong().size(15.0));
+        ui.label(RichText::new(format!("{} {}", month_name(p.month.month()), p.month.year())).strong().size(15.0));
         if ui.button("▶").clicked() {
             p.month = (p.month + CDuration::days(32)).with_day(1).unwrap_or(p.month);
         }
@@ -260,7 +270,8 @@ fn dates(ui: &mut egui::Ui, p: &mut Picker) -> Option<NoteLink> {
     let cell = vec2(70.0, 34.0);
     let (rect, _) = ui.allocate_exact_size(vec2(cell.x * 7.0, cell.y * 7.0), Sense::hover());
     let painter = ui.painter().clone();
-    for (k, d) in ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"].iter().enumerate() {
+    for (k, d) in std::iter::successors(Some(chrono::Weekday::Mon), |d| Some(d.succ())).take(7).enumerate() {
+        let d = weekday_short(d).trim_end_matches('.');
         painter.text(rect.min + vec2(cell.x * (k as f32 + 0.5), cell.y * 0.5), egui::Align2::CENTER_CENTER, d, egui::FontId::proportional(11.5), theme::TEXT_MUTED());
     }
     let start = crate::tabs::calendar::monday(p.month);
@@ -305,15 +316,15 @@ fn mails(ui: &mut egui::Ui, p: &mut Picker, mail: &MailState) -> Option<NoteLink
         .take(40)
         .collect();
     if p.searching {
-        ui.label(RichText::new("Recherche dans Gmail…").small().color(theme::TEXT_MUTED()));
+        ui.label(RichText::new(t!("Recherche dans Gmail…", "Searching Gmail…")).small().color(theme::TEXT_MUTED()));
     }
     if list.is_empty() && !p.searching {
-        widgets::empty_state(ui, "Aucun mail", "Essaie un autre mot-clé.");
+        widgets::empty_state(ui, t!("Aucun mail", "No mail"), t!("Essaie un autre mot-clé.", "Try another keyword."));
     }
     for m in list {
         let from = m.sender_name().to_string();
         let sub = format!("{from} · {}", crate::tabs::mail::view::short_date(m.date));
-        let subject = if m.subject.is_empty() { "(sans objet)" } else { &m.subject };
+        let subject = if m.subject.is_empty() { t!("(sans objet)", "(no subject)") } else { &m.subject };
         if row(ui, "✉", None, subject, &sub) || std::mem::take(&mut pick) {
             return Some(NoteLink::Mail { id: m.id.clone(), subject: subject.to_string(), from });
         }
@@ -324,13 +335,13 @@ fn mails(ui: &mut egui::Ui, p: &mut Picker, mail: &MailState) -> Option<NoteLink
 fn files(ui: &mut egui::Ui, p: &mut Picker) -> Option<NoteLink> {
     let mut pick = std::mem::take(&mut p.pick_first);
     if p.query.trim().chars().count() < 2 {
-        widgets::empty_state(ui, "Google Drive", "Tape le nom d'un fichier (Docs, Sheets, PDF…).");
+        widgets::empty_state(ui, "Google Drive", t!("Tape le nom d'un fichier (Docs, Sheets, PDF…).", "Type a file name (Docs, Sheets, PDF…)."));
         return None;
     }
     if p.searching {
-        ui.label(RichText::new("Recherche dans Drive…").small().color(theme::TEXT_MUTED()));
+        ui.label(RichText::new(t!("Recherche dans Drive…", "Searching Drive…")).small().color(theme::TEXT_MUTED()));
     } else if p.drive.is_empty() {
-        widgets::empty_state(ui, "Aucun fichier", "Essaie un autre nom.");
+        widgets::empty_state(ui, t!("Aucun fichier", "No files"), t!("Essaie un autre nom.", "Try another name."));
     }
     for f in &p.drive {
         let sub = format!("{} · {}", drive::kind_label(f), if f.owner.is_empty() { "Drive" } else { &f.owner });
@@ -362,7 +373,8 @@ fn chats(ui: &mut egui::Ui, p: &mut Picker, chat: &ChatState) -> Option<NoteLink
     }
     for sp in spaces.into_iter().take(if q.is_empty() { 12 } else { 8 }) {
         let title = chat.title(sp);
-        let sub = format!("{} · {}", if sp.members > 2 { "Groupe" } else { "Message privé" }, crate::tabs::mail::view::short_date(sp.last_active));
+        let sub =
+            format!("{} · {}", if sp.members > 2 { t!("Groupe", "Group") } else { t!("Message privé", "Direct message") }, crate::tabs::mail::view::short_date(sp.last_active));
         if row(ui, "💬", None, &title, &sub) || std::mem::take(&mut pick) {
             return Some(NoteLink::Chat { space: sp.name.clone(), message: None, title, text: String::new() });
         }
@@ -383,7 +395,11 @@ fn chats(ui: &mut egui::Ui, p: &mut Picker, chat: &ChatState) -> Option<NoteLink
         }
     }
     if chat.spaces.is_empty() {
-        widgets::empty_state(ui, "Google Chat non chargé", "Ouvre l'onglet Messages une fois pour charger tes conversations.");
+        widgets::empty_state(
+            ui,
+            t!("Google Chat non chargé", "Google Chat not loaded"),
+            t!("Ouvre l'onglet Messages une fois pour charger tes conversations.", "Open the Messages tab once to load your conversations."),
+        );
     }
     None
 }
@@ -400,13 +416,13 @@ fn task_list(ui: &mut egui::Ui, p: &mut Picker, tasks: &Tasks) -> Option<NoteLin
         if n > 40 {
             break;
         }
-        let sub = if archived { "Archivée".to_string() } else { t.status.label().to_string() };
+        let sub = if archived { t!("Archivée", "Archived").to_string() } else { t.status.label().to_string() };
         if row(ui, "✅", None, &t.title, &sub) || std::mem::take(&mut pick) {
             return Some(NoteLink::Task { id: t.id, title: t.title.clone() });
         }
     }
     if n == 0 {
-        widgets::empty_state(ui, "Aucune tâche", "Les tâches se créent dans le Tableau de bord.");
+        widgets::empty_state(ui, t!("Aucune tâche", "No tasks"), t!("Les tâches se créent dans le Tableau de bord.", "Tasks are created in the Dashboard."));
     }
     None
 }

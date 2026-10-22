@@ -1,18 +1,20 @@
 //! Appels à l'API Google Drive v3 (lecture seule) : dossiers, recherche, téléchargement / export.
 
 use chrono::DateTime;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::Session;
 
 const API: &str = "https://www.googleapis.com/drive/v3";
 const FIELDS: &str = "nextPageToken,files(id,name,mimeType,modifiedTime,size,owners(displayName,emailAddress),\
-lastModifyingUser(displayName),thumbnailLink,webViewLink,starred,shared,parents,driveId,hasThumbnail)";
+lastModifyingUser(displayName,emailAddress),thumbnailLink,webViewLink,starred,shared,parents,driveId,hasThumbnail)";
 /// Taille maximale d'un fichier téléchargé pour l'ouvrir sur le PC.
 const MAX_DOWNLOAD: u64 = 500 * 1024 * 1024;
 pub const FOLDER: &str = "application/vnd.google-apps.folder";
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DriveFile {
     pub id: String,
     pub name: String,
@@ -21,7 +23,10 @@ pub struct DriveFile {
     pub modified: i64,
     pub size: Option<u64>,
     pub owner: String,
+    /// Adresse du propriétaire (auteur) : relie le fichier à l'annuaire, aux mails, à Chat…
+    pub owner_email: String,
     pub modified_by: String,
+    pub modified_by_email: String,
     pub thumbnail: Option<String>,
     pub web_link: Option<String>,
     pub starred: bool,
@@ -56,6 +61,10 @@ pub enum Source {
     Shared,
     Recent,
     Starred,
+    /// Favoris de WorkTable (gardés sur l'ordinateur, pas de requête).
+    Favorites,
+    /// Fichiers d'un propriétaire (adresse).
+    Owner(String),
     SharedDrive(String),
     Search(String),
 }
@@ -102,7 +111,9 @@ fn parse(v: &Value) -> DriveFile {
         modified: v["modifiedTime"].as_str().map(ms).unwrap_or(0),
         size: v["size"].as_str().and_then(|s| s.parse().ok()),
         owner: v["owners"][0]["displayName"].as_str().unwrap_or_default().into(),
+        owner_email: v["owners"][0]["emailAddress"].as_str().unwrap_or_default().to_lowercase(),
         modified_by: v["lastModifyingUser"]["displayName"].as_str().unwrap_or_default().into(),
+        modified_by_email: v["lastModifyingUser"]["emailAddress"].as_str().unwrap_or_default().to_lowercase(),
         thumbnail: v["thumbnailLink"].as_str().filter(|_| v["hasThumbnail"].as_bool().unwrap_or(true)).map(str::to_string),
         web_link: v["webViewLink"].as_str().map(str::to_string),
         starred: v["starred"].as_bool().unwrap_or(false),
@@ -118,6 +129,8 @@ fn escape(s: &str) -> String {
 /// Une page de fichiers pour une source (100 éléments).
 pub fn list(s: &Session, source: &Source, page: Option<&str>) -> Result<(Vec<DriveFile>, Option<String>), String> {
     let (q, order, corpora, drive): (String, &str, &str, Option<&str>) = match source {
+        Source::Favorites => return Ok((Vec::new(), None)),
+        Source::Owner(email) => (format!("'{}' in owners and trashed = false", escape(email)), "modifiedTime desc", "allDrives", None),
         Source::MyDrive => ("'root' in parents and trashed = false".into(), "folder,name_natural", "user", None),
         Source::Folder(id) => (format!("'{}' in parents and trashed = false", escape(id)), "folder,name_natural", "allDrives", None),
         Source::Shared => ("sharedWithMe and trashed = false".into(), "sharedWithMeTime desc", "user", None),
@@ -189,7 +202,7 @@ pub fn export_format(mime: &str) -> Option<(&'static str, &'static str)> {
 /// Contenu du fichier (export Office pour les documents Google).
 pub fn download(s: &Session, f: &DriveFile) -> Result<(Vec<u8>, String), String> {
     if f.is_google() {
-        let (mime, ext) = export_format(&f.mime).ok_or("Ce type de document s'ouvre uniquement dans le navigateur")?;
+        let (mime, ext) = export_format(&f.mime).ok_or(t!("Ce type de document s'ouvre uniquement dans le navigateur", "This type of document only opens in the browser"))?;
         let data = s.get_bytes(&format!("{API}/files/{}/export", f.id), &[("mimeType", mime)], MAX_DOWNLOAD)?;
         Ok((data, format!("{}.{ext}", f.name)))
     } else {
@@ -216,22 +229,22 @@ pub fn thumbnail_sized(s: &Session, url: &str, side: u32) -> Result<Vec<u8>, Str
 /// Libellé du type de fichier.
 pub fn kind_label(f: &DriveFile) -> &'static str {
     match f.mime.as_str() {
-        FOLDER => "Dossier",
+        FOLDER => t!("Dossier", "Folder"),
         "application/vnd.google-apps.document" => "Google Docs",
         "application/vnd.google-apps.spreadsheet" => "Google Sheets",
         "application/vnd.google-apps.presentation" => "Google Slides",
         "application/vnd.google-apps.form" => "Google Forms",
         "application/vnd.google-apps.drawing" => "Google Drawings",
-        "application/vnd.google-apps.shortcut" => "Raccourci",
+        "application/vnd.google-apps.shortcut" => t!("Raccourci", "Shortcut"),
         "application/pdf" => "PDF",
         m if m.starts_with("image/") => "Image",
-        m if m.starts_with("video/") => "Vidéo",
+        m if m.starts_with("video/") => t!("Vidéo", "Video"),
         m if m.starts_with("audio/") => "Audio",
         m if m.contains("zip") || m.contains("compressed") => "Archive",
         m if m.contains("word") => "Word",
         m if m.contains("sheet") || m.contains("excel") => "Excel",
         m if m.contains("presentation") || m.contains("powerpoint") => "PowerPoint",
-        _ => "Fichier",
+        _ => t!("Fichier", "File"),
     }
 }
 
@@ -245,11 +258,22 @@ mod tests {
         let f = parse(&json!({
             "id": "1", "name": "Brief.pdf", "mimeType": "application/pdf",
             "modifiedTime": "2026-10-20T10:00:00.000Z", "size": "2048",
-            "owners": [{ "displayName": "Léa" }], "parents": ["p"]
+            "owners": [{ "displayName": "Léa", "emailAddress": "Lea@Studio.fr" }], "parents": ["p"]
         }));
         assert_eq!((f.size, f.owner.as_str(), f.extension().as_str()), (Some(2048), "Léa", "pdf"));
         assert_eq!(kind_label(&f), "PDF");
+        assert_eq!(f.owner_email, "lea@studio.fr", "adresse de l'auteur, en minuscules");
         assert!(export_format("application/vnd.google-apps.form").is_none());
         assert_eq!(escape("l'été"), "l\\'été");
+    }
+
+    #[test]
+    fn favorite_copy_round_trip() {
+        let f = DriveFile { id: "abc".into(), name: "Rendus".into(), mime: FOLDER.into(), parents: vec!["root".into()], ..Default::default() };
+        let back: Vec<DriveFile> = serde_json::from_str(&serde_json::to_string(&vec![f]).unwrap()).unwrap();
+        assert!(back[0].is_folder() && back[0].name == "Rendus");
+        // Champs manquants (copie d'une version antérieure) : valeurs par défaut.
+        let old: DriveFile = serde_json::from_str(r#"{"id":"x","name":"a.pdf"}"#).unwrap();
+        assert_eq!(old.extension(), "pdf");
     }
 }

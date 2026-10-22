@@ -68,7 +68,7 @@ impl ThemeId {
             ThemeId::Dracula => "Dracula",
             ThemeId::Unreal => "Unreal Engine 5.8",
             ThemeId::Discord => "Discord",
-            ThemeId::Noire => "Noire",
+            ThemeId::Noire => t!("Noire", "Black"),
             ThemeId::Ps2 => "PS2",
             ThemeId::GameBoy => "Game Boy",
             ThemeId::Wii => "Wii",
@@ -246,8 +246,8 @@ impl FontChoice {
             FontChoice::PlexSans => "IBM Plex Sans",
             FontChoice::Lato => "Lato",
             FontChoice::PlexSerif => "IBM Plex Serif",
-            FontChoice::Hack => "Hack (chasse fixe)",
-            FontChoice::PlexMono => "IBM Plex Mono (chasse fixe)",
+            FontChoice::Hack => t!("Hack (chasse fixe)", "Hack (monospace)"),
+            FontChoice::PlexMono => t!("IBM Plex Mono (chasse fixe)", "IBM Plex Mono (monospace)"),
         }
     }
 

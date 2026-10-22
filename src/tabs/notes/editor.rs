@@ -54,26 +54,27 @@ pub enum Cmd {
     Link(LinkTab),
 }
 
-pub const COMMANDS: [(&str, &str, &str, Cmd); 19] = [
-    ("¶", "Texte", "texte paragraphe text", Cmd::Kind(Kind::Text)),
-    ("H1", "Titre 1", "titre heading h1", Cmd::Kind(Kind::H1)),
-    ("H2", "Titre 2", "titre heading h2", Cmd::Kind(Kind::H2)),
-    ("H3", "Titre 3", "titre heading h3", Cmd::Kind(Kind::H3)),
-    ("•", "Liste à puces", "liste puces bullet", Cmd::Kind(Kind::Bullet)),
-    ("1.", "Liste numérotée", "liste numérotée numbered", Cmd::Kind(Kind::Numbered)),
-    ("☑", "Case à cocher", "case cocher todo tâche checkbox", Cmd::Kind(Kind::Todo(false))),
-    ("❝", "Citation", "citation quote", Cmd::Kind(Kind::Quote)),
-    ("{}", "Code", "code bloc", Cmd::Kind(Kind::Code)),
-    ("—", "Séparateur", "séparateur ligne divider", Cmd::Kind(Kind::Divider)),
-    ("🖼", "Image", "image photo", Cmd::Image),
-    ("📎", "Fichier joint", "fichier pièce jointe file", Cmd::File),
-    ("📅", "Date du jour", "date aujourd'hui today", Cmd::Today),
-    ("✉", "Mail", "mail courriel email gmail", Cmd::Link(LinkTab::Mail)),
-    ("💬", "Message Google Chat", "message chat conversation discussion", Cmd::Link(LinkTab::Chat)),
-    ("🗓", "Événement de l'agenda", "événement evenement agenda calendrier rendez-vous réunion", Cmd::Link(LinkTab::Event)),
-    ("✅", "Tâche", "tâche tache kanban todo", Cmd::Link(LinkTab::Task)),
-    ("📆", "Date", "date jour calendrier", Cmd::Link(LinkTab::Date)),
-    ("📄", "Fichier Google Drive", "fichier drive document doc sheet", Cmd::Link(LinkTab::Drive)),
+/// Commandes « / » : icône, nom français, nom anglais, mots-clés de recherche, action.
+pub const COMMANDS: [(&str, &str, &str, &str, Cmd); 19] = [
+    ("¶", "Texte", "Text", "texte paragraphe text", Cmd::Kind(Kind::Text)),
+    ("H1", "Titre 1", "Heading 1", "titre heading h1", Cmd::Kind(Kind::H1)),
+    ("H2", "Titre 2", "Heading 2", "titre heading h2", Cmd::Kind(Kind::H2)),
+    ("H3", "Titre 3", "Heading 3", "titre heading h3", Cmd::Kind(Kind::H3)),
+    ("•", "Liste à puces", "Bulleted list", "liste puces bullet", Cmd::Kind(Kind::Bullet)),
+    ("1.", "Liste numérotée", "Numbered list", "liste numérotée numbered", Cmd::Kind(Kind::Numbered)),
+    ("☑", "Case à cocher", "Checkbox", "case cocher todo tâche checkbox", Cmd::Kind(Kind::Todo(false))),
+    ("❝", "Citation", "Quote", "citation quote", Cmd::Kind(Kind::Quote)),
+    ("{}", "Code", "Code", "code bloc", Cmd::Kind(Kind::Code)),
+    ("—", "Séparateur", "Divider", "séparateur ligne divider", Cmd::Kind(Kind::Divider)),
+    ("🖼", "Image", "Image", "image photo", Cmd::Image),
+    ("📎", "Fichier joint", "Attached file", "fichier pièce jointe file", Cmd::File),
+    ("📅", "Date du jour", "Today's date", "date aujourd'hui today", Cmd::Today),
+    ("✉", "Mail", "Mail", "mail courriel email gmail", Cmd::Link(LinkTab::Mail)),
+    ("💬", "Message Google Chat", "Google Chat message", "message chat conversation discussion", Cmd::Link(LinkTab::Chat)),
+    ("🗓", "Événement de l'agenda", "Calendar event", "événement evenement agenda calendrier rendez-vous réunion", Cmd::Link(LinkTab::Event)),
+    ("✅", "Tâche", "Task", "tâche tache kanban todo", Cmd::Link(LinkTab::Task)),
+    ("📆", "Date", "Date", "date jour calendrier", Cmd::Link(LinkTab::Date)),
+    ("📄", "Fichier Google Drive", "Google Drive file", "fichier drive document doc sheet", Cmd::Link(LinkTab::Drive)),
 ];
 
 /// Les commandes de rattachement commencent ici (titre de section du menu).
@@ -194,7 +195,13 @@ pub fn body(ui: &mut egui::Ui, note: &mut Note, ed: &mut Ed, edit: bool) -> Opti
                     None => {
                         let (r, resp) = ui.allocate_exact_size(vec2(width, 40.0), Sense::click());
                         ui.painter().rect_stroke(r, CornerRadius::same(6), Stroke::new(1.0, theme::BORDER()), egui::StrokeKind::Inside);
-                        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, format!("Image introuvable : {rel}"), egui::FontId::proportional(12.0), theme::TEXT_MUTED());
+                        ui.painter().text(
+                            r.center(),
+                            egui::Align2::CENTER_CENTER,
+                            tf!("Image introuvable : {rel}", "Image not found: {rel}"),
+                            egui::FontId::proportional(12.0),
+                            theme::TEXT_MUTED(),
+                        );
                         if edit && resp.hovered() && delete_button(ui, r) {
                             ops.push(Op::Remove(i));
                         }
@@ -257,7 +264,7 @@ pub fn body(ui: &mut egui::Ui, note: &mut Note, ed: &mut Ed, edit: bool) -> Opti
 /// Bouton « × » dessiné par-dessus un bloc (sans réserver de place dans la mise en page).
 fn delete_button(ui: &mut egui::Ui, r: Rect) -> bool {
     let b = Rect::from_min_size(r.right_top() + vec2(-32.0, 6.0), vec2(26.0, 26.0));
-    let resp = ui.interact(b, ui.scope_id().with(("wt_note_del", r.min.x as i32, r.min.y as i32)), Sense::click()).on_hover_text("Supprimer");
+    let resp = ui.interact(b, ui.scope_id().with(("wt_note_del", r.min.x as i32, r.min.y as i32)), Sense::click()).on_hover_text(t!("Supprimer", "Delete"));
     let p = ui.painter();
     p.circle_filled(b.center(), 13.0, Color32::from_black_alpha(if resp.hovered() { 240 } else { 190 }));
     let k = 4.5;
@@ -416,11 +423,11 @@ fn text_block(
     let line_h = base.size * 1.5;
     let hint = match kind {
         Kind::H1 | Kind::H2 | Kind::H3 => kind.label(),
-        Kind::Bullet | Kind::Numbered => "Liste",
-        Kind::Todo(_) => "À faire",
-        Kind::Quote => "Citation",
+        Kind::Bullet | Kind::Numbered => t!("Liste", "List"),
+        Kind::Todo(_) => t!("À faire", "To do"),
+        Kind::Quote => t!("Citation", "Quote"),
         Kind::Code => "Code",
-        _ if focused || single => "Écris, ou tape « / » pour les commandes…",
+        _ if focused || single => t!("Écris, ou tape « / » pour les commandes…", "Write, or type “/” for commands…"),
         _ => "",
     };
     let width = ui.available_width();
@@ -606,7 +613,7 @@ fn slash_filter(text: &str, start: usize, cursor: usize) -> String {
 
 fn matches(filter: &str) -> Vec<usize> {
     let f = filter.to_lowercase();
-    (0..COMMANDS.len()).filter(|&k| f.is_empty() || COMMANDS[k].1.to_lowercase().contains(&f) || COMMANDS[k].2.contains(&f)).collect()
+    (0..COMMANDS.len()).filter(|&k| f.is_empty() || COMMANDS[k].1.to_lowercase().contains(&f) || COMMANDS[k].2.to_lowercase().contains(&f) || COMMANDS[k].3.contains(&f)).collect()
 }
 
 /// Menu des commandes « / » sous le curseur ; renvoie la commande choisie.
@@ -633,7 +640,7 @@ fn slash_menu(ui: &mut egui::Ui, note: &Note, ed: &mut Ed) -> Option<Cmd> {
             s.sel = (s.sel + list.len() - 1) % list.len();
         }
         if inp.consume_key(Modifiers::NONE, Key::Enter) || inp.consume_key(Modifiers::NONE, Key::Tab) {
-            chosen = Some(COMMANDS[list[s.sel]].3);
+            chosen = Some(COMMANDS[list[s.sel]].4);
         }
     });
     if ui.input_mut(|inp| inp.consume_key(Modifiers::NONE, Key::Escape)) {
@@ -661,12 +668,15 @@ fn slash_menu(ui: &mut egui::Ui, note: &Note, ed: &mut Ed) -> Option<Cmd> {
                     ui.set_width(232.0);
                     ui.spacing_mut().item_spacing.y = 1.0;
                     for (row, &k) in list.iter().enumerate() {
-                        let (icon, label, _, cmd) = COMMANDS[k];
+                        let (icon, fr, en, _, cmd) = COMMANDS[k];
+                        let label = t!(fr, en);
                         if row == 0 || (k >= FIRST_LINK && list[row - 1] < FIRST_LINK) {
                             if row > 0 {
                                 ui.add_space(4.0);
                             }
-                            ui.label(egui::RichText::new(if k >= FIRST_LINK { "RATTACHER" } else { "BLOCS" }).small().strong().color(theme::TEXT_MUTED()));
+                            ui.label(
+                                egui::RichText::new(if k >= FIRST_LINK { t!("RATTACHER", "LINK") } else { t!("BLOCS", "BLOCKS") }).small().strong().color(theme::TEXT_MUTED()),
+                            );
                         }
                         let (r, resp) = ui.allocate_exact_size(vec2(232.0, 28.0), Sense::click());
                         if row == s.sel {

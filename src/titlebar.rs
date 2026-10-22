@@ -37,10 +37,10 @@ pub fn show(ctx: &egui::Context, window: Rect) {
             let r = Rect::from_min_size(Pos2::new(buttons.left() + i as f32 * BUTTON_W, bar.top()), vec2(BUTTON_W, HEIGHT));
             let resp = ui.interact(r, egui::Id::unique(("wt_titlebar_btn", i)), Sense::click());
             let tip = match b {
-                Button::Minimize => "Réduire",
-                Button::Maximize if maximized => "Restaurer",
-                Button::Maximize => "Agrandir",
-                Button::Close => "Fermer",
+                Button::Minimize => t!("Réduire", "Minimise"),
+                Button::Maximize if maximized => t!("Restaurer", "Restore"),
+                Button::Maximize => t!("Agrandir", "Maximise"),
+                Button::Close => t!("Fermer", "Close"),
             };
             let resp = resp.on_hover_text(tip);
             let p = ui.painter();

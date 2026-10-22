@@ -173,9 +173,11 @@ pub fn migrate() {
             copied += 1;
         }
     }
-    let readme = "Données de WorkTable.\n\
+    let readme = "Données de WorkTable / WorkTable data.\n\n\
                   config : réglages, tâches, contacts, liens… — data : notes — secrets : identifiants Google\n\
-                  (à ne jamais publier ni partager).\n";
+                  (à ne jamais publier ni partager).\n\n\
+                  config: settings, tasks, contacts, links… — data: notes — secrets: Google credentials\n\
+                  (never publish or share them).\n";
     let _ = std::fs::write(root.join("LISEZMOI.txt"), readme);
     let _ = std::fs::write(marker, format!("{copied} fichier(s) repris de l'ancien emplacement\n"));
 }

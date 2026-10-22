@@ -136,7 +136,11 @@ pub fn field(ui: &mut egui::Ui, label: &str, text: &mut String, salt: &str, hint
                         }
                     }
                     ui.add_space(4.0);
-                    ui.label(RichText::new("  Tab ou Entrée pour ajouter · ↑ ↓ pour choisir · Échap").small().color(theme::TEXT_FAINT()));
+                    ui.label(
+                        RichText::new(t!("  Tab ou Entrée pour ajouter · ↑ ↓ pour choisir · Échap", "  Tab or Enter to add · ↑ ↓ to choose · Esc"))
+                            .small()
+                            .color(theme::TEXT_FAINT()),
+                    );
                 });
         });
         *shared_popup = Some((id, area.response.rect));

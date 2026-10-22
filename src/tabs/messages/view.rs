@@ -59,25 +59,35 @@ enum Action {
     ClearIcon(String),
     PickFiles,
     RemoveFile(usize),
+    TogglePin(ChatMessage),
 }
 
 pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &mut Prefs, book: &Contacts) {
     header(ui, chat);
 
     if acc.session().is_none() {
-        setup_card(ui, "Google Chat", "Connecte ton compte Google pour retrouver tes conversations Google Chat.", |ui| {
-            tabs::settings::google_account_form(ui, acc);
-        });
+        setup_card(
+            ui,
+            "Google Chat",
+            t!("Connecte ton compte Google pour retrouver tes conversations Google Chat.", "Connect your Google account to find your Google Chat conversations."),
+            |ui| {
+                tabs::settings::google_account_form(ui, acc);
+            },
+        );
         return;
     }
     if chat.need_consent {
         setup_card(
             ui,
-            "Autoriser Google Chat",
-            "WorkTable n'a pas encore l'autorisation de lire et d'envoyer tes messages Google Chat. \
+            t!("Autoriser Google Chat", "Allow Google Chat"),
+            t!(
+                "WorkTable n'a pas encore l'autorisation de lire et d'envoyer tes messages Google Chat. \
              Reconnecte-toi pour l'accorder (une seule fois).",
+                "WorkTable is not yet allowed to read and send your Google Chat messages. \
+             Sign in again to grant it (only once)."
+            ),
             |ui| {
-                if ui.button("Autoriser l'accès à Google Chat").clicked() {
+                if ui.button(t!("Autoriser l'accès à Google Chat", "Allow access to Google Chat")).clicked() {
                     chat.retry();
                     acc.connect();
                 }
@@ -87,24 +97,32 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
     }
     if chat.api_disabled || chat.app_missing {
         let text = if chat.app_missing {
-            "L'API Google Chat est activée mais l'application Chat n'est pas configurée dans ton projet \
-             Google Cloud (onglet « Configuration » : nom, avatar, description). Renseigne-la puis réessaie."
+            t!(
+                "L'API Google Chat est activée mais l'application Chat n'est pas configurée dans ton projet \
+             Google Cloud (onglet « Configuration » : nom, avatar, description). Renseigne-la puis réessaie.",
+                "The Google Chat API is enabled but the Chat app is not configured in your Google Cloud \
+             project (“Configuration” tab: name, avatar, description). Fill it in, then try again."
+            )
         } else {
-            "Les API Google Chat et People doivent être activées dans ton projet Google Cloud. \
-             Active-les (boutons ci-dessous), attends une minute, puis réessaie."
+            t!(
+                "Les API Google Chat et People doivent être activées dans ton projet Google Cloud. \
+             Active-les (boutons ci-dessous), attends une minute, puis réessaie.",
+                "The Google Chat and People APIs must be enabled in your Google Cloud project. \
+             Enable them (buttons below), wait a minute, then try again."
+            )
         };
-        setup_card(ui, "Configurer Google Chat", text, |ui| {
+        setup_card(ui, t!("Configurer Google Chat", "Set up Google Chat"), text, |ui| {
             ui.horizontal_wrapped(|ui| {
                 if ui.button("API Google Chat").clicked() {
                     let _ = webbrowser::open("https://console.cloud.google.com/apis/library/chat.googleapis.com");
                 }
-                if ui.button("Configuration de l'app Chat").clicked() {
+                if ui.button(t!("Configuration de l'app Chat", "Chat app configuration")).clicked() {
                     let _ = webbrowser::open("https://console.cloud.google.com/apis/api/chat.googleapis.com/hangouts-chat");
                 }
                 if ui.button("API People").clicked() {
                     let _ = webbrowser::open("https://console.cloud.google.com/apis/library/people.googleapis.com");
                 }
-                if ui.button("Réessayer").clicked() {
+                if ui.button(t!("Réessayer", "Try again")).clicked() {
                     chat.retry();
                 }
             });
@@ -165,6 +183,7 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
             Action::OpenThread(t) => chat.thread = Some(t),
             Action::CloseThread => chat.thread = None,
             Action::StartEdit(m) => chat.editing = Some((m.name.clone(), m.text.clone())),
+            Action::TogglePin(m) => chat.toggle_pin(&m),
             Action::SaveEdit => chat.save_edit(acc),
             Action::CancelEdit => chat.editing = None,
             Action::AskDelete(n) => ui.ctx().data_mut(|d| {
@@ -210,10 +229,10 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
             Action::Mute(s) => {
                 if prefs.chat_muted.contains(&s) {
                     prefs.chat_muted.retain(|x| *x != s);
-                    chat.info("Notifications réactivées");
+                    chat.info(t!("Notifications réactivées", "Notifications turned back on"));
                 } else {
                     prefs.chat_muted.push(s);
-                    chat.info("Conversation rendue muette");
+                    chat.info(t!("Conversation rendue muette", "Conversation muted"));
                 }
             }
             Action::PickIcon(s) => {
@@ -246,7 +265,7 @@ fn react_picker(ui: &mut egui::Ui, chat: &mut ChatState, actions: &mut Vec<Actio
     let mut picked = None;
     let area = egui::Area::new(egui::Id::unique("wt_chat_react_picker")).order(egui::Order::Foreground).fixed_pos(pos + vec2(-300.0, 4.0)).constrain(true).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
-            ui.label(RichText::new("RÉAGIR").small().strong().color(theme::TEXT_MUTED()));
+            ui.label(RichText::new(t!("RÉAGIR", "REACT")).small().strong().color(theme::TEXT_MUTED()));
             picked = emoji::picker(ui, &mut q, &mut g, &recent);
         });
     });
@@ -276,12 +295,16 @@ fn animated_column(ui: &mut egui::Ui, w: f32, full: f32, k: f32, body: impl FnOn
 
 /// Boutons d'affichage des blocs Groupes / Personnes.
 fn block_toggles(ui: &mut egui::Ui, prefs: &Prefs, actions: &mut Vec<Action>) {
-    let g = if prefs.chat_side_hidden { "Groupes ›" } else { "‹ Groupes" };
-    if ui.add(egui::Button::new(RichText::new(g).small()).selected(!prefs.chat_side_hidden)).on_hover_text("Afficher / masquer les groupes").clicked() {
+    let g = if prefs.chat_side_hidden { t!("Groupes ›", "Groups ›") } else { t!("‹ Groupes", "‹ Groups") };
+    if ui.add(egui::Button::new(RichText::new(g).small()).selected(!prefs.chat_side_hidden)).on_hover_text(t!("Afficher / masquer les groupes", "Show / hide groups")).clicked() {
         actions.push(Action::ToggleSide);
     }
-    let p = if prefs.chat_people_hidden { "Personnes ›" } else { "‹ Personnes" };
-    if ui.add(egui::Button::new(RichText::new(p).small()).selected(!prefs.chat_people_hidden)).on_hover_text("Afficher / masquer l'annuaire des personnes").clicked() {
+    let p = if prefs.chat_people_hidden { t!("Personnes ›", "People ›") } else { t!("‹ Personnes", "‹ People") };
+    if ui
+        .add(egui::Button::new(RichText::new(p).small()).selected(!prefs.chat_people_hidden))
+        .on_hover_text(t!("Afficher / masquer l'annuaire des personnes", "Show / hide the people directory"))
+        .clicked()
+    {
         actions.push(Action::TogglePeople);
     }
 }
@@ -290,7 +313,8 @@ fn header(ui: &mut egui::Ui, chat: &ChatState) {
     let n = chat.unread_count();
     widgets::page_header_with(ui, "Messages", "Google Chat", |ui| {
         if n > 0 {
-            widgets::header_badge(ui, &format!("{n} non lu{}", if n > 1 { "s" } else { "" }), true);
+            let badge = if crate::i18n::en() { format!("{n} unread") } else { format!("{n} non lu{}", if n > 1 { "s" } else { "" }) };
+            widgets::header_badge(ui, &badge, true);
         }
     });
 }
@@ -314,10 +338,10 @@ fn setup_card(ui: &mut egui::Ui, title: &str, text: &str, body: impl FnOnce(&mut
 /// Bloc « Groupes » : espaces et discussions de groupe, rangés selon les sections Google Chat.
 fn groups_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &Contacts, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
-        ui.label(widgets::section_title("Groupes"));
+        ui.label(widgets::section_title(t!("Groupes", "Groups")));
         ui.label(RichText::new(chat.spaces.iter().filter(|s| !is_person(s)).count().to_string()).small().color(theme::TEXT_FAINT()));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.button("+").on_hover_text("Créer un groupe").clicked() {
+            if ui.button("+").on_hover_text(t!("Créer un groupe", "Create a group")).clicked() {
                 chat.new_group = if chat.new_group.is_some() { None } else { Some(super::NewGroup { space: true, ..Default::default() }) };
             }
         });
@@ -326,7 +350,7 @@ fn groups_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
     if chat.new_group.is_some() {
         new_group_form(ui, chat, book, actions);
     }
-    ui.add(egui::TextEdit::singleline(&mut chat.query).hint_text("Rechercher un groupe").desired_width(f32::INFINITY));
+    ui.add(egui::TextEdit::singleline(&mut chat.query).hint_text(t!("Rechercher un groupe", "Search a group")).desired_width(f32::INFINITY));
     ui.add_space(10.0);
 
     if chat.spaces.is_empty() {
@@ -336,7 +360,7 @@ fn groups_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
                 ui.add_space(8.0);
             }
         } else {
-            widgets::empty_state(ui, "Aucun groupe", "Tes espaces Google Chat apparaîtront ici");
+            widgets::empty_state(ui, t!("Aucun groupe", "No groups"), t!("Tes espaces Google Chat apparaîtront ici", "Your Google Chat spaces will appear here"));
         }
         return;
     }
@@ -354,9 +378,9 @@ fn groups_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
         let g = chat.spaces.iter().filter(|s| s.kind == SpaceKind::Group && !fav(s) && matches(chat, s)).cloned().collect();
         let rooms = chat.spaces.iter().filter(|s| s.kind == SpaceKind::Space && !fav(s) && matches(chat, s)).cloned().collect();
         let apps = chat.spaces.iter().filter(|s| s.bot_dm && !fav(s) && matches(chat, s)).cloned().collect();
-        groups.push(("group".into(), "Discussions de groupe".into(), g));
-        groups.push(("rooms".into(), "Espaces".into(), rooms));
-        groups.push(("apps".into(), "Applications".into(), apps));
+        groups.push(("group".into(), t!("Discussions de groupe", "Group chats").into(), g));
+        groups.push(("rooms".into(), t!("Espaces", "Spaces").into(), rooms));
+        groups.push(("apps".into(), t!("Applications", "Apps").into(), apps));
     } else {
         let placed: std::collections::HashSet<&str> = chat.sections.iter().flat_map(|x| x.spaces.iter().map(String::as_str)).collect();
         for sec in &chat.sections {
@@ -378,7 +402,7 @@ fn groups_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
                 .cloned()
                 .collect();
             list.sort_by_key(|s| -s.last_active);
-            let title = if sec.id == "default-direct-messages" { "Discussions de groupe".to_string() } else { sec.title.clone() };
+            let title = if sec.id == "default-direct-messages" { t!("Discussions de groupe", "Group chats").to_string() } else { sec.title.clone() };
             groups.push((format!("sec_{}", sec.id), title, list));
         }
     }
@@ -388,7 +412,7 @@ fn groups_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
         let mut first = true;
         if !favs.is_empty() {
             first = false;
-            let open = section_header(ui, chat, "fav", "Favoris", &favs);
+            let open = section_header(ui, chat, "fav", t!("Favoris", "Favourites"), &favs);
             liquid::collapse(ui, "chat_fav", open, |ui| {
                 for s in &favs {
                     space_row(ui, chat, s, true, false, &mut hl, actions);
@@ -451,14 +475,17 @@ fn groups_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
         if let Some(e) = chat.sections_error.clone() {
             let low = e.to_lowercase();
             let hint = if low.contains("scope") || low.contains("insufficient") || low.contains("permission") {
-                "Tes sections Google Chat n'ont pas pu être lues : reconnecte-toi (Réglages › Google) pour accorder l'accès aux sections."
+                t!(
+                    "Tes sections Google Chat n'ont pas pu être lues : reconnecte-toi (Réglages › Google) pour accorder l'accès aux sections.",
+                    "Your Google Chat sections could not be read: sign in again (Settings › Google) to grant access to sections."
+                )
             } else {
-                "Tes sections Google Chat n'ont pas pu être lues (disposition par défaut affichée)."
+                t!("Tes sections Google Chat n'ont pas pu être lues (disposition par défaut affichée).", "Your Google Chat sections could not be read (default layout shown).")
             };
             section_rule(ui);
             ui.label(RichText::new(hint).small().color(theme::TEXT_MUTED()));
-            ui.add(egui::Label::new(RichText::new(format!("Détail : {e}")).small().color(theme::TEXT_FAINT())).selectable(true).wrap());
-            if ui.small_button("Réessayer").clicked() {
+            ui.add(egui::Label::new(RichText::new(tf!("Détail : {e}", "Details: {e}")).small().color(theme::TEXT_FAINT())).selectable(true).wrap());
+            if ui.small_button(t!("Réessayer", "Try again")).clicked() {
                 chat.retry_sections();
             }
         }
@@ -470,20 +497,21 @@ fn new_group_form(ui: &mut egui::Ui, chat: &mut ChatState, book: &Contacts, acti
     let mut cancel = false;
     egui::Frame::new().fill(theme::BG()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(10)).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
         let Some(g) = chat.new_group.as_mut() else { return };
-        ui.label(RichText::new("NOUVEAU GROUPE").small().strong().color(theme::TEXT_MUTED()));
+        ui.label(RichText::new(t!("NOUVEAU GROUPE", "NEW GROUP")).small().strong().color(theme::TEXT_MUTED()));
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut g.space, true, "Espace").on_hover_text("Groupe nommé, ouvert à d'autres membres");
-            ui.selectable_value(&mut g.space, false, "Discussion de groupe").on_hover_text("Conversation sans nom (2 personnes minimum)");
+            ui.selectable_value(&mut g.space, true, t!("Espace", "Space")).on_hover_text(t!("Groupe nommé, ouvert à d'autres membres", "Named group, open to other members"));
+            ui.selectable_value(&mut g.space, false, t!("Discussion de groupe", "Group chat"))
+                .on_hover_text(t!("Conversation sans nom (2 personnes minimum)", "Unnamed conversation (2 people minimum)"));
         });
         if g.space {
-            ui.add(egui::TextEdit::singleline(&mut g.name).hint_text("Nom de l'espace").desired_width(f32::INFINITY));
+            ui.add(egui::TextEdit::singleline(&mut g.name).hint_text(t!("Nom de l'espace", "Space name")).desired_width(f32::INFINITY));
         }
-        recipients::field(ui, "", &mut g.members, "chat_new_group", "Membres (annuaire)", book, &mut chat.suggest);
+        recipients::field(ui, "", &mut g.members, "chat_new_group", t!("Membres (annuaire)", "Members (directory)"), book, &mut chat.suggest);
         ui.horizontal(|ui| {
-            if ui.button("Créer").clicked() {
+            if ui.button(t!("Créer", "Create")).clicked() {
                 actions.push(Action::CreateGroup);
             }
-            cancel = ui.button("Annuler").clicked();
+            cancel = ui.button(t!("Annuler", "Cancel")).clicked();
         });
     });
     if cancel {
@@ -509,31 +537,35 @@ fn section_rule(ui: &mut egui::Ui) {
 fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &Contacts, actions: &mut Vec<Action>) {
     let people: Vec<Space> = chat.spaces.iter().filter(|s| is_person(s)).cloned().collect();
     ui.horizontal(|ui| {
-        ui.label(widgets::section_title("Personnes"));
+        ui.label(widgets::section_title(t!("Personnes", "People")));
         ui.label(RichText::new(people.len().to_string()).small().color(theme::TEXT_FAINT()));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.button("+").on_hover_text("Nouvelle conversation privée").clicked() {
+            if ui.button("+").on_hover_text(t!("Nouvelle conversation privée", "New direct conversation")).clicked() {
                 chat.new_dm = if chat.new_dm.is_some() { None } else { Some(String::new()) };
             }
         });
     });
     ui.add_space(8.0);
     if let Some(addr) = &mut chat.new_dm {
-        recipients::field(ui, "", addr, "chat_new_dm", "Nom ou adresse (annuaire)", book, &mut chat.suggest);
+        recipients::field(ui, "", addr, "chat_new_dm", t!("Nom ou adresse (annuaire)", "Name or address (directory)"), book, &mut chat.suggest);
         let email = crate::tabs::mail::contacts::parse_mailbox(addr.trim().trim_end_matches(',')).map(|(_, e)| e).unwrap_or_else(|| addr.trim().trim_end_matches(',').to_string());
         let mut cancel = false;
         ui.horizontal(|ui| {
-            if ui.add_enabled(email.contains('@'), egui::Button::new("Ouvrir")).clicked() {
+            if ui.add_enabled(email.contains('@'), egui::Button::new(t!("Ouvrir", "Open"))).clicked() {
                 actions.push(Action::OpenDm(email.clone()));
             }
-            cancel = ui.button("Annuler").clicked();
+            cancel = ui.button(t!("Annuler", "Cancel")).clicked();
         });
         if cancel {
             chat.new_dm = None;
         }
         ui.add_space(8.0);
     }
-    let search = ui.add(egui::TextEdit::singleline(&mut chat.people_query).hint_text("Rechercher une personne (nom ou adresse)").desired_width(f32::INFINITY));
+    let search = ui.add(
+        egui::TextEdit::singleline(&mut chat.people_query)
+            .hint_text(t!("Rechercher une personne (nom ou adresse)", "Search a person (name or address)"))
+            .desired_width(f32::INFINITY),
+    );
     let enter = search.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
     ui.add_space(10.0);
 
@@ -571,20 +603,20 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
     }
     if all.is_empty() && starts.is_empty() {
         let hint = if !q.is_empty() {
-            "Aucune conversation ni contact : tape une adresse complète"
+            t!("Aucune conversation ni contact : tape une adresse complète", "No conversation or contact: type a full address")
         } else if chat.loading {
-            "Chargement…"
+            t!("Chargement…", "Loading…")
         } else {
-            "Ouvre une conversation avec « + »"
+            t!("Ouvre une conversation avec « + »", "Open a conversation with “+”")
         };
-        widgets::empty_state(ui, "Aucune personne", hint);
+        widgets::empty_state(ui, t!("Aucune personne", "No one"), hint);
         return;
     }
 
     egui::ScrollArea::vertical().id_salt("chat_people").auto_shrink([false, false]).show(ui, |ui| {
         let mut hl = Liquid::begin(ui, "chat_people_nav");
         if !recents.is_empty() && q.is_empty() {
-            let open = section_header(ui, chat, "recent", "Récents", &recents);
+            let open = section_header(ui, chat, "recent", t!("Récents", "Recent"), &recents);
             liquid::collapse(ui, "chat_recent", open, |ui| {
                 for s in &recents {
                     recent_row(ui, chat, s, actions);
@@ -593,11 +625,11 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
             section_rule(ui);
         }
         if !starts.is_empty() {
-            ui.label(RichText::new("NOUVELLE CONVERSATION").small().color(theme::TEXT_MUTED()));
+            ui.label(RichText::new(t!("NOUVELLE CONVERSATION", "NEW CONVERSATION")).small().color(theme::TEXT_MUTED()));
             ui.add_space(4.0);
             for (name, email) in &starts {
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
-                let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Démarrer une conversation privée");
+                let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(t!("Démarrer une conversation privée", "Start a direct conversation"));
                 let p = ui.painter();
                 if resp.hovered() {
                     p.rect_filled(rect, CornerRadius::same(8), HOVER);
@@ -607,7 +639,7 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
                 p.galley(Pos2::new(rect.left() + 42.0, rect.top() + 4.0), g, theme::TEXT());
                 let g = one_line(p, email, FontId::proportional(11.0), theme::TEXT_FAINT(), rect.width() - 80.0);
                 p.galley(Pos2::new(rect.left() + 42.0, rect.top() + 22.0), g, theme::TEXT_FAINT());
-                p.text(Pos2::new(rect.right() - 10.0, rect.center().y), Align2::RIGHT_CENTER, "Écrire ›", FontId::proportional(11.0), theme::LINK());
+                p.text(Pos2::new(rect.right() - 10.0, rect.center().y), Align2::RIGHT_CENTER, t!("Écrire ›", "Write ›"), FontId::proportional(11.0), theme::LINK());
                 if resp.clicked() {
                     actions.push(Action::OpenDm(email.clone()));
                 }
@@ -623,7 +655,7 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
             ui,
             chat,
             "people_all",
-            if q.is_empty() { "Toutes les personnes" } else { "Conversations existantes" },
+            if q.is_empty() { t!("Toutes les personnes", "Everyone") } else { t!("Conversations existantes", "Existing conversations") },
             &all.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>(),
         );
         liquid::collapse(ui, "chat_people_all", open, |ui| {
@@ -724,19 +756,19 @@ fn person_entry(ui: &mut egui::Ui, chat: &ChatState, s: &Space, fav: bool, hl: &
     }
     resp.context_menu(|ui| {
         ui.set_min_width(210.0);
-        if ui.button(if muted { "Réactiver les notifications" } else { "Rendre muet" }).clicked() {
+        if ui.button(if muted { t!("Réactiver les notifications", "Turn notifications back on") } else { t!("Rendre muet", "Mute") }).clicked() {
             actions.push(Action::Mute(s.name.clone()));
             ui.close();
         }
-        if ui.button(if fav { "Retirer des favoris" } else { "Ajouter aux favoris" }).clicked() {
+        if ui.button(if fav { t!("Retirer des favoris", "Remove from favourites") } else { t!("Ajouter aux favoris", "Add to favourites") }).clicked() {
             actions.push(Action::Favorite(s.name.clone()));
             ui.close();
         }
-        if !email.is_empty() && ui.button("Écrire un mail").clicked() {
+        if !email.is_empty() && ui.button(t!("Écrire un mail", "Write a mail")).clicked() {
             actions.push(Action::MailTo(email.clone()));
             ui.close();
         }
-        if ui.button("Ouvrir dans Google Chat").clicked() {
+        if ui.button(t!("Ouvrir dans Google Chat", "Open in Google Chat")).clicked() {
             let _ = webbrowser::open(&s.web_link());
             ui.close();
         }
@@ -824,8 +856,12 @@ fn space_row(ui: &mut egui::Ui, chat: &ChatState, s: &Space, fav: bool, drag: bo
         .get(&s.name)
         .and_then(|l| l.last())
         .map(|m| {
-            let who = if Some(m.sender.as_str()) == chat.me.as_deref() { "Vous : ".to_string() } else { format!("{} : ", first_name(&chat.name_of(&m.sender))) };
-            let body = if m.text.is_empty() && !m.attachments.is_empty() { "📎 Pièce jointe".to_string() } else { format::preview(&m.text, &|u| chat.name_of(u)) };
+            let who = if Some(m.sender.as_str()) == chat.me.as_deref() { t!("Vous : ", "You: ").to_string() } else { format!("{} : ", first_name(&chat.name_of(&m.sender))) };
+            let body = if m.text.is_empty() && !m.attachments.is_empty() {
+                t!("📎 Pièce jointe", "📎 Attachment").to_string()
+            } else {
+                format::preview(&m.text, &|u| chat.name_of(u))
+            };
             format!("{who}{body}")
         })
         .unwrap_or_else(|| kind_label(s));
@@ -838,25 +874,25 @@ fn space_row(ui: &mut egui::Ui, chat: &ChatState, s: &Space, fav: bool, drag: bo
     let has_icon = chat.icons.contains_key(&s.name);
     resp.context_menu(|ui| {
         ui.set_min_width(210.0);
-        if ui.button(if muted { "Réactiver les notifications" } else { "Rendre muet" }).clicked() {
+        if ui.button(if muted { t!("Réactiver les notifications", "Turn notifications back on") } else { t!("Rendre muet", "Mute") }).clicked() {
             actions.push(Action::Mute(s.name.clone()));
             ui.close();
         }
-        if ui.button(if fav { "Retirer des favoris" } else { "Ajouter aux favoris" }).clicked() {
+        if ui.button(if fav { t!("Retirer des favoris", "Remove from favourites") } else { t!("Ajouter aux favoris", "Add to favourites") }).clicked() {
             actions.push(Action::Favorite(s.name.clone()));
             ui.close();
         }
         ui.separator();
-        if ui.button("Choisir une image…").clicked() {
+        if ui.button(t!("Choisir une image…", "Choose an image…")).clicked() {
             actions.push(Action::PickIcon(s.name.clone()));
             ui.close();
         }
-        if has_icon && ui.button("Retirer l'image").clicked() {
+        if has_icon && ui.button(t!("Retirer l'image", "Remove the image")).clicked() {
             actions.push(Action::ClearIcon(s.name.clone()));
             ui.close();
         }
         ui.separator();
-        if ui.button("Ouvrir dans Google Chat").clicked() {
+        if ui.button(t!("Ouvrir dans Google Chat", "Open in Google Chat")).clicked() {
             let _ = webbrowser::open(&s.web_link());
             ui.close();
         }
@@ -865,10 +901,10 @@ fn space_row(ui: &mut egui::Ui, chat: &ChatState, s: &Space, fav: bool, drag: bo
 
 fn kind_label(s: &Space) -> String {
     match s.kind {
-        SpaceKind::Dm => "Message privé".into(),
-        SpaceKind::Group => "Discussion de groupe".into(),
-        SpaceKind::Space if s.members > 0 => format!("Espace · {} membres", s.members),
-        SpaceKind::Space => "Espace".into(),
+        SpaceKind::Dm => t!("Message privé", "Direct message").into(),
+        SpaceKind::Group => t!("Discussion de groupe", "Group chat").into(),
+        SpaceKind::Space if s.members > 0 => tf!("Espace · {} membres", "Space · {} members", s.members),
+        SpaceKind::Space => t!("Espace", "Space").into(),
     }
 }
 
@@ -949,7 +985,7 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
     let Some(space) = chat.open.clone().and_then(|o| chat.space(&o).cloned()) else {
         ui.horizontal(|ui| block_toggles(ui, prefs, actions));
         ui.add_space(ui.available_height() * 0.38);
-        widgets::empty_state(ui, "Aucune conversation ouverte", "Choisis une conversation à gauche");
+        widgets::empty_state(ui, t!("Aucune conversation ouverte", "No conversation open"), t!("Choisis une conversation à gauche", "Choose a conversation on the left"));
         return;
     };
     let title = chat.title(&space);
@@ -973,17 +1009,19 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
             ui.label(RichText::new(sub).small().color(theme::TEXT_MUTED()));
         });
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.add(egui::Button::new(RichText::new("Ouvrir dans Google Chat ↗").small()).corner_radius(CornerRadius::same(255))).clicked() {
+            if ui.add(egui::Button::new(RichText::new(t!("Ouvrir dans Google Chat ↗", "Open in Google Chat ↗")).small()).corner_radius(CornerRadius::same(255))).clicked() {
                 let _ = webbrowser::open(&space.web_link());
             }
             if space.kind == SpaceKind::Dm
                 && let Some(e) = chat.others(&space.name).first().and_then(|u| chat.email_of(u))
-                && ui.button("Écrire un mail").on_hover_text(format!("Nouveau mail à {e}")).clicked()
+                && ui.button(t!("Écrire un mail", "Write a mail")).on_hover_text(tf!("Nouveau mail à {e}", "New mail to {e}")).clicked()
             {
                 actions.push(Action::MailTo(e));
             }
             let (r, resp) = ui.allocate_exact_size(vec2(28.0, 26.0), Sense::click());
-            let resp = resp.on_hover_text(if muted { "Réactiver les notifications" } else { "Rendre muet" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = resp
+                .on_hover_text(if muted { t!("Réactiver les notifications", "Turn notifications back on") } else { t!("Rendre muet", "Mute") })
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
             if resp.hovered() {
                 ui.painter().rect_filled(r, CornerRadius::same(6), theme::SURFACE_HI());
             }
@@ -992,7 +1030,9 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
                 actions.push(Action::Mute(space.name.clone()));
             }
             let (r, resp) = ui.allocate_exact_size(vec2(28.0, 26.0), Sense::click());
-            let resp = resp.on_hover_text(if fav { "Retirer des favoris" } else { "Ajouter aux favoris" }).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = resp
+                .on_hover_text(if fav { t!("Retirer des favoris", "Remove from favourites") } else { t!("Ajouter aux favoris", "Add to favourites") })
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
             if resp.hovered() {
                 ui.painter().rect_filled(r, CornerRadius::same(6), theme::SURFACE_HI());
             }
@@ -1020,7 +1060,7 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
             ui.vertical_centered(|ui| {
                 if chat.loading_msgs.contains(&space.name) {
                     ui.add(egui::Spinner::new().size(14.0));
-                } else if ui.small_button("Afficher les messages plus anciens").clicked() {
+                } else if ui.small_button(t!("Afficher les messages plus anciens", "Show older messages")).clicked() {
                     actions.push(Action::Older(space.name.clone()));
                 }
             });
@@ -1034,7 +1074,7 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
                 }
             } else {
                 ui.add_space(30.0);
-                widgets::empty_state(ui, "Aucun message", "Écris le premier message ci-dessous");
+                widgets::empty_state(ui, t!("Aucun message", "No messages"), t!("Écris le premier message ci-dessous", "Write the first message below"));
             }
         }
         let top: Vec<&ChatMessage> = msgs.iter().filter(|m| !(space.threaded && m.thread_reply)).collect();
@@ -1072,11 +1112,11 @@ fn day_separator(ui: &mut egui::Ui, ms: i64) {
     let d = day_of(ms);
     let today = Local::now().date_naive();
     let label = if d == today {
-        "Aujourd'hui".to_string()
+        t!("Aujourd'hui", "Today").to_string()
     } else if Some(d) == today.pred_opt() {
-        "Hier".to_string()
+        t!("Hier", "Yesterday").to_string()
     } else {
-        let mut s = format!("{} {} {}", tabs::weekday_fr(d.weekday()), d.day(), tabs::month_fr(d.month()));
+        let mut s = format!("{} {} {}", tabs::weekday_name(d.weekday()), d.day(), tabs::month_name(d.month()));
         if d.year() != today.year() {
             s.push_str(&format!(" {}", d.year()));
         }
@@ -1133,7 +1173,10 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
         p.galley(Pos2::new(r.left() + AVATAR + 14.0, r.top() + 1.0), ng, theme::TEXT());
         let mut meta = hhmm(m.created);
         if m.bot {
-            meta.push_str("  · Application");
+            meta.push_str(t!("  · Application", "  · App"));
+        }
+        if chat.pins.contains(&m.name) {
+            meta.push_str(t!("  · épinglé", "  · pinned"));
         }
         p.text(Pos2::new(r.left() + AVATAR + 22.0 + nw, r.top() + 3.0), Align2::LEFT_TOP, meta, FontId::proportional(11.0), theme::TEXT_FAINT());
     }
@@ -1152,13 +1195,13 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
                 actions.push(Action::StartEdit(ChatMessage { text: text.clone(), ..m.clone() }));
             }
             ui.horizontal(|ui| {
-                if ui.button("Enregistrer").clicked() {
+                if ui.button(t!("Enregistrer", "Save")).clicked() {
                     actions.push(Action::SaveEdit);
                 }
-                if ui.button("Annuler").clicked() {
+                if ui.button(t!("Annuler", "Cancel")).clicked() {
                     actions.push(Action::CancelEdit);
                 }
-                ui.label(RichText::new("Entrée pour enregistrer · Échap pour annuler").small().color(theme::TEXT_FAINT()));
+                ui.label(RichText::new(t!("Entrée pour enregistrer · Échap pour annuler", "Enter to save · Esc to cancel")).small().color(theme::TEXT_FAINT()));
             });
             if r.has_focus() && ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift) {
                 actions.push(Action::SaveEdit);
@@ -1179,7 +1222,7 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
                 }
             }
             if m.edited {
-                ui.label(RichText::new("(modifié)").small().color(theme::TEXT_FAINT()));
+                ui.label(RichText::new(t!("(modifié)", "(edited)")).small().color(theme::TEXT_FAINT()));
             }
         }
         attachments(ui, chat, m, actions);
@@ -1190,7 +1233,7 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
                     // Pastille : émoji couleur + nombre.
                     let count = ui.painter().layout_no_wrap(n.to_string(), FontId::proportional(12.0), theme::TEXT());
                     let (r, resp) = ui.allocate_exact_size(vec2(36.0 + count.size().x, 24.0), Sense::click());
-                    let resp = resp.on_hover_text("Ajouter / retirer ma réaction").on_hover_cursor(egui::CursorIcon::PointingHand);
+                    let resp = resp.on_hover_text(t!("Ajouter / retirer ma réaction", "Add / remove my reaction")).on_hover_cursor(egui::CursorIcon::PointingHand);
                     let p = ui.painter();
                     p.rect(
                         r,
@@ -1209,32 +1252,37 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
         }
         if threaded && !replies.is_empty() {
             let last = replies.last().map(|r| hhmm(r.created)).unwrap_or_default();
-            let txt = format!("{} réponse{} · dernière à {last}", replies.len(), if replies.len() > 1 { "s" } else { "" });
+            let n = replies.len();
+            let txt = if crate::i18n::en() {
+                format!("{n} repl{} · last at {last}", if n > 1 { "ies" } else { "y" })
+            } else {
+                format!("{n} réponse{} · dernière à {last}", if n > 1 { "s" } else { "" })
+            };
             if ui.add(egui::Button::new(RichText::new(txt).small().color(theme::LINK())).frame(false)).clicked() {
                 actions.push(Action::OpenThread(m.thread.clone()));
             }
         }
         if sending {
-            ui.label(RichText::new("Envoi…").small().italics().color(theme::TEXT_MUTED()));
+            ui.label(RichText::new(t!("Envoi…", "Sending…")).small().italics().color(theme::TEXT_MUTED()));
         }
         if failed {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Échec de l'envoi").small().color(theme::TODAY()));
-                if ui.small_button("Réessayer").clicked() {
+                ui.label(RichText::new(t!("Échec de l'envoi", "Sending failed")).small().color(theme::TODAY()));
+                if ui.small_button(t!("Réessayer", "Try again")).clicked() {
                     actions.push(Action::RetrySend(m.name.clone()));
                 }
-                if ui.small_button("Supprimer").clicked() {
+                if ui.small_button(t!("Supprimer", "Delete")).clicked() {
                     actions.push(Action::DiscardFailed(m.name.clone()));
                 }
             });
         }
         if confirm.as_deref() == Some(m.name.as_str()) {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Supprimer ce message ?").small().color(theme::TODAY()));
-                if ui.small_button("Supprimer").clicked() {
+                ui.label(RichText::new(t!("Supprimer ce message ?", "Delete this message?")).small().color(theme::TODAY()));
+                if ui.small_button(t!("Supprimer", "Delete")).clicked() {
                     actions.push(Action::Delete(m.clone()));
                 }
-                if ui.small_button("Annuler").clicked() {
+                if ui.small_button(t!("Annuler", "Cancel")).clicked() {
                     actions.push(Action::AskDelete(None));
                 }
             });
@@ -1267,6 +1315,9 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
         if threaded && !m.thread_reply {
             items.push(("↩", "Répondre dans le fil"));
         }
+        if !m.name.contains("local/") && !m.name.starts_with("failed/") {
+            items.push(("📌", if chat.pins.contains(&m.name) { "Désépingler" } else { "Épingler" }));
+        }
         if mine {
             items.push(("✎", "Modifier"));
             items.push(("🗑", "Supprimer"));
@@ -1277,7 +1328,7 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
         ui.painter().rect(bar, CornerRadius::same(8), theme::SURFACE(), Stroke::new(1.0, theme::BORDER()), egui::StrokeKind::Inside);
         for (i, (icon, tip)) in items.iter().enumerate() {
             let r = Rect::from_min_size(Pos2::new(bar.left() + 4.0 + i as f32 * bw, bar.top() + 2.0), vec2(bw, 24.0));
-            let resp = ui.interact(r, ui.scope_id().with(("chat_bar", &m.name, i)), Sense::click()).on_hover_text(*tip).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = ui.interact(r, ui.scope_id().with(("chat_bar", &m.name, i)), Sense::click()).on_hover_text(bar_tip(tip)).on_hover_cursor(egui::CursorIcon::PointingHand);
             if resp.hovered() {
                 ui.painter().rect_filled(r.shrink(1.0), CornerRadius::same(6), theme::SURFACE_HI());
             }
@@ -1293,6 +1344,7 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
                     "Répondre dans le fil" => actions.push(Action::OpenThread(m.thread.clone())),
                     "Modifier" => actions.push(Action::StartEdit(m.clone())),
                     "Supprimer" => actions.push(Action::AskDelete(Some(m.name.clone()))),
+                    "Épingler" | "Désépingler" => actions.push(Action::TogglePin(m.clone())),
                     _ => ui.ctx().copy_text(m.text.clone()),
                 }
             }
@@ -1328,7 +1380,7 @@ fn attachments(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, actions: &m
                     let max = vec2(320.0_f32.min(ui.available_width()), 240.0);
                     let scale = (max.x / size.x).min(max.y / size.y).min(1.0);
                     let r = ui.add(egui::Image::new((tex, size * scale)).corner_radius(CornerRadius::same(8)).sense(Sense::click()));
-                    if r.on_hover_text(format!("{} — agrandir", a.name)).on_hover_cursor(egui::CursorIcon::ZoomIn).clicked() {
+                    if r.on_hover_text(tf!("{} — agrandir", "{} — enlarge", a.name)).on_hover_cursor(egui::CursorIcon::ZoomIn).clicked() {
                         actions.push(Action::ViewImage(a.clone()));
                     }
                 }
@@ -1351,10 +1403,30 @@ fn texture_of(chat: &ChatState, _ctx: &egui::Context, key: &str) -> Option<(egui
     })
 }
 
+/// Infobulle d'un bouton de la barre d'actions d'un message (repéré par son nom français).
+fn bar_tip(key: &str) -> &str {
+    if key == "Épingler" {
+        return t!("Épingler au tableau de bord", "Pin to the dashboard");
+    }
+    if !crate::i18n::en() {
+        return key;
+    }
+    match key {
+        "Réagir" => "React",
+        "Autres réactions" => "More reactions",
+        "Répondre dans le fil" => "Reply in thread",
+        "Modifier" => "Edit",
+        "Supprimer" => "Delete",
+        "Copier le texte" => "Copy text",
+        "Désépingler" => "Unpin",
+        other => other,
+    }
+}
+
 fn file_chip(ui: &mut egui::Ui, a: &ChatAttachment, actions: &mut Vec<Action>) {
-    let icon = if a.drive_id.is_some() { "Drive" } else { "Fichier" };
+    let icon = if a.drive_id.is_some() { "Drive" } else { t!("Fichier", "File") };
     let text = RichText::new(format!("📎 {}", a.name)).color(theme::LINK()).underline();
-    let r = ui.add(egui::Button::new(text).frame(false)).on_hover_text(format!("{icon} — ouvrir avec l'application par défaut"));
+    let r = ui.add(egui::Button::new(text).frame(false)).on_hover_text(tf!("{icon} — ouvrir avec l'application par défaut", "{icon} — open with the default app"));
     if r.clicked() {
         actions.push(Action::OpenAttachment(a.clone()));
     }
@@ -1371,7 +1443,7 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
                 egui::Frame::new().fill(theme::SURFACE_HI()).corner_radius(CornerRadius::same(255)).inner_margin(egui::Margin::symmetric(10, 3)).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(format!("📎 {}", f.name)).small());
-                        if ui.small_button("×").on_hover_text("Retirer").clicked() {
+                        if ui.small_button("×").on_hover_text(t!("Retirer", "Remove")).clicked() {
                             actions.push(Action::RemoveFile(i));
                         }
                     });
@@ -1400,7 +1472,7 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
                     chosen = Some(e.as_str().to_string());
                 }
             }
-            ui.label(RichText::new("Tab pour insérer").small().color(theme::TEXT_FAINT()));
+            ui.label(RichText::new(t!("Tab pour insérer", "Tab to insert")).small().color(theme::TEXT_FAINT()));
         });
         if let (Some(e), Some((at, _))) = (chosen, &pending) {
             text.truncate(*at);
@@ -1441,11 +1513,11 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 for (label, a, b, tip) in [
-                    ("B", "*", "*", "Gras (Ctrl+B)"),
-                    ("I", "_", "_", "Italique (Ctrl+I)"),
-                    ("S", "~", "~", "Barré (Ctrl+Maj+X)"),
-                    ("</>", "`", "`", "Code (Ctrl+Maj+C)"),
-                    ("🔗", "<https://|", ">", "Lien (Ctrl+K) : <adresse|texte>"),
+                    ("B", "*", "*", t!("Gras (Ctrl+B)", "Bold (Ctrl+B)")),
+                    ("I", "_", "_", t!("Italique (Ctrl+I)", "Italic (Ctrl+I)")),
+                    ("S", "~", "~", t!("Barré (Ctrl+Maj+X)", "Strikethrough (Ctrl+Shift+X)")),
+                    ("</>", "`", "`", t!("Code (Ctrl+Maj+C)", "Code (Ctrl+Shift+C)")),
+                    ("🔗", "<https://|", ">", t!("Lien (Ctrl+K) : <adresse|texte>", "Link (Ctrl+K): <address|text>")),
                 ] {
                     let rt = match label {
                         "B" => RichText::new(label).strong(),
@@ -1457,11 +1529,16 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
                         wrap_with(ui.ctx(), id, &mut text, a, b);
                     }
                 }
-                let r = ui.add(egui::Button::new(RichText::new("☺").size(16.0)).frame(false)).on_hover_text("Émojis (ou tape « :nom: »)");
+                let r = ui.add(egui::Button::new(RichText::new("☺").size(16.0)).frame(false)).on_hover_text(t!("Émojis (ou tape « :nom: »)", "Emoji (or type “:name:”)"));
                 if r.clicked() {
                     chat.composer_picker = if chat.composer_picker.is_some() { None } else { Some((key.clone(), r.rect.left_top())) };
                 }
-                if !in_thread && ui.add(egui::Button::new("📎").frame(false)).on_hover_text("Joindre des fichiers (ou glisse-les sur la fenêtre)").clicked() {
+                if !in_thread
+                    && ui
+                        .add(egui::Button::new("📎").frame(false))
+                        .on_hover_text(t!("Joindre des fichiers (ou glisse-les sur la fenêtre)", "Attach files (or drag them onto the window)"))
+                        .clicked()
+                {
                     actions.push(Action::PickFiles);
                 }
             });
@@ -1471,13 +1548,13 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
             }
             ui.horizontal(|ui| {
                 let send_w = 84.0;
-                let hint = if in_thread { "Répondre dans le fil".to_string() } else { format!("Message à {title}") };
+                let hint = if in_thread { t!("Répondre dans le fil", "Reply in thread").to_string() } else { tf!("Message à {title}", "Message to {title}") };
                 ui.add(egui::TextEdit::multiline(&mut text).id(id).hint_text(hint).desired_rows(1).frame(egui::Frame::NONE).desired_width(ui.available_width() - send_w));
                 let can = (!text.trim().is_empty() || (!in_thread && !chat.files.is_empty())) && !chat.sending;
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if chat.sending {
                         ui.add(egui::Spinner::new().size(14.0));
-                    } else if ui.add_enabled(can, egui::Button::new("Envoyer")).on_hover_text("Entrée").clicked() {
+                    } else if ui.add_enabled(can, egui::Button::new(t!("Envoyer", "Send"))).on_hover_text(t!("Entrée", "Enter")).clicked() {
                         send = true;
                     }
                 });
@@ -1524,9 +1601,12 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
         actions.push(Action::Send(in_thread));
     }
     ui.label(
-        RichText::new("Entrée : envoyer · Maj+Entrée : à la ligne · Ctrl+B / Ctrl+I / Ctrl+Maj+X / Ctrl+K · **Markdown** accepté · :nom: pour un émoji")
-            .small()
-            .color(theme::TEXT_FAINT()),
+        RichText::new(t!(
+            "Entrée : envoyer · Maj+Entrée : à la ligne · Ctrl+B / Ctrl+I / Ctrl+Maj+X / Ctrl+K · **Markdown** accepté · :nom: pour un émoji",
+            "Enter: send · Shift+Enter: new line · Ctrl+B / Ctrl+I / Ctrl+Shift+X / Ctrl+K · **Markdown** supported · :name: for an emoji"
+        ))
+        .small()
+        .color(theme::TEXT_FAINT()),
     );
 }
 
@@ -1581,9 +1661,9 @@ fn insert_at_cursor(ctx: &egui::Context, id: egui::Id, text: &mut String, s: &st
 fn thread_panel(ui: &mut egui::Ui, chat: &mut ChatState, actions: &mut Vec<Action>) {
     let (Some(space), Some(thread)) = (chat.open.clone().and_then(|o| chat.space(&o).cloned()), chat.thread.clone()) else { return };
     ui.horizontal(|ui| {
-        ui.label(RichText::new("FIL DE DISCUSSION").small().strong().color(theme::TEXT_MUTED()));
+        ui.label(RichText::new(t!("FIL DE DISCUSSION", "THREAD")).small().strong().color(theme::TEXT_MUTED()));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.small_button("✕").on_hover_text("Fermer (Échap)").clicked() {
+            if ui.small_button("✕").on_hover_text(t!("Fermer (Échap)", "Close (Esc)")).clicked() {
                 actions.push(Action::CloseThread);
             }
         });
@@ -1601,7 +1681,12 @@ fn thread_panel(ui: &mut egui::Ui, chat: &mut ChatState, actions: &mut Vec<Actio
             message(ui, chat, m, compact, false, &[], actions);
             if prev.is_none() && msgs.len() > 1 {
                 ui.add_space(4.0);
-                ui.label(RichText::new(format!("{} réponse{}", msgs.len() - 1, if msgs.len() > 2 { "s" } else { "" })).small().color(theme::TEXT_MUTED()));
+                let n = msgs.len() - 1;
+                ui.label(
+                    RichText::new(if crate::i18n::en() { format!("{n} repl{}", if n > 1 { "ies" } else { "y" }) } else { format!("{n} réponse{}", if n > 1 { "s" } else { "" }) })
+                        .small()
+                        .color(theme::TEXT_MUTED()),
+                );
                 ui.separator();
             }
             prev = Some(m);
@@ -1660,8 +1745,8 @@ fn add_file(chat: &mut ChatState, path: &std::path::Path) {
             let mime = compose::mime_for(&name).to_string();
             chat.files.push(PendingFile { name, mime, data });
         }
-        Ok(_) => chat.info("Fichier trop volumineux (200 Mo maximum)"),
-        Err(e) => chat.info(&format!("Lecture impossible : {e}")),
+        Ok(_) => chat.info(t!("Fichier trop volumineux (200 Mo maximum)", "File too large (200 MB maximum)")),
+        Err(e) => chat.info(&tf!("Lecture impossible : {e}", "Cannot read: {e}")),
     }
 }
 

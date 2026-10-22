@@ -259,7 +259,7 @@ impl MailState {
             }
             Event::Modified { id, labels } => self.apply_labels(&id, &labels),
             Event::LabelCreated(l) => {
-                self.info(format!("Catégorie « {} » créée", l.name));
+                self.info(tf!("Catégorie « {} » créée", "Category “{}” created", l.name));
                 self.labels.retain(|x| x.id != l.id);
                 self.labels.push(l);
                 self.labels.sort_by_key(|l| l.name.to_lowercase());
@@ -283,12 +283,12 @@ impl MailState {
                         acc.run(move |s| Ok(Event::Thread { messages: gmail::get_thread(s, &t)?, open_id }));
                     }
                 }
-                self.info("Message envoyé".into());
+                self.info(t!("Message envoyé", "Message sent").into());
                 self.poll(acc);
             }
             Event::Error(e) if e.contains("exists or conflicts") => {
                 // Nom déjà pris dans Gmail : la catégorie existe, on recharge la liste.
-                self.info("Cette catégorie existe déjà dans Gmail".into());
+                self.info(t!("Cette catégorie existe déjà dans Gmail", "This category already exists in Gmail").into());
                 acc.run(|s| Ok(Event::Labels(gmail::labels(s)?)));
             }
             Event::Error(e) => {
@@ -506,7 +506,7 @@ impl MailState {
         let remove: Vec<String> = remove.into_iter().map(str::to_string).collect();
         let remove_ref: Vec<&str> = remove.iter().map(String::as_str).collect();
         self.modify(acc, id, &[target.id.as_str()], &remove_ref);
-        self.info(format!("Rangé dans « {} »", target.name));
+        self.info(tf!("Rangé dans « {} »", "Moved to “{}”", target.name));
     }
 
     /// Met un mail dans les spams (ou l'en sort : retour en boîte de réception).
@@ -514,10 +514,10 @@ impl MailState {
     pub fn mark_spam(&mut self, acc: &Account, id: &str, spam: bool) {
         if spam {
             self.modify(acc, id, &["SPAM"], &[INBOX]);
-            self.info("Mail déplacé dans les spams".into());
+            self.info(t!("Mail déplacé dans les spams", "Mail moved to spam").into());
         } else {
             self.modify(acc, id, &[INBOX], &["SPAM"]);
-            self.info("Mail replacé dans la boîte de réception".into());
+            self.info(t!("Mail replacé dans la boîte de réception", "Mail moved back to the inbox").into());
         }
         // Le mail quitte le dossier affiché : on ferme sa lecture.
         if self.open.as_ref().is_some_and(|m| m.summary.id == id) && (spam || self.folder == "SPAM") {
@@ -556,7 +556,11 @@ impl MailState {
                 self.pinned.remove(i);
             }
         }
-        self.info(if trash { "Mail mis à la corbeille".into() } else { "Mail replacé dans la boîte de réception".into() });
+        self.info(if trash {
+            t!("Mail mis à la corbeille", "Mail moved to trash").into()
+        } else {
+            t!("Mail replacé dans la boîte de réception", "Mail moved back to the inbox").into()
+        });
         if self.open.as_ref().is_some_and(|m| m.summary.id == id) {
             self.open = None;
         }
@@ -582,16 +586,16 @@ impl MailState {
         if name.is_empty() {
             return;
         }
-        self.info(format!("Création de « {name} »…"));
+        self.info(tf!("Création de « {name} »…", "Creating “{name}”…"));
         acc.run(move |s| Ok(Event::LabelCreated(gmail::create_label(s, &name)?)));
     }
 
     /// Épingle / décroche un mail (3 au maximum).
     pub fn toggle_pin(&mut self, m: &Summary) {
         match self.pinned.toggle(m) {
-            Ok(true) => self.info("Mail épinglé en haut de la boîte".into()),
-            Ok(false) => self.info("Mail décroché".into()),
-            Err(()) => self.info(format!("{} mails épinglés au maximum : décroches-en un d'abord", pinned::MAX)),
+            Ok(true) => self.info(t!("Mail épinglé en haut de la boîte", "Mail pinned to the top of the inbox").into()),
+            Ok(false) => self.info(t!("Mail décroché", "Mail unpinned").into()),
+            Err(()) => self.info(tf!("{} mails épinglés au maximum : décroches-en un d'abord", "{} pinned mails at most: unpin one first", pinned::MAX)),
         }
     }
 
@@ -746,15 +750,15 @@ impl MailState {
 
     pub fn folder_name(&self, id: &str) -> String {
         match id {
-            INBOX => "Boîte de réception".into(),
-            "SENT" => "Envoyés".into(),
+            INBOX => t!("Boîte de réception", "Inbox").into(),
+            "SENT" => t!("Envoyés", "Sent").into(),
             "SPAM" => "Spam".into(),
-            "TRASH" => "Corbeille".into(),
-            STARRED => "Favoris".into(),
+            "TRASH" => t!("Corbeille", "Trash").into(),
+            STARRED => t!("Favoris", "Starred").into(),
             other if other.starts_with("from:") => {
                 let addr = &other[5..];
                 let name = self.contacts.get(addr).map(|c| c.display_name().to_string());
-                format!("De : {}", name.unwrap_or_else(|| addr.to_string()))
+                tf!("De : {}", "From: {}", name.unwrap_or_else(|| addr.to_string()))
             }
             other => self.labels.iter().find(|l| l.id == other).map(|l| l.name.clone()).unwrap_or_else(|| other.to_string()),
         }

@@ -112,23 +112,23 @@ pub fn show(ctx: &egui::Context) {
                     ui.horizontal(|ui| {
                         ui.add(egui::Label::new(RichText::new(&v.name).color(theme::TEXT())).truncate());
                         ui.label(RichText::new(format!("{:.0} %", fit * v.zoom * 100.0)).small().color(theme::TEXT_MUTED()));
-                        if ui.small_button("−").on_hover_text("Dézoomer (−)").clicked() {
+                        if ui.small_button("−").on_hover_text(t!("Dézoomer (−)", "Zoom out (−)")).clicked() {
                             v.zoom = (v.zoom / 1.25).max(0.2);
                         }
-                        if ui.small_button("+").on_hover_text("Zoomer (+ ou molette)").clicked() {
+                        if ui.small_button("+").on_hover_text(t!("Zoomer (+ ou molette)", "Zoom in (+ or mouse wheel)")).clicked() {
                             v.zoom = (v.zoom * 1.25).min(8.0);
                         }
                         let label = match v.open {
                             OpenWith::None => None,
-                            OpenWith::Url(_) => Some(("Ouvrir", "Ouvrir dans le navigateur")),
-                            _ => Some(("Ouvrir", "Ouvrir avec l'application par défaut")),
+                            OpenWith::Url(_) => Some((t!("Ouvrir", "Open"), t!("Ouvrir dans le navigateur", "Open in the browser"))),
+                            _ => Some((t!("Ouvrir", "Open"), t!("Ouvrir avec l'application par défaut", "Open with the default app"))),
                         };
                         if let Some((l, tip)) = label
                             && ui.small_button(l).on_hover_text(tip).clicked()
                         {
                             open = true;
                         }
-                        if ui.small_button("✕").on_hover_text("Fermer (Échap)").clicked() {
+                        if ui.small_button("✕").on_hover_text(t!("Fermer (Échap)", "Close (Esc)")).clicked() {
                             close = true;
                         }
                     });

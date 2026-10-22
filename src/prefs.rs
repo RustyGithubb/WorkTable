@@ -19,11 +19,11 @@ impl Curve {
 
     pub fn label(self) -> &'static str {
         match self {
-            Curve::Linear => "Linéaire",
+            Curve::Linear => t!("Linéaire", "Linear"),
             Curve::EaseIn => "Ease in",
             Curve::EaseOut => "Ease out",
             Curve::EaseInOut => "Ease in-out",
-            Curve::Elastic => "Élastique",
+            Curve::Elastic => t!("Élastique", "Elastic"),
         }
     }
 
@@ -116,9 +116,14 @@ pub struct Prefs {
     pub notif_no_event: bool,
     /// Pas de son à l'arrivée d'un mail ou d'un message.
     pub notif_no_sound: bool,
+    /// « Ne pas déranger » (bouton du tableau de bord) : aucun bandeau ni son jusqu'à ce qu'on
+    /// le désactive.
+    pub do_not_disturb: bool,
     /// Heure en haut à droite masquée (clic dessus ; réaffichable dans Réglages › Apparence).
     pub clock_hidden: bool,
     pub notif_event_minutes: u32,
+    /// Langue de l'interface (celle du système par défaut).
+    pub language: crate::i18n::Language,
 }
 
 fn path() -> Option<PathBuf> {

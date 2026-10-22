@@ -1,6 +1,11 @@
 /target
 # Identifiants Google (client OAuth + jeton de connexion) : ne jamais publier.
 /data/secrets/
+# Contenu des conversations Google Chat (copie chiffrée, messages épinglés) : propre à chacun.
+/data/cache/chat.wtc
+/data/config/chat_pinned.json
+/data/config/chat_people.json
+/data/config/drive_favorites.json
 # Journal de plantage local.
 /data/config/crash.log
 # Installeur généré et identifiants livrés avec lui.

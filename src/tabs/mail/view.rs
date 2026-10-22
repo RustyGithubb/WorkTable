@@ -53,9 +53,10 @@ enum Action {
 
 pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &mut Prefs) {
     let unread = mail.inbox_unread;
-    widgets::page_header_with(ui, "Messagerie", "Gmail", |ui| {
+    widgets::page_header_with(ui, t!("Messagerie", "Mailbox"), "Gmail", |ui| {
         if unread > 0 {
-            widgets::header_badge(ui, &format!("{unread} non lu{}", if unread > 1 { "s" } else { "" }), true);
+            let badge = if crate::i18n::en() { format!("{unread} unread") } else { format!("{unread} non lu{}", if unread > 1 { "s" } else { "" }) };
+            widgets::header_badge(ui, &badge, true);
         }
     });
 
@@ -198,12 +199,14 @@ fn connect_screen(ui: &mut egui::Ui, acc: &mut Account) {
         // Aligné à gauche, comme le contenu des autres onglets.
         let w = 600.0_f32.min(ui.available_width());
         ui.allocate_ui_with_layout(vec2(w, 0.0), Layout::top_down(Align::Min), |ui| {
-            widgets::card(ui, "Connecter Gmail", 0.0, |ui| {
+            widgets::card(ui, t!("Connecter Gmail", "Connect Gmail"), 0.0, |ui| {
                 ui.label(
-                    RichText::new(
+                    RichText::new(t!(
                         "Connecte ton compte Google pour recevoir, lire, répondre, \
                          transférer et ranger tes mails depuis WorkTable.",
-                    )
+                        "Connect your Google account to receive, read, reply to, \
+                         forward and file your mails from WorkTable."
+                    ))
                     .color(theme::TEXT_MUTED()),
                 );
                 ui.add_space(12.0);
@@ -217,7 +220,7 @@ fn connect_screen(ui: &mut egui::Ui, acc: &mut Account) {
 
 fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats: &mut bool, actions: &mut Vec<Action>) {
     let full_w = ui.available_width();
-    if ui.add_sized([full_w, 32.0], egui::Button::new("Nouveau message")).clicked() {
+    if ui.add_sized([full_w, 32.0], egui::Button::new(t!("Nouveau message", "New message"))).clicked() {
         actions.push(Action::Compose);
     }
     ui.add_space(12.0);
@@ -227,13 +230,13 @@ fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats
     egui::ScrollArea::vertical().id_salt("mail_folders").max_height(top_h).auto_shrink([false, true]).show(ui, |ui| {
         // Une seule forme liquide pour dossiers, annuaire et catégories.
         let mut hl = Liquid::begin(ui, "mail_nav");
-        section_title(ui, "Dossiers");
+        section_title(ui, t!("Dossiers", "Folders"));
         for id in FOLDERS {
             if nav_row(ui, &mail.folder_name(id), !mail.directory && mail.folder == id, &mut hl).clicked() {
                 actions.push(Action::Folder(id.into()));
             }
         }
-        if nav_row(ui, &format!("Annuaire · {}", mail.contacts.len()), mail.directory, &mut hl).clicked() {
+        if nav_row(ui, &tf!("Annuaire · {}", "Directory · {}", mail.contacts.len()), mail.directory, &mut hl).clicked() {
             actions.push(Action::Directory);
         }
 
@@ -241,11 +244,15 @@ fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats
         ui.horizontal(|ui| {
             // En-tête cliquable : replie / déplie les catégories.
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 30.0, 18.0), Sense::click());
-            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if cats_open { "Replier les catégories" } else { "Déplier les catégories" });
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if cats_open {
+                t!("Replier les catégories", "Collapse categories")
+            } else {
+                t!("Déplier les catégories", "Expand categories")
+            });
             let k = liquid::animate(ui.ctx(), "cats_chevron", cats_open);
             chevron(ui.painter(), Pos2::new(r.left() + 5.0, r.center().y), k, theme::TEXT_MUTED());
             let n = mail.labels.iter().filter(|l| l.user).count();
-            let title = if cats_open { "CATÉGORIES".to_string() } else { format!("CATÉGORIES · {n}") };
+            let title = if cats_open { t!("CATÉGORIES", "CATEGORIES").to_string() } else { tf!("CATÉGORIES · {n}", "CATEGORIES · {n}") };
             ui.painter().text(
                 Pos2::new(r.left() + 16.0, r.center().y),
                 egui::Align2::LEFT_CENTER,
@@ -257,7 +264,7 @@ fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats
                 *toggle_cats = true;
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.small_button("+").on_hover_text("Nouvelle catégorie").clicked() {
+                if ui.small_button("+").on_hover_text(t!("Nouvelle catégorie", "New category")).clicked() {
                     actions.push(Action::StartCategory);
                     if !cats_open {
                         *toggle_cats = true;
@@ -266,7 +273,7 @@ fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats
             });
         });
         if let Some(name) = &mut mail.new_category {
-            match name_input(ui, "new_category", name, "Nom de la catégorie") {
+            match name_input(ui, "new_category", name, t!("Nom de la catégorie", "Category name")) {
                 Some(true) if !name.trim().is_empty() => actions.push(Action::CreateCategory(name.clone())),
                 Some(_) => actions.push(Action::CancelCategory),
                 None => {}
@@ -276,7 +283,7 @@ fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats
         let (folder, directory) = (mail.folder.clone(), mail.directory);
         liquid::collapse(ui, "mail_categories", cats_open, |ui| {
             if cats.is_empty() && mail.new_category.is_none() {
-                ui.label(RichText::new("Aucune catégorie").small().color(theme::TEXT_FAINT()));
+                ui.label(RichText::new(t!("Aucune catégorie", "No category")).small().color(theme::TEXT_FAINT()));
             }
             for l in &cats {
                 if nav_row(ui, &l.name, !directory && folder == l.id, &mut hl).clicked() {
@@ -297,11 +304,11 @@ fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
         draw_star(ui.painter(), r.center(), 6.0, true, theme::TEXT());
-        section_title(ui, &format!("Favoris · {}", mail.starred.len()));
+        section_title(ui, &tf!("Favoris · {}", "Starred · {}", mail.starred.len()));
     });
     egui::ScrollArea::vertical().id_salt("mail_starred").auto_shrink([false, false]).show(ui, |ui| {
         if mail.starred.is_empty() {
-            ui.label(RichText::new("Ajoute un mail en favori pour le garder ici").small().color(theme::TEXT_FAINT()));
+            ui.label(RichText::new(t!("Ajoute un mail en favori pour le garder ici", "Star a mail to keep it here")).small().color(theme::TEXT_FAINT()));
         }
         let open_id = mail.open.as_ref().map(|m| m.summary.id.as_str());
         let mut hl = Liquid::begin(ui, "mail_starred");
@@ -342,10 +349,10 @@ fn name_input(ui: &mut egui::Ui, salt: &str, text: &mut String, hint: &str) -> O
         } else if esc && focused {
             out = Some(false);
         }
-        if ui.small_button("✓").on_hover_text("Valider (Entrée)").clicked() {
+        if ui.small_button("✓").on_hover_text(t!("Valider (Entrée)", "Confirm (Enter)")).clicked() {
             out = Some(true);
         }
-        if ui.small_button("✕").on_hover_text("Annuler (Échap)").clicked() {
+        if ui.small_button("✕").on_hover_text(t!("Annuler (Échap)", "Cancel (Esc)")).clicked() {
             out = Some(false);
         }
         if out == Some(true) && text.trim().is_empty() {
@@ -367,10 +374,14 @@ fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) {
     let open = mail.groups_open;
     ui.horizontal(|ui| {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 30.0, 18.0), Sense::click());
-        let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if open { "Replier les groupes" } else { "Déplier les groupes" });
+        let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if open {
+            t!("Replier les groupes", "Collapse groups")
+        } else {
+            t!("Déplier les groupes", "Expand groups")
+        });
         let k = liquid::animate(ui.ctx(), "groups_chevron", open);
         chevron(ui.painter(), Pos2::new(r.left() + 5.0, r.center().y), k, theme::TEXT_MUTED());
-        let title = if open { "GROUPES".to_string() } else { format!("GROUPES · {}", mail.groups.len()) };
+        let title = if open { t!("GROUPES", "GROUPS").to_string() } else { tf!("GROUPES · {}", "GROUPS · {}", mail.groups.len()) };
         ui.painter().text(
             Pos2::new(r.left() + 16.0, r.center().y),
             egui::Align2::LEFT_CENTER,
@@ -382,7 +393,7 @@ fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) {
             mail.toggle_groups = true;
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.small_button("+").on_hover_text("Colorer une adresse de groupe").clicked() {
+            if ui.small_button("+").on_hover_text(t!("Colorer une adresse de groupe", "Colour a group address")).clicked() {
                 mail.new_group = Some(String::new());
                 if !open {
                     mail.toggle_groups = true;
@@ -415,7 +426,11 @@ fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) {
             }
         }
         if groups_list.is_empty() && detected.is_empty() && new_group.is_none() {
-            ui.label(RichText::new("Les mails reçus via une adresse de groupe peuvent être colorés ici").small().color(theme::TEXT_FAINT()));
+            ui.label(
+                RichText::new(t!("Les mails reçus via une adresse de groupe peuvent être colorés ici", "Mails received through a group address can be coloured here"))
+                    .small()
+                    .color(theme::TEXT_FAINT()),
+            );
         }
         for g in &groups_list {
             ui.horizontal(|ui| {
@@ -431,10 +446,10 @@ fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) {
         }
         if !detected.is_empty() {
             ui.add_space(4.0);
-            ui.label(RichText::new("Détectés — cliquer pour colorer").small().color(theme::TEXT_FAINT()));
+            ui.label(RichText::new(t!("Détectés — cliquer pour colorer", "Detected — click to colour")).small().color(theme::TEXT_FAINT()));
             for a in detected.iter().take(6) {
                 let gal = one_line(ui.painter(), &format!("+  {a}"), FontId::proportional(12.0), theme::TEXT_FAINT(), ui.available_width() - 8.0);
-                if ui.add(egui::Button::new(gal).frame(false)).on_hover_text("Associer une couleur à cette adresse").clicked() {
+                if ui.add(egui::Button::new(gal).frame(false)).on_hover_text(t!("Associer une couleur à cette adresse", "Assign a colour to this address")).clicked() {
                     edits.push(groups::GroupEdit::Color(a.clone(), groups::next_color(&groups_list)));
                 }
             }
@@ -484,7 +499,7 @@ fn starred_row(ui: &mut egui::Ui, m: &Summary, active: bool, hl: &mut Liquid) ->
         p.rect_filled(rect, CornerRadius::same(6), HOVER);
     }
     let w = rect.width() - 20.0;
-    let subject = if m.subject.is_empty() { "(sans objet)" } else { &m.subject };
+    let subject = if m.subject.is_empty() { t!("(sans objet)", "(no subject)") } else { &m.subject };
     let g1 = one_line(p, subject, FontId::proportional(13.0), theme::TEXT(), w);
     let g2 = one_line(p, m.sender_name(), FontId::proportional(11.0), theme::TEXT_MUTED(), w);
     p.galley(rect.left_top() + vec2(10.0, 6.0), g1, theme::TEXT());
@@ -498,10 +513,10 @@ fn message_list(ui: &mut egui::Ui, mail: &MailState, actions: &mut Vec<Action>) 
     ui.horizontal(|ui| {
         ui.label(RichText::new(mail.folder_name(&mail.folder)).strong());
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if mail.folder.starts_with("from:") && ui.small_button("×").on_hover_text("Retirer le filtre").clicked() {
+            if mail.folder.starts_with("from:") && ui.small_button("×").on_hover_text(t!("Retirer le filtre", "Remove the filter")).clicked() {
                 actions.push(Action::Folder(INBOX.into()));
             }
-            if ui.small_button("Actualiser").clicked() {
+            if ui.small_button(t!("Actualiser", "Refresh")).clicked() {
                 actions.push(Action::Refresh);
             }
             if mail.loading {
@@ -518,7 +533,7 @@ fn message_list(ui: &mut egui::Ui, mail: &MailState, actions: &mut Vec<Action>) 
         ui.horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
             draw_pin(ui.painter(), r.center(), 6.0, true, theme::TEXT());
-            ui.label(RichText::new(format!("ÉPINGLÉS · {}/{}", mail.pinned.list.len(), super::pinned::MAX)).small().strong().color(theme::TEXT_MUTED()));
+            ui.label(RichText::new(tf!("ÉPINGLÉS · {}/{}", "PINNED · {}/{}", mail.pinned.list.len(), super::pinned::MAX)).small().strong().color(theme::TEXT_MUTED()));
         });
         ui.add_space(2.0);
         ui.spacing_mut().item_spacing.y = 2.0;
@@ -546,7 +561,7 @@ fn message_list(ui: &mut egui::Ui, mail: &MailState, actions: &mut Vec<Action>) 
                 ui.add_space(10.0);
             }
         } else {
-            widgets::empty_state(ui, "Aucun message", "Ce dossier est vide");
+            widgets::empty_state(ui, t!("Aucun message", "No messages"), t!("Ce dossier est vide", "This folder is empty"));
         }
         return;
     }
@@ -578,16 +593,16 @@ fn message_row(ui: &mut egui::Ui, m: &Summary, active: bool, pinned: bool, count
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 66.0), Sense::click());
     let star_rect = Rect::from_center_size(rect.right_bottom() + vec2(-16.0, -16.0), vec2(22.0, 22.0));
     let star = ui.interact(star_rect, resp.id.with("star"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if m.starred() {
-        "Retirer des favoris"
+        t!("Retirer des favoris", "Remove from starred")
     } else {
-        "Ajouter aux favoris"
+        t!("Ajouter aux favoris", "Add to starred")
     });
 
     let pin_rect = star_rect.translate(vec2(-24.0, 0.0));
     let pin = ui.interact(pin_rect, resp.id.with("pin"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if pinned {
-        "Décrocher"
+        t!("Décrocher", "Unpin")
     } else {
-        "Épingler en haut de la boîte (3 max)"
+        t!("Épingler en haut de la boîte (3 max)", "Pin to the top of the inbox (3 max)")
     });
 
     if star.clicked() {
@@ -601,23 +616,23 @@ fn message_row(ui: &mut egui::Ui, m: &Summary, active: bool, pinned: bool, count
     let is_spam = m.labels.iter().any(|l| l == "SPAM");
     resp.context_menu(|ui| {
         ui.set_min_width(190.0);
-        if ui.button("Ouvrir").clicked() {
+        if ui.button(t!("Ouvrir", "Open")).clicked() {
             actions.push(Action::Open(m.id.clone()));
         }
-        let fav = if m.starred() { "Retirer des favoris" } else { "Ajouter aux favoris" };
+        let fav = if m.starred() { t!("Retirer des favoris", "Remove from starred") } else { t!("Ajouter aux favoris", "Add to starred") };
         if ui.button(fav).clicked() {
             actions.push(Action::Star(m.clone()));
         }
-        if ui.button(if pinned { "Décrocher" } else { "Épingler en haut" }).clicked() {
+        if ui.button(if pinned { t!("Décrocher", "Unpin") } else { t!("Épingler en haut", "Pin to top") }).clicked() {
             actions.push(Action::Pin(m.clone()));
         }
         ui.separator();
-        let label = if is_spam { "Ce n'est pas un spam" } else { "Signaler comme spam" };
+        let label = if is_spam { t!("Ce n'est pas un spam", "Not spam") } else { t!("Signaler comme spam", "Report as spam") };
         if ui.button(label).clicked() {
             actions.push(Action::Spam(m.id.clone(), !is_spam));
         }
         let in_trash = m.labels.iter().any(|l| l == "TRASH");
-        if ui.button(if in_trash { "Restaurer de la corbeille" } else { "Mettre à la corbeille" }).clicked() {
+        if ui.button(if in_trash { t!("Restaurer de la corbeille", "Restore from trash") } else { t!("Mettre à la corbeille", "Move to trash") }).clicked() {
             actions.push(Action::Trash(m.id.clone(), !in_trash));
         }
     });
@@ -677,7 +692,7 @@ fn message_row(ui: &mut egui::Ui, m: &Summary, active: bool, pinned: bool, count
     }
 
     let w = rect.right() - left - 64.0;
-    let subject = if m.subject.is_empty() { "(sans objet)" } else { &m.subject };
+    let subject = if m.subject.is_empty() { t!("(sans objet)", "(no subject)") } else { &m.subject };
     let subj_color = if unread { theme::TEXT() } else { crate::theme::gray(0xBB) };
     let g = one_line(p, subject, FontId::proportional(13.0), subj_color, w);
     p.galley(Pos2::new(left, rect.top() + 26.0), g, subj_color);
@@ -710,8 +725,11 @@ fn message_row(ui: &mut egui::Ui, m: &Summary, active: bool, pinned: bool, count
 fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &str, list_hidden: bool, toggle_list: &mut bool, actions: &mut Vec<Action>) {
     // Bouton pour masquer / réafficher la liste des mails.
     ui.horizontal(|ui| {
-        let (label, tip) =
-            if list_hidden { ("›  Afficher la liste", "Réafficher la liste des mails") } else { ("‹  Masquer la liste", "Masquer la liste pour agrandir la lecture") };
+        let (label, tip) = if list_hidden {
+            (t!("›  Afficher la liste", "›  Show the list"), t!("Réafficher la liste des mails", "Show the mail list again"))
+        } else {
+            (t!("‹  Masquer la liste", "‹  Hide the list"), t!("Masquer la liste pour agrandir la lecture", "Hide the list to widen the reading pane"))
+        };
         if ui.add(egui::Button::new(RichText::new(label).small().color(theme::TEXT_MUTED())).frame(false)).on_hover_text(tip).clicked() {
             *toggle_list = true;
         }
@@ -753,18 +771,18 @@ fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &
     }
     let Some(m) = &mail.open else {
         ui.add_space(ui.available_height() * 0.42);
-        widgets::empty_state(ui, "Aucun message sélectionné", "Choisis un mail dans la liste");
+        widgets::empty_state(ui, t!("Aucun message sélectionné", "No message selected"), t!("Choisis un mail dans la liste", "Choose a mail in the list"));
         return;
     };
     let s = &m.summary;
 
-    ui.add(egui::Label::new(RichText::new(if s.subject.is_empty() { "(sans objet)" } else { &s.subject }).font(theme::title_font(20.0))).wrap());
+    ui.add(egui::Label::new(RichText::new(if s.subject.is_empty() { t!("(sans objet)", "(no subject)") } else { &s.subject }).font(theme::title_font(20.0))).wrap());
     ui.add_space(4.0);
     // Conversation : messages plus anciens au-dessus, plus récents (ex. ta réponse) en dessous.
     let (earlier, later): (Vec<&FullMessage>, Vec<&FullMessage>) = mail.thread.iter().partition(|t| t.summary.date <= s.date);
     let latest = later.last().map(|t| t.summary.id.clone());
     if !mail.thread.is_empty() {
-        ui.label(RichText::new(format!("CONVERSATION · {} MESSAGES", mail.thread.len() + 1)).small().strong().color(theme::TEXT_MUTED()));
+        ui.label(RichText::new(tf!("CONVERSATION · {} MESSAGES", "CONVERSATION · {} MESSAGES", mail.thread.len() + 1)).small().strong().color(theme::TEXT_MUTED()));
     }
     ui.add_space(6.0);
     egui::ScrollArea::vertical().id_salt("mail_body").auto_shrink([false, false]).show(ui, |ui| {
@@ -784,17 +802,17 @@ fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &
             });
         });
         if !m.to.is_empty() {
-            ui.add(egui::Label::new(RichText::new(format!("À : {}", m.to)).small().color(theme::TEXT_MUTED())).wrap());
+            ui.add(egui::Label::new(RichText::new(tf!("À : {}", "To: {}", m.to)).small().color(theme::TEXT_MUTED())).wrap());
         }
         if !m.cc.is_empty() {
-            ui.add(egui::Label::new(RichText::new(format!("Cc : {}", m.cc)).small().color(theme::TEXT_MUTED())).wrap());
+            ui.add(egui::Label::new(RichText::new(tf!("Cc : {}", "Cc: {}", m.cc)).small().color(theme::TEXT_MUTED())).wrap());
         }
         // Reçu via une adresse intermédiaire (groupe / liste) : couleur réglable.
         let via = groups::intermediates(s, &mail.own);
         if !via.is_empty() {
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Reçu via").small().color(theme::TEXT_MUTED()));
+                ui.label(RichText::new(t!("Reçu via", "Received via")).small().color(theme::TEXT_MUTED()));
                 for a in via.iter().take(4) {
                     match mail.groups.iter().find(|g| g.address.eq_ignore_ascii_case(a)) {
                         Some(g) => {
@@ -805,7 +823,11 @@ fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &
                         }
                         None => {
                             ui.label(RichText::new(a).small().color(theme::TEXT_MUTED()));
-                            if ui.small_button("Colorer").on_hover_text("Colorer les mails reçus via cette adresse").clicked() {
+                            if ui
+                                .small_button(t!("Colorer", "Colour"))
+                                .on_hover_text(t!("Colorer les mails reçus via cette adresse", "Colour mails received through this address"))
+                                .clicked()
+                            {
                                 mail.group_edits.push(groups::GroupEdit::Color(a.clone(), groups::next_color(&mail.groups)));
                             }
                         }
@@ -816,50 +838,55 @@ fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &
 
         ui.add_space(10.0);
         ui.horizontal_wrapped(|ui| {
-            ui.menu_button("Action  ▾", |ui| {
+            ui.menu_button(t!("Action  ▾", "Action  ▾"), |ui| {
                 ui.set_min_width(170.0);
-                if ui.button("Répondre").clicked() {
+                if ui.button(t!("Répondre", "Reply")).clicked() {
                     actions.push(Action::Reply);
                     ui.close();
                 }
-                if ui.button("Répondre à tous").clicked() {
+                if ui.button(t!("Répondre à tous", "Reply all")).clicked() {
                     actions.push(Action::ReplyAll);
                     ui.close();
                 }
-                if ui.button("Transférer").clicked() {
+                if ui.button(t!("Transférer", "Forward")).clicked() {
                     actions.push(Action::Forward);
                     ui.close();
                 }
             });
             let is_spam = s.labels.iter().any(|l| l == "SPAM");
-            let (spam_label, spam_tip) =
-                if is_spam { ("Pas un spam", "Remettre ce mail dans la boîte de réception") } else { ("Spam", "Signaler comme spam : le mail part dans le dossier Spam") };
+            let (spam_label, spam_tip) = if is_spam {
+                (t!("Pas un spam", "Not spam"), t!("Remettre ce mail dans la boîte de réception", "Move this mail back to the inbox"))
+            } else {
+                ("Spam", t!("Signaler comme spam : le mail part dans le dossier Spam", "Report as spam: the mail goes to the Spam folder"))
+            };
             if ui.button(spam_label).on_hover_text(spam_tip).clicked() {
                 actions.push(Action::Spam(s.id.clone(), !is_spam));
             }
             let in_trash = s.labels.iter().any(|l| l == "TRASH");
             let (trash_label, trash_tip) = if in_trash {
-                ("Restaurer", "Sortir ce mail de la corbeille (retour dans la boîte de réception)")
+                (t!("Restaurer", "Restore"), t!("Sortir ce mail de la corbeille (retour dans la boîte de réception)", "Take this mail out of the trash (back to the inbox)"))
             } else {
-                ("🗑 Corbeille", "Mettre ce mail à la corbeille (Suppr)")
+                (t!("🗑 Corbeille", "🗑 Trash"), t!("Mettre ce mail à la corbeille (Suppr)", "Move this mail to trash (Del)"))
             };
             if ui.button(trash_label).on_hover_text(trash_tip).clicked() {
                 actions.push(Action::Trash(s.id.clone(), !in_trash));
             }
-            let fav = if s.starred() { "Retirer des favoris" } else { "Ajouter aux favoris" };
+            let fav = if s.starred() { t!("Retirer des favoris", "Remove from starred") } else { t!("Ajouter aux favoris", "Add to starred") };
             if icon_button(ui, fav, |p, c, col| draw_star(p, c, 8.0, s.starred(), col), s.starred()).clicked() {
                 actions.push(Action::Star(s.clone()));
             }
             let pinned = mail.pinned.contains(&s.id);
-            let pin = if pinned { "Décrocher" } else { "Épingler en haut de la boîte (3 max)" };
+            let pin = if pinned { t!("Décrocher", "Unpin") } else { t!("Épingler en haut de la boîte (3 max)", "Pin to the top of the inbox (3 max)") };
             if icon_button(ui, pin, |p, c, col| draw_pin(p, c, 8.0, pinned, col), pinned).clicked() {
                 actions.push(Action::Pin(s.clone()));
             }
-            ui.menu_button("Ranger dans…", |ui| {
+            ui.menu_button(t!("Ranger dans…", "Move to…"), |ui| {
                 ui.set_min_width(200.0);
                 let cats: Vec<&Label> = mail.labels.iter().filter(|l| l.user).collect();
                 if cats.is_empty() {
-                    ui.label(RichText::new("Crée d'abord une catégorie (bouton + à gauche)").small().color(theme::TEXT_MUTED()));
+                    ui.label(
+                        RichText::new(t!("Crée d'abord une catégorie (bouton + à gauche)", "Create a category first (+ button on the left)")).small().color(theme::TEXT_MUTED()),
+                    );
                 }
                 for l in cats {
                     let already = s.labels.contains(&l.id);
@@ -932,7 +959,7 @@ fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &
                 ui.add_space(10.0);
                 ui.separator();
                 ui.add_space(6.0);
-                ui.label(RichText::new(format!("PIÈCES JOINTES · {}", listed.len())).small().strong().color(theme::TEXT_MUTED()));
+                ui.label(RichText::new(tf!("PIÈCES JOINTES · {}", "ATTACHMENTS · {}", listed.len())).small().strong().color(theme::TEXT_MUTED()));
                 ui.add_space(6.0);
                 ui.horizontal_wrapped(|ui| {
                     for a in listed {
@@ -973,7 +1000,7 @@ fn thread_card(
             ui.set_width(ui.available_width());
             let s = &t.summary;
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if open { 20.0 } else { 38.0 }), Sense::click());
-            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if open { "Replier" } else { "Déplier" });
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if open { t!("Replier", "Collapse") } else { t!("Déplier", "Expand") });
             toggled = resp.clicked();
             let p = ui.painter();
             let date = short_date(s.date);
@@ -988,7 +1015,7 @@ fn thread_card(
                 return;
             }
             if !t.to.is_empty() {
-                ui.add(egui::Label::new(RichText::new(format!("À : {}", t.to)).small().color(theme::TEXT_MUTED())).wrap());
+                ui.add(egui::Label::new(RichText::new(tf!("À : {}", "To: {}", t.to)).small().color(theme::TEXT_MUTED())).wrap());
             }
             ui.add_space(6.0);
             let ctx = ui.ctx().clone();
@@ -1085,7 +1112,7 @@ fn link_tag(url: &str) -> String {
     let path = path.split(['?', '#']).next().unwrap_or("");
     match path.rsplit('/').next().and_then(|s| s.rsplit_once('.')).map(|(_, e)| e) {
         Some(e) if e.len() <= 5 && e.chars().all(|c| c.is_ascii_alphanumeric()) => e.to_uppercase(),
-        _ => "LIEN".into(),
+        _ => t!("LIEN", "LINK").into(),
     }
 }
 
@@ -1101,7 +1128,7 @@ fn doc_pill(ui: &mut egui::Ui, d: &Doc) -> egui::Response {
             .corner_radius(CornerRadius::same(255)),
     )
     .on_hover_cursor(egui::CursorIcon::PointingHand)
-    .on_hover_text(if d.link { "Aller au lien de téléchargement" } else { "Aller à la pièce jointe" })
+    .on_hover_text(if d.link { t!("Aller au lien de téléchargement", "Go to the download link") } else { t!("Aller à la pièce jointe", "Go to the attachment") })
 }
 
 /// Défile vers l'élément s'il est la cible demandée, puis le met en surbrillance qui s'estompe.
@@ -1137,23 +1164,23 @@ fn sender_menu(ui: &mut egui::Ui, book: &contacts::Contacts, from: &str, actions
     let favorite = contact.is_some_and(|c| c.favorite);
     let text = if favorite { format!("★ {from}") } else { from.to_string() };
     let btn = egui::Button::new(RichText::new(text).strong()).frame(false);
-    let r = ui.add(btn).on_hover_text("Options de l'annuaire").on_hover_cursor(egui::CursorIcon::PointingHand);
+    let r = ui.add(btn).on_hover_text(t!("Options de l'annuaire", "Directory options")).on_hover_cursor(egui::CursorIcon::PointingHand);
     egui::Popup::menu(&r).show(|ui| {
         ui.set_min_width(220.0);
-        if ui.button("Voir tous ses mails").clicked() {
+        if ui.button(t!("Voir tous ses mails", "See all their mails")).clicked() {
             actions.push(Action::FromFilter(email.clone()));
         }
-        if ui.button("Écrire à cette adresse").clicked() {
+        if ui.button(t!("Écrire à cette adresse", "Write to this address")).clicked() {
             actions.push(Action::WriteTo(contact.map(|c| c.mailbox()).unwrap_or(email.clone())));
         }
-        if ui.button("Écrire sur Google Chat").clicked() {
+        if ui.button(t!("Écrire sur Google Chat", "Write on Google Chat")).clicked() {
             actions.push(Action::ChatTo(email.clone()));
         }
-        let fav = if favorite { "Retirer des favoris de l'annuaire" } else { "Favori dans l'annuaire" };
+        let fav = if favorite { t!("Retirer des favoris de l'annuaire", "Remove from directory favourites") } else { t!("Favori dans l'annuaire", "Favourite in the directory") };
         if ui.button(fav).clicked() {
             actions.push(Action::ContactFavorite(email.clone()));
         }
-        if ui.button("Ouvrir dans l'annuaire").clicked() {
+        if ui.button(t!("Ouvrir dans l'annuaire", "Open in the directory")).clicked() {
             actions.push(Action::Dir(directory::DirAction::Select(email.clone())));
             actions.push(Action::Directory);
         }
@@ -1375,7 +1402,7 @@ fn body_image(ui: &mut egui::Ui, state: Option<&inline::ImgState>, alt: &str, sp
             egui::Spinner::new().size(16.0).paint_at(ui, Rect::from_center_size(rect.center(), vec2(16.0, 16.0)));
         }
         _ => {
-            let label = if alt.is_empty() { "[image non disponible]".to_string() } else { format!("[image : {alt}]") };
+            let label = if alt.is_empty() { t!("[image non disponible]", "[image unavailable]").to_string() } else { tf!("[image : {alt}]", "[image: {alt}]") };
             ui.label(RichText::new(label).small().color(theme::TEXT_FAINT()));
         }
     });
@@ -1424,7 +1451,7 @@ fn attachment_chip(ui: &mut egui::Ui, a: &Attachment, atts: &attachments::Attach
     let resp = ui
         .add(egui::Button::new(text).fill(theme::SURFACE_HI()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(255)))
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("Aperçu");
+        .on_hover_text(t!("Aperçu", "Preview"));
     if resp.clicked() {
         actions.push(Action::Attachment(a.clone()));
     }
@@ -1462,7 +1489,7 @@ fn preview_modal(ui: &mut egui::Ui, mail: &mut MailState, actions: &mut Vec<Acti
                 ui.label(RichText::new(attachments::human_size(p.att.size)).small().color(theme::TEXT_MUTED()));
                 ui.add_space(24.0);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button("Fermer").clicked() {
+                    if ui.button(t!("Fermer", "Close")).clicked() {
                         actions.push(Action::ClosePreview);
                     }
                     if ui.button("Ouvrir avec l'application").clicked() {
@@ -1478,7 +1505,7 @@ fn preview_modal(ui: &mut egui::Ui, mail: &mut MailState, actions: &mut Vec<Acti
                     let scale = (avail.x / w as f32).min(avail.y / h as f32).min(1.0);
                     ui.vertical_centered(|ui| {
                         let r = ui.add(egui::Image::new((tex.id(), vec2(w as f32 * scale, h as f32 * scale))).sense(Sense::click()));
-                        if r.on_hover_text("Agrandir").on_hover_cursor(egui::CursorIcon::ZoomIn).clicked() {
+                        if r.on_hover_text(t!("Agrandir", "Enlarge")).on_hover_cursor(egui::CursorIcon::ZoomIn).clicked() {
                             crate::lightbox::open(ui.ctx(), format!("mail-att:{:?}", tex.id()), tex.clone(), p.att.filename.clone(), crate::lightbox::OpenWith::None);
                         }
                     });
@@ -1593,8 +1620,7 @@ pub(crate) fn short_date(ms: i64) -> String {
     if d.date_naive() == now.date_naive() {
         d.format("%H:%M").to_string()
     } else if d.year() == now.year() {
-        const ABBR: [&str; 12] = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
-        format!("{} {}", d.day(), ABBR[d.month0() as usize])
+        format!("{} {}", d.day(), tabs::month_short(d.month()))
     } else {
         d.format("%d/%m/%Y").to_string()
     }
@@ -1602,5 +1628,5 @@ pub(crate) fn short_date(ms: i64) -> String {
 
 pub(crate) fn long_date(ms: i64) -> String {
     let Some(d) = to_local(ms) else { return String::new() };
-    format!("{} {} {} {}, {}", tabs::weekday_fr(d.weekday()), d.day(), tabs::month_fr(d.month()), d.year(), d.format("%H:%M"))
+    format!("{} {} {} {}, {}", tabs::weekday_name(d.weekday()), d.day(), tabs::month_name(d.month()), d.year(), d.format("%H:%M"))
 }

@@ -103,7 +103,7 @@ pub fn login(agent: &ureq::Agent, cfg: &Config) -> Result<Tokens, String> {
         urlencoding::encode(&redirect),
         urlencoding::encode(SCOPES),
     );
-    webbrowser::open(&url).map_err(|e| format!("Impossible d'ouvrir le navigateur : {e}"))?;
+    webbrowser::open(&url).map_err(|e| tf!("Impossible d'ouvrir le navigateur : {e}", "Cannot open the browser: {e}"))?;
 
     let code = wait_for_code(&listener, &state)?;
 
@@ -121,7 +121,7 @@ pub fn login(agent: &ureq::Agent, cfg: &Config) -> Result<Tokens, String> {
         .into_json()
         .map_err(|e| e.to_string())?;
 
-    let refresh = resp.refresh_token.ok_or("Google n'a pas renvoyé de jeton de rafraîchissement")?;
+    let refresh = resp.refresh_token.ok_or(t!("Google n'a pas renvoyé de jeton de rafraîchissement", "Google did not return a refresh token"))?;
     store_refresh_token(&refresh)?;
 
     Ok(Tokens { access: resp.access_token, expires_at: Instant::now() + Duration::from_secs(resp.expires_in.saturating_sub(60)), refresh })
@@ -158,16 +158,24 @@ fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String, String> 
         };
 
         let (ok, result) = if let Some(err) = param("error") {
-            (false, Err(format!("Connexion refusée : {err}")))
+            (false, Err(tf!("Connexion refusée : {err}", "Sign-in refused: {err}")))
         } else if let Some(code) = param("code") {
-            if param("state").as_deref() == Some(state) { (true, Ok(code)) } else { (false, Err("Réponse OAuth invalide (state)".to_string())) }
+            if param("state").as_deref() == Some(state) {
+                (true, Ok(code))
+            } else {
+                (false, Err(t!("Réponse OAuth invalide (state)", "Invalid OAuth response (state)").to_string()))
+            }
         } else {
             // Requête parasite (favicon…) : on ignore.
             let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\n\r\n");
             continue;
         };
 
-        let msg = if ok { "Connexion réussie. Tu peux fermer cet onglet et revenir sur WorkTable." } else { "La connexion a échoué. Reviens sur WorkTable pour réessayer." };
+        let msg = if ok {
+            t!("Connexion réussie. Tu peux fermer cet onglet et revenir sur WorkTable.", "Signed in. You can close this tab and go back to WorkTable.")
+        } else {
+            t!("La connexion a échoué. Reviens sur WorkTable pour réessayer.", "Sign-in failed. Go back to WorkTable to try again.")
+        };
         let body = format!(
             "<!doctype html><meta charset=utf-8><title>WorkTable</title>\
              <body style=\"background:#0e0e0e;color:#ededed;font-family:sans-serif;\
@@ -176,7 +184,7 @@ fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String, String> 
         let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
         return result;
     }
-    Err("Délai de connexion dépassé".into())
+    Err(t!("Délai de connexion dépassé", "Sign-in timed out").into())
 }
 
 /// Obtient un nouveau jeton d'accès à partir du jeton de rafraîchissement.

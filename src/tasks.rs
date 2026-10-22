@@ -18,9 +18,9 @@ impl Status {
 
     pub fn label(self) -> &'static str {
         match self {
-            Status::Todo => "À faire",
-            Status::Doing => "En cours",
-            Status::Done => "Archivé",
+            Status::Todo => t!("À faire", "To do"),
+            Status::Doing => t!("En cours", "In progress"),
+            Status::Done => t!("Archivé", "Archived"),
         }
     }
 }
@@ -170,9 +170,9 @@ impl Tasks {
 /// « aujourd'hui », « hier », « il y a 3 jours ».
 pub fn ago(days: i64) -> String {
     match days {
-        0 => "aujourd'hui".into(),
-        1 => "depuis hier".into(),
-        n => format!("depuis {n} jours"),
+        0 => t!("aujourd'hui", "today").into(),
+        1 => t!("depuis hier", "since yesterday").into(),
+        n => tf!("depuis {n} jours", "for {n} days"),
     }
 }
 

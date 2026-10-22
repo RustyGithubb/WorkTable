@@ -71,15 +71,15 @@ pub fn show(
     }
     let mut out = None;
     let title = match d.mode {
-        Mode::New => "Nouveau message",
-        Mode::Reply => "Répondre",
-        Mode::Forward => "Transférer",
+        Mode::New => t!("Nouveau message", "New message"),
+        Mode::Reply => t!("Répondre", "Reply"),
+        Mode::Forward => t!("Transférer", "Forward"),
     };
     ui.label(RichText::new(title).font(theme::title_font(20.0)));
     ui.add_space(12.0);
-    recipients::field(ui, "À", &mut d.to, "to", "Nom ou adresse…", book, &mut ed.suggest);
+    recipients::field(ui, t!("À", "To"), &mut d.to, "to", t!("Nom ou adresse…", "Name or address…"), book, &mut ed.suggest);
     recipients::field(ui, "Cc", &mut d.cc, "cc", "", book, &mut ed.suggest);
-    widgets::field(ui, "Objet", 52.0, egui::TextEdit::singleline(&mut d.subject));
+    widgets::field(ui, t!("Objet", "Subject"), 52.0, egui::TextEdit::singleline(&mut d.subject));
     ui.add_space(8.0);
 
     ed.focus = nearest_para(d, ed.focus);
@@ -124,11 +124,11 @@ pub fn show(
 
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        let label = if sending { "Envoi…" } else { "Envoyer" };
+        let label = if sending { t!("Envoi…", "Sending…") } else { t!("Envoyer", "Send") };
         if ui.add_enabled(!sending, egui::Button::new(label)).clicked() {
             out = Some(Out::Send);
         }
-        if ui.add_enabled(!sending, egui::Button::new("Annuler")).clicked() {
+        if ui.add_enabled(!sending, egui::Button::new(t!("Annuler", "Cancel"))).clicked() {
             out = Some(Out::Cancel);
         }
         if sending {
@@ -172,10 +172,12 @@ fn toolbar(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, signatures: &[Sign
                 }
             })
             .response
-            .on_hover_text("Taille du texte (paragraphe)");
+            .on_hover_text(t!("Taille du texte (paragraphe)", "Text size (paragraph)"));
 
         // Gras
-        let b = ui.add(egui::Button::new(RichText::new("B").font(theme::editor_font(14.0, true))).min_size(vec2(28.0, 24.0))).on_hover_text("Gras (sélectionne du texte)");
+        let b = ui
+            .add(egui::Button::new(RichText::new("B").font(theme::editor_font(14.0, true))).min_size(vec2(28.0, 24.0)))
+            .on_hover_text(t!("Gras (sélectionne du texte)", "Bold (select some text)"));
         if b.clicked()
             && let Some(Block::Para(p)) = d.blocks.get_mut(focus)
         {
@@ -185,7 +187,7 @@ fn toolbar(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, signatures: &[Sign
         }
 
         // Émojis (même sélecteur que Google Chat ; « :nom: » marche aussi en tapant).
-        let er = ui.add(egui::Button::new(RichText::new("🙂")).min_size(vec2(28.0, 24.0))).on_hover_text("Émojis (ou tape « :nom: »)");
+        let er = ui.add(egui::Button::new(RichText::new("🙂")).min_size(vec2(28.0, 24.0))).on_hover_text(t!("Émojis (ou tape « :nom: »)", "Emoji (or type “:name:”)"));
         if er.clicked() {
             ed.picker = if ed.picker.is_some() { None } else { Some(er.rect.left_bottom() + vec2(0.0, 4.0)) };
         }
@@ -205,7 +207,7 @@ fn toolbar(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, signatures: &[Sign
 
         ui.add_space(6.0);
         signature_menu(ui, d, signatures);
-        if ui.button("Image").on_hover_text("Insérer une image à l'emplacement du curseur").clicked()
+        if ui.button("Image").on_hover_text(t!("Insérer une image à l'emplacement du curseur", "Insert an image at the cursor")).clicked()
             && let Some(paths) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]).pick_files()
         {
             for path in paths {
@@ -214,7 +216,7 @@ fn toolbar(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, signatures: &[Sign
                 }
             }
         }
-        if ui.button("Pièce jointe").clicked()
+        if ui.button(t!("Pièce jointe", "Attachment")).clicked()
             && let Some(paths) = rfd::FileDialog::new().pick_files()
         {
             for path in paths {
@@ -231,7 +233,7 @@ fn toolbar(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, signatures: &[Sign
 fn signature_menu(ui: &mut egui::Ui, d: &mut Draft, signatures: &[Signature]) {
     let current = signatures.iter().position(|s| Some(&s.html) == d.signature.as_ref());
     let label = match (current, &d.signature) {
-        (_, None) => "Signature : aucune".to_string(),
+        (_, None) => t!("Signature : aucune", "Signature: none").to_string(),
         (Some(_), _) if signatures.len() == 1 => "Signature".to_string(),
         (Some(i), _) => format!("Signature {}", i + 1),
         (None, Some(_)) => "Signature".to_string(),
@@ -242,19 +244,23 @@ fn signature_menu(ui: &mut egui::Ui, d: &mut Draft, signatures: &[Signature]) {
         .show_ui(ui, |ui| {
             ui.set_min_width(260.0);
             if signatures.is_empty() {
-                ui.label(RichText::new("Aucune signature trouvée (réglages Gmail ou mails envoyés)").small().color(theme::TEXT_MUTED()));
+                ui.label(
+                    RichText::new(t!("Aucune signature trouvée (réglages Gmail ou mails envoyés)", "No signature found (Gmail settings or sent mails)"))
+                        .small()
+                        .color(theme::TEXT_MUTED()),
+                );
             }
             for s in signatures {
                 if ui.selectable_label(d.signature.as_ref() == Some(&s.html), &s.label).clicked() {
                     d.signature = Some(s.html.clone());
                 }
             }
-            if ui.selectable_label(d.signature.is_none(), "Aucune signature").clicked() {
+            if ui.selectable_label(d.signature.is_none(), t!("Aucune signature", "No signature")).clicked() {
                 d.signature = None;
             }
         })
         .response
-        .on_hover_text("Signature insérée au format Gmail");
+        .on_hover_text(t!("Signature insérée au format Gmail", "Signature inserted in Gmail format"));
 }
 
 fn align_button(ui: &mut egui::Ui, a: Align, active: bool, hl: &mut crate::liquid::Liquid) -> egui::Response {
@@ -291,7 +297,7 @@ fn file_chip(ui: &mut egui::Ui, f: &FileData, mut on_remove: impl FnMut()) {
             ui.spacing_mut().item_spacing.x = 6.0;
             ui.label(RichText::new(&f.name).size(13.0));
             ui.label(RichText::new(human_size(f.data.len() as u64)).small().color(theme::TEXT_FAINT()));
-            if ui.small_button("×").on_hover_text("Retirer").clicked() {
+            if ui.small_button("×").on_hover_text(t!("Retirer", "Remove")).clicked() {
                 on_remove();
             }
         });
@@ -301,13 +307,13 @@ fn file_chip(ui: &mut egui::Ui, f: &FileData, mut on_remove: impl FnMut()) {
 
 fn read(path: &std::path::Path) -> Result<(String, Vec<u8>), String> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "fichier".into());
-    let data = std::fs::read(path).map_err(|e| format!("Lecture de « {name} » impossible : {e}"))?;
+    let data = std::fs::read(path).map_err(|e| tf!("Lecture de « {name} » impossible : {e}", "Cannot read “{name}”: {e}"))?;
     Ok((name, data))
 }
 
 fn insert_image_file(d: &mut Draft, ed: &mut Editor, path: &std::path::Path) -> Result<(), String> {
     let (name, data) = read(path)?;
-    let preview = inline::decode(&data).map_err(|_| format!("« {name} » n'est pas une image lisible"))?;
+    let preview = inline::decode(&data).map_err(|_| tf!("« {name} » n'est pas une image lisible", "“{name}” is not a readable image"))?;
     let mime = compose::mime_for(&name).to_string();
     let pos = ed.sel.0.max(ed.sel.1);
     let next = d.insert_image(ed.focus, pos, name, mime, data, Some(preview));
@@ -390,7 +396,7 @@ fn body(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, after: &mut dyn FnMut
 
                 let (size, align) = (p.size, p.align);
                 let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| ui.painter().layout_job(layout(buf.as_str(), size, align, wrap));
-                let hint = if single { "Écris ton message…" } else { "" };
+                let hint = if single { t!("Écris ton message…", "Write your message…") } else { "" };
                 let output = egui::TextEdit::multiline(&mut p.text)
                     .id(id)
                     .frame(egui::Frame::NONE)
@@ -432,13 +438,13 @@ fn body(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, after: &mut dyn FnMut
                             let scale = (ui.available_width() / w as f32).min(1.0);
                             ui.add(egui::Image::new((t.id(), vec2(w as f32 * scale, h as f32 * scale))).sense(Sense::hover()))
                         }
-                        _ => ui.label(format!("[image : {}]", img.name)),
+                        _ => ui.label(tf!("[image : {}]", "[image: {}]", img.name)),
                     };
                     // Bouton de suppression au survol.
                     if resp.hovered() || ui.rect_contains_pointer(resp.rect) {
                         let r = Rect::from_min_size(resp.rect.right_top() + vec2(-30.0, 6.0), vec2(24.0, 24.0));
                         let del = ui.put(r, egui::Button::new("×").fill(Color32::from_black_alpha(200)).corner_radius(CornerRadius::same(255)));
-                        if del.on_hover_text("Retirer l'image").clicked() {
+                        if del.on_hover_text(t!("Retirer l'image", "Remove the image")).clicked() {
                             ops.push(Op::RemoveImage(i));
                         }
                     }

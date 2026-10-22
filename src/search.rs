@@ -203,7 +203,7 @@ impl Palette {
                         magnifier(ui.painter(), r.center(), theme::TEXT_MUTED());
                         let te = ui.add(
                             egui::TextEdit::singleline(&mut self.query)
-                                .hint_text("Rechercher un mail, une date, un événement, une personne, une tâche…")
+                                .hint_text(t!("Rechercher un mail, une date, un événement, une personne, une tâche…", "Search a mail, a date, an event, a person, a task…"))
                                 .font(FontId::proportional(18.0))
                                 .frame(egui::Frame::NONE)
                                 .desired_width(f32::INFINITY),
@@ -220,8 +220,12 @@ impl Palette {
                     if hits.is_empty() {
                         ui.add_space(14.0);
                         ui.vertical_centered(|ui| {
-                            ui.label(RichText::new("Aucun résultat").color(theme::TEXT_MUTED()));
-                            ui.label(RichText::new("Essaie un nom, un sujet, « demain », « 25/10 »…").small().color(theme::TEXT_FAINT()));
+                            ui.label(RichText::new(t!("Aucun résultat", "No results")).color(theme::TEXT_MUTED()));
+                            ui.label(
+                                RichText::new(t!("Essaie un nom, un sujet, « demain », « 25/10 »…", "Try a name, a subject, “tomorrow”, “25/10”…"))
+                                    .small()
+                                    .color(theme::TEXT_FAINT()),
+                            );
                         });
                         ui.add_space(14.0);
                     }
@@ -231,7 +235,7 @@ impl Palette {
                             if h.group != group {
                                 group = h.group;
                                 ui.add_space(4.0);
-                                ui.label(RichText::new(group.to_uppercase()).small().strong().color(theme::TEXT_FAINT()));
+                                ui.label(RichText::new(group_label(group).to_uppercase()).small().strong().color(theme::TEXT_FAINT()));
                             }
                             let sel = i == self.selected;
                             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
@@ -251,7 +255,7 @@ impl Palette {
                             let g = crate::tabs::mail::view::one_line(p, &h.sub, FontId::proportional(11.5), theme::TEXT_MUTED(), r.right() - left - 70.0);
                             p.galley(Pos2::new(left, r.top() + 22.0), g, theme::TEXT_MUTED());
                             if sel {
-                                p.text(Pos2::new(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, "Entrée ↵", FontId::proportional(11.0), theme::TEXT_FAINT());
+                                p.text(Pos2::new(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, t!("Entrée ↵", "Enter ↵"), FontId::proportional(11.0), theme::TEXT_FAINT());
                             }
                             if resp.clicked() {
                                 go = Some(h.target.clone());
@@ -259,9 +263,17 @@ impl Palette {
                         }
                     });
                     ui.add_space(4.0);
-                    ui.label(RichText::new("↑ ↓ naviguer · Entrée ouvrir · Échap fermer · Ctrl+Espace").small().color(theme::TEXT_FAINT()));
+                    ui.label(
+                        RichText::new(t!("↑ ↓ naviguer · Entrée ouvrir · Échap fermer · Ctrl+Espace", "↑ ↓ navigate · Enter open · Esc close · Ctrl+Space"))
+                            .small()
+                            .color(theme::TEXT_FAINT()),
+                    );
                 });
         });
+        // La boîte reste toujours au-dessus du fond : un clic sur le fond le fait passer au premier
+        // plan de son niveau (comportement d'egui), et il recouvrait alors la boîte à la
+        // réouverture (seul le flou s'affichait).
+        ctx.move_to_top(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("wt_search_box")));
         if go.is_some() || close {
             self.close();
         }
@@ -294,33 +306,48 @@ fn score(q: &[String], fields: &[&str]) -> Option<i32> {
     Some(s)
 }
 
+/// Nom affiché d'un groupe de résultats (les groupes sont repérés par leur nom français).
+fn group_label(group: &'static str) -> &'static str {
+    if !crate::i18n::en() {
+        return group;
+    }
+    match group {
+        "Calendrier" => "Calendar",
+        "Tâches" => "Tasks",
+        "Fichiers" => "Files",
+        "À venir" => "Upcoming",
+        other => other,
+    }
+}
+
 fn date_label(d: NaiveDate) -> String {
     let today = Local::now().date_naive();
     let rel = if d == today {
-        " · aujourd'hui"
+        t!(" · aujourd'hui", " · today")
     } else if d == today + CDuration::days(1) {
-        " · demain"
+        t!(" · demain", " · tomorrow")
     } else if d == today - CDuration::days(1) {
-        " · hier"
+        t!(" · hier", " · yesterday")
     } else {
         ""
     };
-    format!("{} {} {} {}{rel}", crate::tabs::weekday_fr(d.weekday()), d.day(), crate::tabs::month_fr(d.month()), d.year())
+    format!("{} {} {} {}{rel}", crate::tabs::weekday_name(d.weekday()), d.day(), crate::tabs::month_name(d.month()), d.year())
 }
 
-/// Dates reconnues : aujourd'hui, demain, hier, lundi…, 25/10, 25/10/2026, 25 octobre (2026).
+/// Dates reconnues (en français et en anglais) : aujourd'hui/today, demain/tomorrow, hier/yesterday,
+/// lundi…/monday…, 25/10, 25/10/2026, 25 octobre (2026), october 25 (2026).
 pub fn parse_date(q: &str) -> Option<NaiveDate> {
     let q = fold(q.trim());
     let today = Local::now().date_naive();
     match q.as_str() {
-        "aujourd'hui" | "aujourdhui" | "auj" => return Some(today),
-        "demain" => return Some(today + CDuration::days(1)),
+        "aujourd'hui" | "aujourdhui" | "auj" | "today" => return Some(today),
+        "demain" | "tomorrow" => return Some(today + CDuration::days(1)),
         "apres-demain" | "apres demain" => return Some(today + CDuration::days(2)),
-        "hier" => return Some(today - CDuration::days(1)),
+        "hier" | "yesterday" => return Some(today - CDuration::days(1)),
         _ => {}
     }
-    let days = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
-    if let Some(i) = days.iter().position(|d| q == *d || (q.len() >= 3 && d.starts_with(q.as_str()) && q.len() >= 4)) {
+    let day = |names: [&str; 7]| names.iter().position(|d| fold(d) == q || (q.len() >= 4 && fold(d).starts_with(q.as_str())));
+    if let Some(i) = day(crate::tabs::WEEKDAYS_FR).or_else(|| day(crate::tabs::WEEKDAYS_EN)) {
         let cur = today.weekday().num_days_from_monday() as i64;
         let delta = (i as i64 - cur).rem_euclid(7);
         return Some(today + CDuration::days(if delta == 0 { 7 } else { delta }));
@@ -337,11 +364,16 @@ pub fn parse_date(q: &str) -> Option<NaiveDate> {
         };
         return NaiveDate::from_ymd_opt(y, m, d);
     }
-    // 25 octobre (2026)
-    let parts: Vec<&str> = q.split_whitespace().collect();
+    // 25 octobre (2026), 25 october, october 25
+    let parts: Vec<&str> = q.split_whitespace().map(|p| p.trim_end_matches(',')).collect();
     if (2..=3).contains(&parts.len()) {
-        let d: u32 = parts[0].trim_end_matches("er").parse().ok()?;
-        let month = (1..=12).find(|m| fold(crate::tabs::month_fr(*m)).starts_with(parts[1]) && parts[1].len() >= 3)?;
+        let num = |p: &str| p.trim_end_matches("er").trim_end_matches(['s', 't', 'n', 'd', 'r', 'h']).parse::<u32>().ok();
+        let (d, name) = match num(parts[0]) {
+            Some(d) => (d, parts[1]),
+            None => (num(parts[1])?, parts[0]),
+        };
+        let month_of = |names: [&str; 12]| names.iter().position(|m| name.len() >= 3 && fold(m).starts_with(name)).map(|i| i as u32 + 1);
+        let month = month_of(crate::tabs::MONTHS_FR).or_else(|| month_of(crate::tabs::MONTHS_EN))?;
         let y: i32 = parts.get(2).and_then(|y| y.parse().ok()).unwrap_or(today.year());
         return NaiveDate::from_ymd_opt(y, month, d);
     }
@@ -354,7 +386,7 @@ fn hhmm(ms: i64) -> String {
 
 fn event_sub(e: &CalEvent) -> String {
     let d = Local.timestamp_millis_opt(e.start).single().map(|d| d.date_naive()).unwrap_or_default();
-    let time = if e.all_day { "journée".to_string() } else { format!("{} – {}", hhmm(e.start), hhmm(e.end)) };
+    let time = if e.all_day { t!("journée", "all day").to_string() } else { format!("{} – {}", hhmm(e.start), hhmm(e.end)) };
     let mut s = format!("{} · {time}", date_label(d));
     if !e.location.is_empty() {
         s.push_str(&format!(" · {}", e.location));
@@ -379,16 +411,16 @@ fn suggestions(cal: &CalendarState, prefs: &Prefs) -> Vec<Hit> {
 fn commands() -> Vec<Hit> {
     let c = |icon, title: &str, sub: &str, target| Hit { group: "Actions", icon, title: title.into(), sub: sub.into(), target, score: 0 };
     vec![
-        c("✉️", "Nouveau message", "Mail · écrire un mail", Target::Compose),
-        c("🗓️", "Nouvel événement", "Calendrier · créer un rendez-vous", Target::NewEvent),
-        c("📝", "Nouvelle note", "Prise de notes · créer une note", Target::NewNote),
-        c("🏠", "Tableau de bord", "Aller à l'onglet", Target::Tab(Tab::Dashboard)),
-        c("📆", "Calendrier", "Aller à l'onglet", Target::Tab(Tab::Calendar)),
-        c("📬", "Mail", "Aller à l'onglet", Target::Tab(Tab::Mail)),
+        c("✉️", t!("Nouveau message", "New message"), t!("Mail · écrire un mail", "Mail · write a mail"), Target::Compose),
+        c("🗓️", t!("Nouvel événement", "New event"), t!("Calendrier · créer un rendez-vous", "Calendar · create an event"), Target::NewEvent),
+        c("📝", t!("Nouvelle note", "New note"), t!("Prise de notes · créer une note", "Notes · create a note"), Target::NewNote),
+        c("🏠", t!("Tableau de bord", "Dashboard"), t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Dashboard)),
+        c("📆", t!("Calendrier", "Calendar"), t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Calendar)),
+        c("📬", "Mail", t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Mail)),
         c("💬", "Messages", "Google Chat", Target::Tab(Tab::Messages)),
-        c("📝", "Prise de notes", "Aller à l'onglet", Target::Tab(Tab::Notes)),
-        c("📁", "Fichiers", "Aller à l'onglet", Target::Tab(Tab::Files)),
-        c("⚙️", "Réglages", "Compte Google, animations…", Target::Tab(Tab::Settings)),
+        c("📝", t!("Prise de notes", "Notes"), t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Notes)),
+        c("📁", t!("Fichiers", "Files"), t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Files)),
+        c("⚙️", t!("Réglages", "Settings"), t!("Compte Google, animations…", "Google account, animations…"), Target::Tab(Tab::Settings)),
     ]
 }
 
@@ -410,7 +442,17 @@ fn search(
 
     // Date du calendrier.
     if let Some(d) = parse_date(q) {
-        push(&mut out, Hit { group: "Date", icon: "📆", title: date_label(d), sub: "Ouvrir ce jour dans le calendrier".into(), target: Target::Date(d), score: 100 });
+        push(
+            &mut out,
+            Hit {
+                group: "Date",
+                icon: "📆",
+                title: date_label(d),
+                sub: t!("Ouvrir ce jour dans le calendrier", "Open this day in the calendar").into(),
+                target: Target::Date(d),
+                score: 100,
+            },
+        );
     }
 
     // Commandes.
@@ -431,7 +473,7 @@ fn search(
         let from_remote = remote.iter().any(|r| r.id == m.id);
         let s = score(&words, &[&m.subject, m.sender_name(), &m.from, &m.snippet]).or(from_remote.then_some(1));
         if let Some(s) = s {
-            let subject = if m.subject.is_empty() { "(sans objet)".to_string() } else { m.subject.clone() };
+            let subject = if m.subject.is_empty() { t!("(sans objet)", "(no subject)").to_string() } else { m.subject.clone() };
             push(
                 &mut out,
                 Hit {
@@ -475,7 +517,7 @@ fn search(
                 Hit {
                     group: "Calendrier",
                     icon: "📅",
-                    title: if e.title.is_empty() { "(Sans titre)".into() } else { e.title.clone() },
+                    title: if e.title.is_empty() { t!("(Sans titre)", "(Untitled)").into() } else { e.title.clone() },
                     sub: event_sub(e),
                     target: Target::Event(e.clone()),
                     score: s + bonus,
@@ -514,7 +556,7 @@ fn search(
     for t in tasks.list.iter().chain(tasks.archive.iter()) {
         if let Some(s) = score(&words, &[&t.title]) {
             let archived = tasks.archive.iter().any(|a| a.id == t.id);
-            let sub = if archived { "Tâche archivée".to_string() } else { format!("Tâche · {}", t.status.label()) };
+            let sub = if archived { t!("Tâche archivée", "Archived task").to_string() } else { tf!("Tâche · {}", "Task · {}", t.status.label()) };
             push(&mut out, Hit { group: "Tâches", icon: "✅", title: t.title.clone(), sub, target: Target::Task, score: s });
         }
     }
@@ -523,7 +565,7 @@ fn search(
     for (id, title, text, updated, protected) in notes.entries() {
         let s = score(&words, &[&title]).map(|s| s + 10).or_else(|| score(&words, &[&text]));
         if let Some(s) = s {
-            let sub = if protected { "Note protégée".to_string() } else { text.chars().take(80).collect::<String>() };
+            let sub = if protected { t!("Note protégée", "Protected note").to_string() } else { text.chars().take(80).collect::<String>() };
             let sub = format!("{} · {sub}", crate::tabs::mail::view::short_date(updated));
             push(&mut out, Hit { group: "Notes", icon: if protected { "🔒" } else { "📝" }, title, sub, target: Target::Note(id), score: s });
         }
@@ -644,6 +686,11 @@ mod tests {
         assert_eq!(parse_date("1er déc 2026"), NaiveDate::from_ymd_opt(2026, 12, 1));
         assert!(parse_date("rendu projet").is_none());
         assert!(parse_date("lundi").is_some_and(|d| d.weekday() == chrono::Weekday::Mon && d > today));
+        // En anglais aussi.
+        assert_eq!(parse_date("tomorrow"), Some(today + CDuration::days(1)));
+        assert_eq!(parse_date("October 25, 2026"), NaiveDate::from_ymd_opt(2026, 10, 25));
+        assert_eq!(parse_date("3rd november 2026"), NaiveDate::from_ymd_opt(2026, 11, 3));
+        assert!(parse_date("friday").is_some_and(|d| d.weekday() == chrono::Weekday::Fri && d > today));
     }
 
     #[test]

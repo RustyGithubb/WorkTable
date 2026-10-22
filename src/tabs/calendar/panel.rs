@@ -21,9 +21,9 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
     let mut delete = false;
 
     ui.horizontal(|ui| {
-        ui.label(RichText::new(if is_new { "NOUVEL ÉVÉNEMENT" } else { "ÉVÉNEMENT" }).small().strong().color(theme::TEXT_MUTED()));
+        ui.label(RichText::new(if is_new { t!("NOUVEL ÉVÉNEMENT", "NEW EVENT") } else { t!("ÉVÉNEMENT", "EVENT") }).small().strong().color(theme::TEXT_MUTED()));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.small_button("×").on_hover_text("Fermer (Échap)").clicked() {
+            if ui.small_button("×").on_hover_text(t!("Fermer (Échap)", "Close (Esc)")).clicked() {
                 close = true;
             }
         });
@@ -35,35 +35,39 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
         ui.add_enabled_ui(writable && !ed.saving, |ui| {
             // Titre
             let title = ui.add(
-                egui::TextEdit::singleline(&mut ed.ev.title).hint_text("Ajouter un titre").font(theme::title_font(19.0)).frame(egui::Frame::NONE).desired_width(f32::INFINITY),
+                egui::TextEdit::singleline(&mut ed.ev.title)
+                    .hint_text(t!("Ajouter un titre", "Add a title"))
+                    .font(theme::title_font(19.0))
+                    .frame(egui::Frame::NONE)
+                    .desired_width(f32::INFINITY),
             );
             if ed.focus_title {
                 title.request_focus();
                 ed.focus_title = false;
             }
             if !writable {
-                ui.label(RichText::new("Agenda en lecture seule").small().color(theme::TEXT_FAINT()));
+                ui.label(RichText::new(t!("Agenda en lecture seule", "Read-only calendar")).small().color(theme::TEXT_FAINT()));
             }
             ui.add_space(10.0);
 
             // Dates et heures
-            ui.checkbox(&mut ed.ev.all_day, "Toute la journée");
+            ui.checkbox(&mut ed.ev.all_day, t!("Toute la journée", "All day"));
             ui.add_space(4.0);
             let all_day = ed.ev.all_day;
-            row(ui, "Début", |ui| {
+            row(ui, t!("Début", "Start"), |ui| {
                 ui.add(egui::TextEdit::singleline(&mut ed.date).desired_width(96.0).hint_text("jj/mm/aaaa"));
                 if !all_day {
                     ui.add(egui::TextEdit::singleline(&mut ed.start_time).desired_width(60.0).hint_text("hh:mm"));
                 }
             });
-            row(ui, "Fin", |ui| {
+            row(ui, t!("Fin", "End"), |ui| {
                 ui.add(egui::TextEdit::singleline(&mut ed.end_date).desired_width(96.0).hint_text("jj/mm/aaaa"));
                 if !all_day {
                     ui.add(egui::TextEdit::singleline(&mut ed.end_time).desired_width(60.0).hint_text("hh:mm"));
                 }
             });
             if !all_day {
-                row(ui, "Durée", |ui| {
+                row(ui, t!("Durée", "Duration"), |ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     for (label, min) in [("15 min", 15), ("30 min", 30), ("1 h", 60), ("2 h", 120)] {
                         if ui.small_button(label).clicked()
@@ -79,7 +83,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
             ui.add_space(8.0);
 
             // Agenda
-            row(ui, "Agenda", |ui| {
+            row(ui, t!("Agenda", "Calendar"), |ui| {
                 let current = cals.iter().find(|c| c.id == ed.ev.calendar);
                 egui::ComboBox::from_id_salt("cal_pick").selected_text(current.map(|c| c.name.as_str()).unwrap_or("—")).width(ui.available_width() - 8.0).show_ui(ui, |ui| {
                     for c in cals.iter().filter(|c| c.writable) {
@@ -95,10 +99,10 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
             });
 
             // Couleur de l'événement (sinon celle de l'agenda)
-            row(ui, "Couleur", |ui| {
+            row(ui, t!("Couleur", "Colour"), |ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 let cal_color = cals.iter().find(|c| c.id == ed.ev.calendar).map(|c| c.color).unwrap_or([0x88, 0x88, 0x88]);
-                if swatch(ui, color32(cal_color), ed.ev.color.is_none(), "Couleur de l'agenda") {
+                if swatch(ui, color32(cal_color), ed.ev.color.is_none(), t!("Couleur de l'agenda", "Calendar colour")) {
                     ed.ev.color = None;
                 }
                 for c in EVENT_COLORS {
@@ -110,9 +114,9 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
             ui.add_space(8.0);
 
             // Invités : suggestions de l'annuaire (Tab / Entrée pour ajouter).
-            recipients::field(ui, "Invités", &mut ed.attendees, "cal_attendees", "Nom ou adresse…", book, &mut ed.suggest);
-            row(ui, "Lieu", |ui| {
-                ui.add(egui::TextEdit::singleline(&mut ed.ev.location).hint_text("Ajouter un lieu").desired_width(f32::INFINITY));
+            recipients::field(ui, t!("Invités", "Guests"), &mut ed.attendees, "cal_attendees", t!("Nom ou adresse…", "Name or address…"), book, &mut ed.suggest);
+            row(ui, t!("Lieu", "Location"), |ui| {
+                ui.add(egui::TextEdit::singleline(&mut ed.ev.location).hint_text(t!("Ajouter un lieu", "Add a location")).desired_width(f32::INFINITY));
             });
             ui.add_space(6.0);
 
@@ -120,20 +124,20 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
             match ed.ev.meet_link.clone() {
                 Some(link) => {
                     ui.horizontal(|ui| {
-                        if ui.button("Rejoindre Google Meet").clicked() {
+                        if ui.button(t!("Rejoindre Google Meet", "Join Google Meet")).clicked() {
                             let _ = webbrowser::open(&link);
                         }
                         ui.add(egui::Label::new(RichText::new(&link).small().color(theme::LINK())).truncate());
                     });
                 }
                 None => {
-                    ui.checkbox(&mut ed.add_meet, "Ajouter une visioconférence Google Meet");
+                    ui.checkbox(&mut ed.add_meet, t!("Ajouter une visioconférence Google Meet", "Add Google Meet video conferencing"));
                 }
             }
             ui.add_space(8.0);
 
             ui.label(RichText::new("Description").small().color(theme::TEXT_MUTED()));
-            ui.add(egui::TextEdit::multiline(&mut ed.ev.description).desired_rows(4).desired_width(f32::INFINITY).hint_text("Ajouter une description"));
+            ui.add(egui::TextEdit::multiline(&mut ed.ev.description).desired_rows(4).desired_width(f32::INFINITY).hint_text(t!("Ajouter une description", "Add a description")));
         });
 
         if let Some(e) = &ed.error {
@@ -142,7 +146,8 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
         }
         if let Some(link) = ed.original.as_ref().and_then(|o| o.html_link.clone()) {
             ui.add_space(8.0);
-            if ui.add(egui::Button::new(RichText::new("Ouvrir dans Google Agenda ↗").small().color(theme::TEXT_MUTED())).frame(false)).clicked() {
+            if ui.add(egui::Button::new(RichText::new(t!("Ouvrir dans Google Agenda ↗", "Open in Google Calendar ↗")).small().color(theme::TEXT_MUTED())).frame(false)).clicked()
+            {
                 let _ = webbrowser::open(&link);
             }
         }
@@ -152,12 +157,12 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
     ui.separator();
     ui.horizontal(|ui| {
         if writable {
-            let label = if ed.saving { "Enregistrement…" } else { "Enregistrer" };
-            if ui.add_enabled(!ed.saving, egui::Button::new(label)).on_hover_text("Ctrl + Entrée").clicked() {
+            let label = if ed.saving { t!("Enregistrement…", "Saving…") } else { t!("Enregistrer", "Save") };
+            if ui.add_enabled(!ed.saving, egui::Button::new(label)).on_hover_text(t!("Ctrl + Entrée", "Ctrl + Enter")).clicked() {
                 save = true;
             }
         }
-        if ui.button(if writable { "Annuler" } else { "Fermer" }).clicked() {
+        if ui.button(if writable { t!("Annuler", "Cancel") } else { t!("Fermer", "Close") }).clicked() {
             close = true;
         }
         if ed.saving {
@@ -165,7 +170,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
         }
         if !is_new && writable {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let label = if ed.confirm_delete { "Confirmer la suppression" } else { "Supprimer" };
+                let label = if ed.confirm_delete { t!("Confirmer la suppression", "Confirm deletion") } else { t!("Supprimer", "Delete") };
                 let btn = egui::Button::new(RichText::new(label).color(if ed.confirm_delete { theme::BG() } else { theme::TEXT_MUTED() })).fill(if ed.confirm_delete {
                     Color32::from_rgb(0xEB, 0x57, 0x57)
                 } else {

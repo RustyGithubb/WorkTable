@@ -23,17 +23,21 @@ const ROW_H: f32 = 50.0;
 /// Colonne du milieu : recherche + liste.
 pub fn list(ui: &mut egui::Ui, mail: &mut MailState, out: &mut Vec<DirAction>) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Annuaire").strong());
+        ui.label(RichText::new(t!("Annuaire", "Directory")).strong());
         ui.label(RichText::new(format!("{} contacts", mail.contacts.len())).small().color(theme::TEXT_FAINT()));
     });
     ui.add_space(8.0);
-    ui.add(egui::TextEdit::singleline(&mut mail.dir_query).hint_text("Rechercher un nom ou une adresse").desired_width(f32::INFINITY));
+    ui.add(egui::TextEdit::singleline(&mut mail.dir_query).hint_text(t!("Rechercher un nom ou une adresse", "Search a name or address")).desired_width(f32::INFINITY));
     ui.add_space(8.0);
 
     let found: Vec<Contact> = mail.contacts.search(&mail.dir_query, usize::MAX).into_iter().cloned().collect();
     if found.is_empty() {
-        let hint = if mail.contacts.len() == 0 { "Les adresses des mails reçus s'ajoutent ici automatiquement" } else { "Aucun contact ne correspond" };
-        widgets::empty_state(ui, "Aucun contact", hint);
+        let hint = if mail.contacts.len() == 0 {
+            t!("Les adresses des mails reçus s'ajoutent ici automatiquement", "Addresses from received mails are added here automatically")
+        } else {
+            t!("Aucun contact ne correspond", "No matching contact")
+        };
+        widgets::empty_state(ui, t!("Aucun contact", "No contacts"), hint);
         return;
     }
 
@@ -56,9 +60,9 @@ fn row(ui: &mut egui::Ui, c: &Contact, selected: bool, separator: bool, hl: &mut
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
     let star_rect = Rect::from_center_size(rect.right_center() - vec2(18.0, 0.0), vec2(24.0, 24.0));
     let star = ui.interact(star_rect, resp.id.with("fav"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if c.favorite {
-        "Retirer des favoris"
+        t!("Retirer des favoris", "Remove from favourites")
     } else {
-        "Mettre en favori"
+        t!("Mettre en favori", "Add to favourites")
     });
     if star.clicked() {
         out.push(DirAction::Favorite(c.email.clone()));
@@ -115,7 +119,7 @@ fn row(ui: &mut egui::Ui, c: &Contact, selected: bool, separator: bool, hl: &mut
 pub fn detail(ui: &mut egui::Ui, mail: &MailState, out: &mut Vec<DirAction>) {
     let Some(c) = mail.dir_selected.as_deref().and_then(|e| mail.contacts.get(e)) else {
         ui.add_space(ui.available_height() * 0.42);
-        widgets::empty_state(ui, "Aucun contact sélectionné", "Choisis un contact dans l'annuaire");
+        widgets::empty_state(ui, t!("Aucun contact sélectionné", "No contact selected"), t!("Choisis un contact dans l'annuaire", "Choose a contact in the directory"));
         return;
     };
 
@@ -134,16 +138,20 @@ pub fn detail(ui: &mut egui::Ui, mail: &MailState, out: &mut Vec<DirAction>) {
 
     ui.add_space(14.0);
     ui.horizontal_wrapped(|ui| {
-        if ui.button("Écrire").clicked() {
+        if ui.button(t!("Écrire", "Write")).clicked() {
             out.push(DirAction::WriteTo(c.email.clone()));
         }
-        if ui.button("Message Google Chat").on_hover_text("Ouvre (ou crée) la conversation privée dans l'onglet Messages").clicked() {
+        if ui
+            .button(t!("Message Google Chat", "Google Chat message"))
+            .on_hover_text(t!("Ouvre (ou crée) la conversation privée dans l'onglet Messages", "Opens (or creates) the direct conversation in the Messages tab"))
+            .clicked()
+        {
             out.push(DirAction::ChatTo(c.email.clone()));
         }
-        if ui.button("Voir ses mails").clicked() {
+        if ui.button(t!("Voir ses mails", "See their mails")).clicked() {
             out.push(DirAction::ShowMails(c.email.clone()));
         }
-        let fav = if c.favorite { "Retirer des favoris" } else { "Mettre en favori" };
+        let fav = if c.favorite { t!("Retirer des favoris", "Remove from favourites") } else { t!("Mettre en favori", "Add to favourites") };
         if ui.button(fav).clicked() {
             out.push(DirAction::Favorite(c.email.clone()));
         }
@@ -158,15 +166,15 @@ pub fn detail(ui: &mut egui::Ui, mail: &MailState, out: &mut Vec<DirAction>) {
             ui.label(v);
         });
     };
-    info(ui, "Mails échangés", c.count.to_string());
+    info(ui, t!("Mails échangés", "Mails exchanged"), c.count.to_string());
     if c.last_seen > 0 {
-        info(ui, "Dernier échange", last_seen(c.last_seen));
+        info(ui, t!("Dernier échange", "Last exchange"), last_seen(c.last_seen));
     }
-    info(ui, "Favori", if c.favorite { "Oui".into() } else { "Non".into() });
+    info(ui, t!("Favori", "Favourite"), if c.favorite { t!("Oui", "Yes").into() } else { t!("Non", "No").into() });
 
     // Mails rattachés à ce contact.
     ui.add_space(14.0);
-    ui.label(RichText::new("SES MAILS").small().strong().color(theme::TEXT_MUTED()));
+    ui.label(RichText::new(t!("SES MAILS", "THEIR MAILS")).small().strong().color(theme::TEXT_MUTED()));
     ui.add_space(6.0);
     let mails = mail.dir_mails.as_ref().filter(|(e, _)| *e == c.email).map(|(_, l)| l);
     let list_h = (ui.available_height() - 34.0).max(80.0);
@@ -179,10 +187,10 @@ pub fn detail(ui: &mut egui::Ui, mail: &MailState, out: &mut Vec<DirAction>) {
             }
         }
         None => {
-            ui.label(RichText::new("Mails non chargés").small().color(theme::TEXT_FAINT()));
+            ui.label(RichText::new(t!("Mails non chargés", "Mails not loaded")).small().color(theme::TEXT_FAINT()));
         }
         Some(list) if list.is_empty() => {
-            ui.label(RichText::new("Aucun mail reçu de cette adresse").small().color(theme::TEXT_FAINT()));
+            ui.label(RichText::new(t!("Aucun mail reçu de cette adresse", "No mail received from this address")).small().color(theme::TEXT_FAINT()));
         }
         Some(list) => {
             ui.spacing_mut().item_spacing.y = 2.0;
@@ -196,8 +204,8 @@ pub fn detail(ui: &mut egui::Ui, mail: &MailState, out: &mut Vec<DirAction>) {
 
     ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
         if ui
-            .add(egui::Button::new(RichText::new("Retirer de l'annuaire").small().color(theme::TEXT_MUTED())).frame(false))
-            .on_hover_text("L'adresse sera de nouveau ajoutée si elle t'écrit")
+            .add(egui::Button::new(RichText::new(t!("Retirer de l'annuaire", "Remove from directory")).small().color(theme::TEXT_MUTED())).frame(false))
+            .on_hover_text(t!("L'adresse sera de nouveau ajoutée si elle t'écrit", "The address will be added again if it writes to you"))
             .clicked()
         {
             out.push(DirAction::Remove(c.email.clone()));
@@ -207,7 +215,7 @@ pub fn detail(ui: &mut egui::Ui, mail: &MailState, out: &mut Vec<DirAction>) {
 
 fn mail_row(ui: &mut egui::Ui, m: &crate::google::Summary) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 46.0), Sense::click());
-    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Ouvrir le mail");
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(t!("Ouvrir le mail", "Open the mail"));
     let p = ui.painter();
     if resp.hovered() {
         p.rect_filled(rect, CornerRadius::same(8), crate::theme::overlay(8));
@@ -220,7 +228,7 @@ fn mail_row(ui: &mut egui::Ui, m: &crate::google::Summary) -> egui::Response {
     if unread {
         p.circle_filled(Pos2::new(rect.left() + 6.0, rect.top() + 14.0), 3.0, theme::TEXT());
     }
-    let subject = if m.subject.is_empty() { "(sans objet)" } else { &m.subject };
+    let subject = if m.subject.is_empty() { t!("(sans objet)", "(no subject)") } else { &m.subject };
     let font = if unread { theme::editor_font(13.0, true) } else { FontId::proportional(13.0) };
     let g = one_line(p, subject, font, theme::TEXT(), rect.width() - dw - 34.0);
     p.galley(Pos2::new(rect.left() + 14.0, rect.top() + 5.0), g, theme::TEXT());
@@ -232,7 +240,7 @@ fn mail_row(ui: &mut egui::Ui, m: &crate::google::Summary) -> egui::Response {
 fn last_seen(ms: i64) -> String {
     use chrono::{Datelike, Local, TimeZone};
     let Some(d) = Local.timestamp_millis_opt(ms).single() else { return String::new() };
-    format!("{} {} {}", d.day(), tabs::month_fr(d.month()), d.year())
+    format!("{} {} {}", d.day(), tabs::month_name(d.month()), d.year())
 }
 
 fn one_line(p: &Painter, text: &str, font: FontId, color: Color32, max_w: f32) -> std::sync::Arc<egui::Galley> {

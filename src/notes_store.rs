@@ -35,16 +35,16 @@ pub enum Kind {
 impl Kind {
     pub fn label(self) -> &'static str {
         match self {
-            Kind::Text => "Texte",
-            Kind::H1 => "Titre 1",
-            Kind::H2 => "Titre 2",
-            Kind::H3 => "Titre 3",
-            Kind::Bullet => "Liste à puces",
-            Kind::Numbered => "Liste numérotée",
-            Kind::Todo(_) => "Case à cocher",
-            Kind::Quote => "Citation",
+            Kind::Text => t!("Texte", "Text"),
+            Kind::H1 => t!("Titre 1", "Heading 1"),
+            Kind::H2 => t!("Titre 2", "Heading 2"),
+            Kind::H3 => t!("Titre 3", "Heading 3"),
+            Kind::Bullet => t!("Liste à puces", "Bulleted list"),
+            Kind::Numbered => t!("Liste numérotée", "Numbered list"),
+            Kind::Todo(_) => t!("Case à cocher", "Checkbox"),
+            Kind::Quote => t!("Citation", "Quote"),
             Kind::Code => "Code",
-            Kind::Divider => "Séparateur",
+            Kind::Divider => t!("Séparateur", "Divider"),
             Kind::Image => "Image",
         }
     }
@@ -231,7 +231,7 @@ impl Note {
     }
 
     pub fn display_title(&self) -> String {
-        if self.title.trim().is_empty() { "Sans titre".into() } else { self.title.clone() }
+        if self.title.trim().is_empty() { t!("Sans titre", "Untitled").into() } else { self.title.clone() }
     }
 
     /// Texte brut (aperçu, recherche) — vide si verrouillée.
@@ -312,7 +312,7 @@ impl Note {
     }
 
     pub fn save(&mut self) -> Result<(), String> {
-        let d = dir().ok_or("dossier introuvable")?;
+        let d = dir().ok_or(t!("dossier introuvable", "folder not found"))?;
         std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
         let md_path = d.join(format!("{}.md", self.id));
         let locked_path = d.join(format!("{}.locked.json", self.id));
@@ -330,7 +330,7 @@ impl Note {
                     let old: LockedFile = serde_json::from_str(&std::fs::read_to_string(&locked_path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
                     (data.clone(), nonce.clone(), old.salt)
                 }
-                _ => return Err("note verrouillée".into()),
+                _ => return Err(t!("note verrouillée", "note is locked").into()),
             };
             let file = LockedFile { header, salt, nonce: nonce.clone(), data: data.clone() };
             write_atomic(&locked_path, serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?.as_bytes())?;
@@ -429,7 +429,7 @@ impl Note {
     /// Protège la note : texte, liens et images chiffrés ; les images quittent le disque en clair.
     pub fn protect(&mut self, password: &str) -> Result<(), String> {
         if password.chars().count() < 4 {
-            return Err("Mot de passe trop court (4 caractères minimum)".into());
+            return Err(t!("Mot de passe trop court (4 caractères minimum)", "Password too short (4 characters minimum)").into());
         }
         let mut salt = vec![0u8; 16];
         OsRng.fill_bytes(&mut salt);
@@ -454,13 +454,13 @@ impl Note {
     }
 
     pub fn unlock(&mut self, password: &str) -> Result<(), String> {
-        let d = dir().ok_or("dossier introuvable")?;
+        let d = dir().ok_or(t!("dossier introuvable", "folder not found"))?;
         let f: LockedFile = serde_json::from_str(&std::fs::read_to_string(d.join(format!("{}.locked.json", self.id))).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         let salt = B64.decode(&f.salt).map_err(|e| e.to_string())?;
         let key = derive(password, &salt)?;
         let nonce = B64.decode(&f.nonce).map_err(|e| e.to_string())?;
         let data = B64.decode(&f.data).map_err(|e| e.to_string())?;
-        let plain = decrypt(&key, &nonce, &data).map_err(|_| "Mot de passe incorrect".to_string())?;
+        let plain = decrypt(&key, &nonce, &data).map_err(|_| t!("Mot de passe incorrect", "Wrong password").to_string())?;
         let secret: Secret = serde_json::from_slice(&plain).map_err(|e| e.to_string())?;
         self.set_markdown(&secret.body);
         self.links = secret.links;
@@ -486,7 +486,7 @@ impl Note {
     /// Retire la protection (la note doit être déverrouillée) : images réécrites sur le disque.
     pub fn unprotect(&mut self) -> Result<(), String> {
         if self.locked() {
-            return Err("Déverrouille d'abord la note".into());
+            return Err(t!("Déverrouille d'abord la note", "Unlock the note first").into());
         }
         if let Some(a) = dir().map(|d| d.join("attachments").join(&self.id)) {
             let _ = std::fs::create_dir_all(&a);
@@ -517,7 +517,7 @@ impl Note {
         if self.protected {
             self.images.insert(rel.clone(), bytes);
         } else {
-            let d = dir().ok_or("dossier introuvable")?.join("attachments").join(&self.id);
+            let d = dir().ok_or(t!("dossier introuvable", "folder not found"))?.join("attachments").join(&self.id);
             std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
             std::fs::write(d.join(&file), bytes).map_err(|e| e.to_string())?;
         }
@@ -590,7 +590,7 @@ fn derive(password: &str, salt: &[u8]) -> Result<[u8; 32], String> {
     Ok(key)
 }
 
-fn encrypt(key: &[u8; 32], plain: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
+pub(crate) fn encrypt(key: &[u8; 32], plain: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
     let mut nonce = [0u8; 12];
     OsRng.fill_bytes(&mut nonce);
@@ -598,9 +598,9 @@ fn encrypt(key: &[u8; 32], plain: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
     Ok((nonce.to_vec(), ct))
 }
 
-fn decrypt(key: &[u8; 32], nonce: &[u8], data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn decrypt(key: &[u8; 32], nonce: &[u8], data: &[u8]) -> Result<Vec<u8>, String> {
     if nonce.len() != 12 {
-        return Err("données invalides".into());
+        return Err(t!("données invalides", "invalid data").into());
     }
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
     cipher.decrypt(Nonce::from_slice(nonce), data).map_err(|e| e.to_string())

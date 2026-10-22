@@ -2,6 +2,7 @@
 //! (noms des membres : l'API Chat ne renvoie que des identifiants `users/…`).
 
 use chrono::{DateTime, SecondsFormat, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -13,7 +14,7 @@ const PEOPLE: &str = "https://people.googleapis.com/v1";
 /// Taille maximale d'un fichier téléchargé depuis Chat.
 const MAX_MEDIA: u64 = 50 * 1024 * 1024;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SpaceKind {
     /// Message privé à deux.
     Dm,
@@ -23,7 +24,7 @@ pub enum SpaceKind {
     Space,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Space {
     /// « spaces/AAAA… »
     pub name: String,
@@ -50,7 +51,7 @@ impl Space {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ChatAttachment {
     pub name: String,
     pub mime: String,
@@ -70,7 +71,7 @@ impl ChatAttachment {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ChatMessage {
     /// « spaces/X/messages/Y »
     pub name: String,
@@ -91,7 +92,7 @@ pub struct ChatMessage {
 }
 
 /// Section de la barre latérale de Google Chat (dossier personnel ou section par défaut).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Section {
     /// Nom complet (« users/…/sections/… »).
     pub name: String,
@@ -399,7 +400,7 @@ pub fn set_reaction(s: &Session, name: &str, emoji: &str, add: bool, me: Option<
             Err(e) => return Err(e),
         }
     }
-    let me = me.ok_or("identifiant inconnu")?;
+    let me = me.ok_or(t!("identifiant inconnu", "unknown identifier"))?;
     let filter = format!("emoji.unicode = \"{emoji}\" AND user.name = \"{me}\"");
     let v = s.get(&format!("{API}/{name}/reactions"), &[("filter", filter.as_str())])?;
     for r in v["reactions"].as_array().into_iter().flatten() {
@@ -442,9 +443,9 @@ pub fn sections(s: &Session) -> Result<Vec<Section>, String> {
             let custom = x["type"].as_str() == Some("CUSTOM_SECTION") || !id.starts_with("default-");
             let title = match (custom, id.as_str()) {
                 (true, _) => x["displayName"].as_str().unwrap_or("Section").to_string(),
-                (false, "default-direct-messages") => "Messages privés".into(),
-                (false, "default-spaces") => "Espaces".into(),
-                (false, "default-apps") => "Applications".into(),
+                (false, "default-direct-messages") => t!("Messages privés", "Direct messages").into(),
+                (false, "default-spaces") => t!("Espaces", "Spaces").into(),
+                (false, "default-apps") => t!("Applications", "Apps").into(),
                 (false, other) => x["displayName"].as_str().filter(|d| !d.is_empty()).unwrap_or(other).to_string(),
             };
             out.push(Section { name: name.to_string(), id, title, order: x["sortOrder"].as_i64().unwrap_or(i64::MAX), spaces: Vec::new(), items: HashMap::new() });
@@ -493,7 +494,7 @@ pub fn move_to_section(s: &Session, space: &str, item: Option<&str>, target: &st
         None => {
             let filter = format!("space = {space}");
             let v = s.get(&format!("{API}/users/me/sections/-/items"), &[("filter", filter.as_str())])?;
-            v["sectionItems"][0]["name"].as_str().map(str::to_string).ok_or("Conversation introuvable dans tes sections")?
+            v["sectionItems"][0]["name"].as_str().map(str::to_string).ok_or(t!("Conversation introuvable dans tes sections", "Conversation not found in your sections"))?
         }
     };
     s.post(&format!("{API}/{item}:move"), json!({ "targetSection": target }))?;

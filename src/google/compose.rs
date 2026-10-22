@@ -40,10 +40,10 @@ impl Size {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Size::Small => "Petit",
+            Size::Small => t!("Petit", "Small"),
             Size::Normal => "Normal",
-            Size::Large => "Grand",
-            Size::Title => "Titre",
+            Size::Large => t!("Grand", "Large"),
+            Size::Title => t!("Titre", "Heading"),
         }
     }
 }
@@ -68,10 +68,10 @@ impl Align {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Align::Left => "Aligner à gauche",
-            Align::Center => "Centrer",
-            Align::Right => "Aligner à droite",
-            Align::Justify => "Justifier",
+            Align::Left => t!("Aligner à gauche", "Align left"),
+            Align::Center => t!("Centrer", "Centre"),
+            Align::Right => t!("Aligner à droite", "Align right"),
+            Align::Justify => t!("Justifier", "Justify"),
         }
     }
 }
@@ -159,7 +159,7 @@ impl Draft {
         d.in_reply_to = (!m.message_id.is_empty()).then(|| m.message_id.clone());
         let refs = format!("{} {}", m.references, m.message_id).trim().to_string();
         d.references = (!refs.is_empty()).then_some(refs);
-        let quoted = d.paragraph(format!("{} a écrit :\n{}", s.from, quote(&m.body)));
+        let quoted = d.paragraph(tf!("{} a écrit :\n{}", "{} wrote:\n{}", s.from, quote(&m.body)));
         d.quote_id = Some(quoted.id);
         d.blocks.push(Block::Para(quoted));
         d
@@ -188,7 +188,15 @@ impl Draft {
         let s = &m.summary;
         let mut d = Self::empty(Mode::Forward);
         d.subject = prefixed("Fwd:", &s.subject);
-        let fwd = d.paragraph(format!("---------- Message transféré ----------\nDe : {}\nDate : {}\nObjet : {}\nÀ : {}\n\n{}", s.from, date, s.subject, m.to, m.body));
+        let fwd = d.paragraph(tf!(
+            "---------- Message transféré ----------\nDe : {}\nDate : {}\nObjet : {}\nÀ : {}\n\n{}",
+            "---------- Forwarded message ----------\nFrom: {}\nDate: {}\nSubject: {}\nTo: {}\n\n{}",
+            s.from,
+            date,
+            s.subject,
+            m.to,
+            m.body
+        ));
         d.quote_id = Some(fwd.id);
         d.blocks.push(Block::Para(fwd));
         d
@@ -244,7 +252,7 @@ impl Draft {
             }
             out.push(match b {
                 Block::Para(p) => strip_bold(&p.text),
-                Block::Image(i) => format!("[image : {}]", i.name),
+                Block::Image(i) => tf!("[image : {}]", "[image: {}]", i.name),
             });
         }
         if let (Some(sig), false) = (sig, sig_done) {
@@ -296,19 +304,19 @@ impl Draft {
     /// Message MIME prêt à être envoyé par l'API Gmail.
     pub fn to_mime(&self, from: &str) -> Result<Vec<u8>, String> {
         if self.total_size() > MAX_TOTAL {
-            return Err("Le message dépasse 25 Mo (limite Gmail). Retire des pièces jointes.".into());
+            return Err(t!("Le message dépasse 25 Mo (limite Gmail). Retire des pièces jointes.", "The message exceeds 25 MB (Gmail limit). Remove some attachments.").into());
         }
-        let from: Mailbox = from.parse().map_err(|e| format!("Expéditeur invalide : {e}"))?;
-        let to = parse_list(&self.to).map_err(|e| format!("Destinataire invalide : {e}"))?;
+        let from: Mailbox = from.parse().map_err(|e| tf!("Expéditeur invalide : {e}", "Invalid sender: {e}"))?;
+        let to = parse_list(&self.to).map_err(|e| tf!("Destinataire invalide : {e}", "Invalid recipient: {e}"))?;
         if to.iter().next().is_none() {
-            return Err("Ajoute au moins un destinataire".into());
+            return Err(t!("Ajoute au moins un destinataire", "Add at least one recipient").into());
         }
 
         let mut b = Message::builder().from(from).subject(self.subject.clone());
         for m in to {
             b = b.to(m);
         }
-        for m in parse_list(&self.cc).map_err(|e| format!("Cc invalide : {e}"))? {
+        for m in parse_list(&self.cc).map_err(|e| tf!("Cc invalide : {e}", "Invalid Cc: {e}"))? {
             b = b.cc(m);
         }
         if let Some(id) = &self.in_reply_to {

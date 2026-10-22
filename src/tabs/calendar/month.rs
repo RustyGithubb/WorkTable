@@ -82,7 +82,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs) {
         if evs.len() > max {
             let more = evs.len() - (max - 1);
             let mr = Rect::from_min_size(cell.left_top() + vec2(8.0, 28.0 + (max - 1) as f32 * 19.0), vec2(col_w - 16.0, 17.0));
-            p.text(mr.left_center(), Align2::LEFT_CENTER, format!("+{more} autres"), FontId::proportional(10.5), theme::TEXT_MUTED());
+            p.text(mr.left_center(), Align2::LEFT_CENTER, tf!("+{more} autres", "+{more} more"), FontId::proportional(10.5), theme::TEXT_MUTED());
             if ui.interact(mr, ui.scope_id().with(("month_more", k)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).clicked() {
                 go_day = Some(*d);
             }

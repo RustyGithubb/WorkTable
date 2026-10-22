@@ -1,4 +1,4 @@
-﻿; Installeur Windows de WorkTable (Inno Setup 6 — https://jrsoftware.org/isinfo.php).
+﻿; Installeur Windows de WorkTable, en français et en anglais (Inno Setup 6 — https://jrsoftware.org/isinfo.php).
 ; Construit par installer\build.ps1, qui compile l'app puis appelle ISCC avec la version de Cargo.toml.
 ;
 ; - Installation par utilisateur par défaut (pas besoin d'être administrateur) dans
@@ -36,13 +36,28 @@ Compression=lzma2/max
 SolidCompression=yes
 CloseApplications=yes
 RestartApplications=no
+; Langue de l'installeur : celle de Windows (français ou anglais), sans question.
+ShowLanguageDialog=auto
 
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[CustomMessages]
+french.DesktopIcon=Créer un raccourci sur le Bureau
+english.DesktopIcon=Create a desktop shortcut
+french.Shortcuts=Raccourcis :
+english.Shortcuts=Shortcuts:
+french.StartupIcon=Lancer WorkTable à l'ouverture de session
+english.StartupIcon=Start WorkTable when I sign in
+french.Startup=Démarrage :
+english.Startup=Startup:
+french.DeleteData=Supprimer aussi vos données WorkTable (réglages, notes, identifiants Google) ?
+english.DeleteData=Also delete your WorkTable data (settings, notes, Google credentials)?
 
 [Tasks]
-Name: "desktopicon"; Description: "Créer un raccourci sur le Bureau"; GroupDescription: "Raccourcis :"
-Name: "startup"; Description: "Lancer WorkTable à l'ouverture de session"; GroupDescription: "Démarrage :"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:DesktopIcon}"; GroupDescription: "{cm:Shortcuts}"
+Name: "startup"; Description: "{cm:StartupIcon}"; GroupDescription: "{cm:Startup}"; Flags: unchecked
 
 [Files]
 Source: "..\target\dist\worktable.exe"; DestDir: "{app}"; DestName: "{#AppExe}"; Flags: ignoreversion
@@ -56,7 +71,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 Name: "{userstartup}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: startup
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "Lancer {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 // Désinstallation : proposer de supprimer aussi les données de l'utilisateur (non par défaut).
@@ -64,7 +79,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    if MsgBox('Supprimer aussi vos données WorkTable (réglages, notes, identifiants Google) ?' + #13#10 +
+    if MsgBox(CustomMessage('DeleteData') + #13#10 +
               ExpandConstant('{userappdata}\WorkTable'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
     begin
       DelTree(ExpandConstant('{userappdata}\WorkTable'), True, True, True);

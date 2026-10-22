@@ -21,8 +21,6 @@ const HEADER_H: f32 = 46.0;
 const ALLDAY_LANE: f32 = 22.0;
 /// Rouge de la ligne « maintenant » (comme dans Notion Calendar).
 const NOW: Color32 = Color32::from_rgb(0xEB, 0x57, 0x57);
-const WEEKDAYS: [&str; 7] = ["LUN.", "MAR.", "MER.", "JEU.", "VEN.", "SAM.", "DIM."];
-
 pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Account) {
     let days = cal.days();
     let n = days.len() as f32;
@@ -35,12 +33,13 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Acc
     for (i, d) in days.iter().enumerate() {
         let x = head.left() + GUTTER + i as f32 * col_w;
         let r = Rect::from_min_size(Pos2::new(x, head.top()), vec2(col_w, HEADER_H));
-        let resp = ui.interact(r, ui.scope_id().with(("day_head", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text("Afficher ce jour");
+        let resp =
+            ui.interact(r, ui.scope_id().with(("day_head", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Afficher ce jour", "Show this day"));
         let p = ui.painter();
         // Jour et numéro côte à côte : « MAR. 20 » (aujourd'hui en terracotta).
-        let label = WEEKDAYS[d.weekday().num_days_from_monday() as usize];
+        let label = crate::tabs::weekday_short(d.weekday()).to_uppercase();
         let is_today = *d == today;
-        let day_g = p.layout_no_wrap(label.to_string(), FontId::proportional(11.0), if is_today { theme::TODAY() } else { theme::TEXT_MUTED() });
+        let day_g = p.layout_no_wrap(label, FontId::proportional(11.0), if is_today { theme::TODAY() } else { theme::TEXT_MUTED() });
         let num_g = p.layout_no_wrap(d.day().to_string(), theme::editor_font(15.0, true), Color32::WHITE);
         let pill_w = num_g.size().x.max(14.0) + 12.0;
         let total = day_g.size().x + 6.0 + pill_w;
@@ -145,7 +144,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Acc
                 let r = Rect::from_min_max(Pos2::new(c.left() + 2.0, y_of(a) + 1.0), Pos2::new(c.right() - 6.0, y_of(b).max(y_of(a) + 18.0) - 1.0));
                 let col = color32(ev.color.unwrap_or_else(|| cal.color_of(&ev)));
                 p.rect(r, CornerRadius::same(6), col.gamma_multiply(0.45), Stroke::new(1.5, theme::TEXT()), StrokeKind::Inside);
-                let title = if ev.title.trim().is_empty() { "(Nouvel événement)".to_string() } else { ev.title.clone() };
+                let title = if ev.title.trim().is_empty() { t!("(Nouvel événement)", "(New event)").to_string() } else { ev.title.clone() };
                 let tp = p.with_clip_rect(r.shrink(1.0).intersect(p.clip_rect()));
                 tp.text(r.left_top() + vec2(8.0, 5.0), Align2::LEFT_TOP, title, theme::editor_font(12.0, true), theme::TEXT());
                 tp.text(r.left_top() + vec2(8.0, 21.0), Align2::LEFT_TOP, format!("{} – {}", fmt_min(a), fmt_min(b)), FontId::proportional(11.0), theme::TEXT_MUTED());
@@ -248,7 +247,7 @@ fn paint_event(p: &egui::Painter, r: Rect, e: &CalEvent, color: [u8; 3], selecte
     }
     let tp = p.with_clip_rect(r.shrink(1.0).intersect(p.clip_rect()));
     let text = if past { crate::theme::gray(0xB0) } else { theme::TEXT() };
-    let title = if e.title.is_empty() { "(Sans titre)" } else { &e.title };
+    let title = if e.title.is_empty() { t!("(Sans titre)", "(Untitled)") } else { &e.title };
     let x = r.left() + 8.0;
     if r.height() < 30.0 {
         // Événement court : titre et heure sur une ligne.
@@ -409,7 +408,7 @@ fn all_day_row(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, days: 
     let width = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(width, h), Sense::click());
     let p = ui.painter().clone();
-    p.text(Pos2::new(rect.left() + GUTTER - 8.0, rect.top() + 13.0), Align2::RIGHT_CENTER, "Journée", FontId::proportional(10.0), theme::TEXT_FAINT());
+    p.text(Pos2::new(rect.left() + GUTTER - 8.0, rect.top() + 13.0), Align2::RIGHT_CENTER, t!("Journée", "All day"), FontId::proportional(10.0), theme::TEXT_FAINT());
     let grid_left = rect.left() + GUTTER;
     let mut clicked_event = None;
     for (e, a, b, lane) in &placed {

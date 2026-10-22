@@ -2,6 +2,7 @@
 
 Application d'organisation de travail en Rust (`eframe` / `egui` 0.37).
 Onglets : Tableau de bord, Calendrier, Mail (Gmail), Messages (Google Chat), Prise de notes, Fichiers (Google Drive), Réglages.
+Interface en français ou en anglais (Réglages › Général › Langue ; par défaut, la langue de Windows).
 
 ## Lancer
 ```
@@ -63,7 +64,8 @@ Dans ce dossier :
 - `config\` : réglages (`prefs.json`), tâches, contacts, mails épinglés, liens et logos, icônes
   et annuaire Chat, `crash.log` ;
 - `data\notes\` : notes Markdown et leurs pièces jointes ;
-- `cache\` : émojis téléchargés (recréés automatiquement si absents) ;
+- `cache\` : émojis téléchargés (recréés automatiquement si absents) et `chat.wtc`, copie chiffrée
+  des conversations Google Chat récentes (voir Messages) ;
 - `secrets\` : identifiants Google (`google.json`) et jeton de connexion — **ignoré par git**,
   à ne jamais publier.
 
@@ -87,7 +89,12 @@ finale, lit la version dans `Cargo.toml` et produit `installer\Output\WorkTable-
   avant de construire (ignoré par git) : il est installé à côté de l'exe et sert par défaut.
 
 ## Fichiers (Google Drive)
-- Navigation : Mon Drive, Partagés avec moi, Récents, Suivis, Drives partagés (colonne masquable « ).
+- Navigation : Mon Drive, Partagés avec moi, Récents, Suivis, Favoris, Drives partagés (colonne masquable « ).
+- **Favoris** (propres à WorkTable, distincts des « Suivis » de Drive) : clic droit sur un dossier ou un
+  fichier › « Ajouter aux favoris » (ou bouton du panneau de détail). La catégorie **Favoris** de la
+  navigation liste « Tous les favoris » (vue liste / grille) puis chaque favori : clic sur un dossier =
+  l'ouvrir, sur un fichier = son détail, double-clic = l'ouvrir, clic droit = retirer. Étoile de
+  couleur sur les favoris. Sauvegarde : `data\config\drive_favorites.json`.
 - Fil d'Ariane cliquable, retour (‹ ou Retour arrière), tri Nom / Modifié, vue Liste / Grille
   (miniatures), « Charger plus » par pages de 100.
 - Recherche Drive (nom et contenu des fichiers) ; les fichiers Drive apparaissent aussi dans la
@@ -96,6 +103,11 @@ finale, lit la version dans `Cargo.toml` et produit `installer\Output\WorkTable-
   ouvert avec l'application Windows par défaut (navigateur en dernier recours). Clic droit et panneau
   de détail : ouvrir dans le navigateur, ouvrir un Docs / Sheets / Slides avec une application du PC
   (export docx / xlsx / pptx), télécharger, copier le lien, afficher l'emplacement.
+- **Fiche « Auteur »** dans le panneau de détail (ouvert au clic sur un fichier) : nom et adresse du
+  propriétaire (Drive partagé : dernière personne à l'avoir modifié), et ce que WorkTable sait déjà de
+  lui : annuaire (mails échangés), ses 3 derniers mails, la conversation Google Chat avec lui,
+  les rendez-vous en commun — chaque ligne s'ouvre dans son onglet. Boutons : écrire un mail, ses
+  mails, ouvrir / écrire sur Chat, « Ses fichiers » (fichiers Drive dont il est propriétaire).
 - Comme pour Gmail : dossiers gardés en mémoire (relus au plus toutes les 2 minutes), champs limités,
   requêtes via le même limiteur et les mêmes reprises.
 
@@ -146,6 +158,13 @@ le dossier des notes »).
 Enregistrement automatique une seconde après la dernière frappe.
 
 ## Tableau de bord
+- **Ne pas déranger** : pilule à gauche de l'heure (visible seulement dans le tableau de bord), dont la
+  pastille porte une tête de raton laveur : normale (yeux ouverts), puis masquée (loup sur les yeux
+  fermés). Un clic fait couler la pastille d'un bout à l'autre comme un liquide (ease-in-out : elle
+  s'étire en chemin puis se reforme en goutte) : plus
+  aucun bandeau ni son de notification jusqu'au clic suivant (le bandeau en cours disparaît ; les
+  notifications reçues entre-temps ne sont pas rejouées). Chaque bascule fait vibrer les panneaux en
+  vague partant du bouton. Mémorisé entre deux lancements.
 - Titre : une phrase d'accueil tirée au hasard à chaque lancement (une douzaine).
 - **Tâches** : l'onglet « Archives » à côté du titre affiche les tâches archivées (restaurer / supprimer).
 - **Liens Sites Important** (premier panneau) : galerie 3 × 3 de logos cliquables qui ouvrent un
@@ -156,11 +175,13 @@ Enregistrement automatique une seconde après la dernière frappe.
 - **Planning du jour** : événements des agendas affichés dans le Calendrier (journée entière en tête),
   ligne « maintenant », événement en cours surligné, « Dans 25 min » pour le suivant ; clic = ouvre
   l'événement dans le Calendrier.
-- **Mails** : mails épinglés puis les 5 derniers non lus de la boîte de réception ; clic = ouvre le mail.
+- **Mails** : mails épinglés puis les 5 derniers non lus de la boîte de réception ; clic = ouvre le mail ; clic droit sur un mail épinglé › Désépingler.
+- **Messages épinglés** (à côté des Mails) : messages Google Chat épinglés depuis l'onglet Messages ;
+  clic = ouvre la conversation, clic droit = désépingler. Sauvegarde : `data\config\chat_pinned.json`.
 - **Rappels** : tâches « À faire » depuis les jours précédents et « En cours » depuis 3 jours ou plus,
   avec « Commencer » / « Archiver ».
 - **Tâches** (Kanban) : À faire / En cours / Archivé. Ajout avec Entrée, glisser-déposer d'une colonne à
-  l'autre, boutons ◀ ▶ ✓ ✕, double-clic pour renommer. Le bloc « Archivé » est vidé chaque jour : ses
+  l'autre, boutons ◀ ▶ ✓ ✕, double-clic pour renommer, clic droit › Renommer / Effacer la tâche. Le bloc « Archivé » est vidé chaque jour : ses
   tâches passent dans **Archives** (repliées sous le Kanban, par jour, avec « Restaurer »).
   Sauvegarde : `data\config\tasks.json`.
 - **Fichiers reçus** : les 6 derniers fichiers partagés par mail, uniquement PDF (pièces jointes) et
@@ -260,6 +281,16 @@ Enregistrement automatique une seconde après la dernière frappe.
 - **Rendre muet** une conversation (clic droit ou cloche dans l'en-tête) : nom estompé, cloche
   barrée, plus comptée dans les non lus ni dans la pastille de la barre.
 - Trait de séparation entre les sections.
+- **Conversations hors ligne** : copie chiffrée gardée sur l'ordinateur (`cache\chat.wtc`,
+  AES-256-GCM ; clé dans `secrets\chat_cache.key`, protégée par Windows — DPAPI : lisible
+  seulement par ta session). Elle contient le nom de **toutes** les conversations et de tous les
+  groupes (membres, personnes, sections compris) et les 200 derniers messages des 50 conversations
+  les plus récentes, mises à jour automatiquement en arrière-plan. Relue dès le lancement dans un
+  fil à part, avant même la connexion à Google : la liste, les noms et les messages s'affichent
+  aussitôt, et ouvrir une conversation ne demande plus que ses nouveaux messages. Liée au compte
+  Google (effacée à la déconnexion ou si un autre compte se connecte) ; Réglages › Données › « Vider ».
+- **Épingler** un message (📌 dans la barre d'actions au survol) : il apparaît dans le panneau
+  « Messages épinglés » du tableau de bord ; « · épinglé » s'affiche à côté de l'heure.
 - Recherche de personne : la conversation existante s'affiche ; sinon les contacts de l'annuaire
   (ou l'adresse tapée) proposent « Écrire › », qui crée la conversation privée. Entrée ouvre le
   premier résultat.
@@ -302,6 +333,8 @@ Enregistrement automatique une seconde après la dernière frappe.
   version HD `assets/logo-hd.png` (1024 × 1024).
   Un clic sur le logo le fait tourner ; chaque clic accélère et le grossit (élastique), puis il
   freine doucement et revient à sa place.
+  Pendant qu'il tourne, les panneaux de l'onglet tremblent, chacun à son rythme, d'autant plus fort
+  que la roue va vite (amplitude et fréquence liées à sa vitesse), puis se calment avec elle.
   Icône du fichier .exe : `assets/logo.ico` (16 à 256 px), intégrée à la compilation par `build.rs`.
 - Pastilles terracotta : nombre de non lus pour Mail et Messages.
 - Aperçu au survol : rester 0,3 s sur l'icône Mail ou Messages quand des notifications attendent
@@ -384,6 +417,8 @@ est découpé à sa forme (sans ombre). `WORKTABLE_RENDERER=glow` ou `=wgpu` for
 - `src/sidebar.rs` — barre de navigation en pilule + bouton Réglages (flottants)
 - `src/theme.rs` — DA monochrome
 - `src/widgets.rs` — cartes, panneaux, champs, états vides
+- `src/i18n.rs` — langue de l'interface : chaque texte est écrit dans les deux langues là où il
+  est affiché, `t!("Réglages", "Settings")` (texte fixe) ou `tf!("{n} non lus", "{n} unread")` (texte formaté)
 - `src/google/` — OAuth (`auth.rs`), API Gmail (`gmail.rs`), API Google Chat + People (`chat.rs`), rédaction MIME (`compose.rs`), compte/session (`mod.rs`)
 - `src/notes_store.rs` — notes locales : Markdown, pièces jointes, chiffrement
 - `src/tabs/notes/` — éditeur par blocs (`editor.rs`), Markdown en ligne (`inline.rs`), liens (`links.rs`)

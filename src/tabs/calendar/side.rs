@@ -9,7 +9,7 @@ use crate::theme;
 
 pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &mut Prefs) {
     let w = ui.available_width();
-    if ui.add_sized([w, 32.0], egui::Button::new("+  Nouvel événement")).on_hover_text("C").clicked() {
+    if ui.add_sized([w, 32.0], egui::Button::new(t!("+  Nouvel événement", "+  New event"))).on_hover_text("C").clicked() {
         let now = Local::now();
         let d = cal.days().into_iter().find(|d| *d == now.date_naive()).unwrap_or(cal.anchor);
         let m = snap((now.hour() * 60 + now.minute()) as i32 + 15, 30).min(23 * 60);
@@ -22,9 +22,13 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &mut Prefs) {
     egui::ScrollArea::vertical().id_salt("cal_list").auto_shrink([false, false]).show(ui, |ui| {
         let (mine, others): (Vec<_>, Vec<_>) = cal.calendars.iter().cloned().partition(|c| c.writable);
         if cal.calendars.is_empty() {
-            ui.label(RichText::new(if cal.loading_calendars { "Chargement des agendas…" } else { "Aucun agenda" }).small().color(theme::TEXT_FAINT()));
+            ui.label(
+                RichText::new(if cal.loading_calendars { t!("Chargement des agendas…", "Loading calendars…") } else { t!("Aucun agenda", "No calendar") })
+                    .small()
+                    .color(theme::TEXT_FAINT()),
+            );
         }
-        for (title, list) in [("MES AGENDAS", mine), ("AUTRES AGENDAS", others)] {
+        for (title, list) in [(t!("MES AGENDAS", "MY CALENDARS"), mine), (t!("AUTRES AGENDAS", "OTHER CALENDARS"), others)] {
             if list.is_empty() {
                 continue;
             }
@@ -41,11 +45,11 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &mut Prefs) {
                     }
                 }
                 r.context_menu(|ui| {
-                    if ui.button("Afficher uniquement cet agenda").clicked() {
+                    if ui.button(t!("Afficher uniquement cet agenda", "Show only this calendar")).clicked() {
                         prefs.hidden_calendars = cal.calendars.iter().filter(|x| x.id != c.id).map(|x| x.id.clone()).collect();
                         ui.close();
                     }
-                    if ui.button("Afficher tous les agendas").clicked() {
+                    if ui.button(t!("Afficher tous les agendas", "Show all calendars")).clicked() {
                         prefs.hidden_calendars.clear();
                         ui.close();
                     }
@@ -55,16 +59,23 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &mut Prefs) {
         }
         ui.add_space(8.0);
         ui.label(
-            RichText::new("Raccourcis : T aujourd'hui · J/K suivant/précédent · D/W/M jour/semaine/mois · 1-7 nombre de jours · C nouvel événement · S panneau · Échap fermer")
-                .small()
-                .color(theme::TEXT_FAINT()),
+            RichText::new(t!(
+                "Raccourcis : T aujourd'hui · J/K suivant/précédent · D/W/M jour/semaine/mois · 1-7 nombre de jours · C nouvel événement · S panneau · Échap fermer",
+                "Shortcuts: T today · J/K next/previous · D/W/M day/week/month · 1-7 number of days · C new event · S panel · Esc close"
+            ))
+            .small()
+            .color(theme::TEXT_FAINT()),
         );
     });
 }
 
 fn calendar_row(ui: &mut egui::Ui, name: &str, color: Color32, visible: bool, primary: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
-    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if visible { "Masquer (clic droit : afficher uniquement)" } else { "Afficher" });
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if visible {
+        t!("Masquer (clic droit : afficher uniquement)", "Hide (right-click: show only this one)")
+    } else {
+        t!("Afficher", "Show")
+    });
     let p = ui.painter();
     if resp.hovered() {
         p.rect_filled(rect, CornerRadius::same(6), crate::theme::overlay(7));
@@ -78,7 +89,7 @@ fn calendar_row(ui: &mut egui::Ui, name: &str, color: Color32, visible: bool, pr
         // Agenda masqué : case et nom nettement estompés.
         p.rect_stroke(b, CornerRadius::same(4), Stroke::new(1.5, color.gamma_multiply(0.35)), StrokeKind::Inside);
     }
-    let label = if primary { format!("{name}  ·  principal") } else { name.to_string() };
+    let label = if primary { tf!("{name}  ·  principal", "{name}  ·  primary") } else { name.to_string() };
     let tc = if visible { theme::TEXT() } else { theme::TEXT_FAINT().gamma_multiply(0.75) };
     let g = p.layout_job({
         let mut j = egui::text::LayoutJob::simple_singleline(label, FontId::proportional(13.0), tc);

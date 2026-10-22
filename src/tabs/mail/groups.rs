@@ -83,7 +83,7 @@ pub enum GroupEdit {
 /// Pastille de couleur cliquable ouvrant la palette (couleurs proposées + couleur libre).
 pub fn swatch(ui: &mut egui::Ui, g: &GroupColor, size: f32) -> Option<GroupEdit> {
     let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
-    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Changer la couleur");
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(t!("Changer la couleur", "Change colour"));
     ui.painter().circle_filled(rect.center(), size / 2.0, color32(g.color));
     if resp.hovered() {
         ui.painter().circle_stroke(rect.center(), size / 2.0 + 2.0, Stroke::new(1.0, theme::TEXT()));
@@ -115,13 +115,13 @@ pub fn palette(ui: &mut egui::Ui, g: &GroupColor) -> Option<GroupEdit> {
         }
     });
     ui.add_space(8.0);
-    ui.label(RichText::new("Couleur libre").small().color(theme::TEXT_MUTED()));
+    ui.label(RichText::new(t!("Couleur libre", "Custom colour")).small().color(theme::TEXT_MUTED()));
     let mut c = color32(g.color);
     if egui::widgets::color_picker::color_picker_color32(ui, &mut c, egui::widgets::color_picker::Alpha::Opaque) {
         edit = Some(GroupEdit::Color(g.address.clone(), [c.r(), c.g(), c.b()]));
     }
     ui.add_space(6.0);
-    if ui.button("Retirer la couleur de ce groupe").clicked() {
+    if ui.button(t!("Retirer la couleur de ce groupe", "Remove this group's colour")).clicked() {
         edit = Some(GroupEdit::Remove(g.address.clone()));
     }
     edit

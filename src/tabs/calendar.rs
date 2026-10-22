@@ -143,7 +143,7 @@ pub fn snap(minutes: i32, step: i32) -> i32 {
 }
 
 fn month_title(d: NaiveDate) -> String {
-    let m = super::month_fr(d.month());
+    let m = super::month_name(d.month());
     let mut c = m.chars();
     let cap: String = c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default();
     format!("{cap} {}", d.year())
@@ -326,7 +326,7 @@ impl CalendarState {
                 {
                     self.editor = None;
                 }
-                self.info("Événement enregistré");
+                self.info(t!("Événement enregistré", "Event saved"));
             }
             Event::CalDeleted { calendar, id } => {
                 if let Some(l) = self.events.get_mut(&calendar) {
@@ -334,7 +334,7 @@ impl CalendarState {
                 }
                 self.selected = None;
                 self.editor = None;
-                self.info("Événement supprimé");
+                self.info(t!("Événement supprimé", "Event deleted"));
             }
             Event::CalError(e) => {
                 self.loading_calendars = false;
@@ -372,7 +372,7 @@ impl CalendarState {
     /// Ouvre le panneau sur un nouvel événement [start, end).
     pub fn new_event(&mut self, prefs: &Prefs, start: i64, end: i64, all_day: bool) {
         let Some(cal) = self.default_calendar(prefs) else {
-            self.notice = Some(("Aucun agenda modifiable".into(), true, Instant::now()));
+            self.notice = Some((t!("Aucun agenda modifiable", "No editable calendar").into(), true, Instant::now()));
             return;
         };
         let ev = CalEvent { calendar: cal.id.clone(), start, end, all_day, ..Default::default() };
@@ -495,14 +495,14 @@ impl Editor {
 
     /// Construit l'événement à partir des champs saisis (dates jj/mm/aaaa, heures hh:mm).
     pub fn build(&self) -> Result<CalEvent, String> {
-        let date = |s: &str| NaiveDate::parse_from_str(s.trim(), "%d/%m/%Y").map_err(|_| format!("Date invalide : « {s} » (jj/mm/aaaa)"));
+        let date = |s: &str| NaiveDate::parse_from_str(s.trim(), "%d/%m/%Y").map_err(|_| tf!("Date invalide : « {s} » (jj/mm/aaaa)", "Invalid date: “{s}” (dd/mm/yyyy)"));
         let time = |s: &str| -> Result<i32, String> {
             let t = s.trim().replace('h', ":");
             let (h, m) = t.split_once(':').unwrap_or((t.as_str(), "0"));
             let (h, m) = (h.trim().parse::<i32>(), if m.trim().is_empty() { Ok(0) } else { m.trim().parse::<i32>() });
             match (h, m) {
                 (Ok(h), Ok(m)) if (0..=24).contains(&h) && (0..60).contains(&m) => Ok(h * 60 + m),
-                _ => Err(format!("Heure invalide : « {s} » (hh:mm)")),
+                _ => Err(tf!("Heure invalide : « {s} » (hh:mm)", "Invalid time: “{s}” (hh:mm)")),
             }
         };
         let mut e = self.ev.clone();
@@ -514,12 +514,12 @@ impl Editor {
             e.start = at(d0, time(&self.start_time)?);
             e.end = at(d1, time(&self.end_time)?);
             if e.end <= e.start {
-                return Err("La fin doit être après le début".into());
+                return Err(t!("La fin doit être après le début", "The end must be after the start").into());
             }
         }
         e.attendees = crate::tabs::mail::contacts::split_list(&self.attendees).iter().filter_map(|m| crate::tabs::mail::contacts::parse_mailbox(m).map(|(_, a)| a)).collect();
         if e.title.trim().is_empty() {
-            e.title = "(Sans titre)".into();
+            e.title = t!("(Sans titre)", "(Untitled)").into();
         }
         Ok(e)
     }
@@ -543,7 +543,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &mut Account, prefs
     calendar_header(ui, cal);
 
     if acc.session().is_none() {
-        connect_card(ui, acc, "Connecte ton compte Google pour afficher tes agendas.");
+        connect_card(ui, acc, t!("Connecte ton compte Google pour afficher tes agendas.", "Connect your Google account to show your calendars."));
         return;
     }
     if cal.need_consent {
@@ -625,17 +625,17 @@ fn calendar_header(ui: &mut egui::Ui, cal: &CalendarState) {
         View::Month => (month_title(cal.anchor), None),
         View::Days(_) => {
             let (a, b) = (days[0], *days.last().unwrap());
-            let w = Some(format!("Semaine {}", a.iso_week().week()));
+            let w = Some(tf!("Semaine {}", "Week {}", a.iso_week().week()));
             if a.month() == b.month() {
                 (month_title(a), w)
             } else if a.year() == b.year() {
-                (format!("{} – {}", capitalize(super::month_fr(a.month())), month_title(b)), w)
+                (format!("{} – {}", capitalize(super::month_name(a.month())), month_title(b)), w)
             } else {
                 (format!("{} – {}", month_title(a), month_title(b)), w)
             }
         }
     };
-    widgets::page_header_with(ui, "Agenda", &title, |ui| {
+    widgets::page_header_with(ui, t!("Agenda", "Calendar"), &title, |ui| {
         if let Some(w) = week {
             widgets::header_badge(ui, &w, false);
         }
@@ -650,17 +650,21 @@ fn capitalize(s: &str) -> String {
 fn center(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Account, side_hidden: bool, toggle_side: &mut bool) {
     // Barre d'outils : panneau latéral, aujourd'hui, précédent / suivant, vues.
     ui.horizontal(|ui| {
-        let (icon, tip) = if side_hidden { ("»", "Afficher le panneau de gauche (S)") } else { ("«", "Masquer le panneau de gauche (S)") };
+        let (icon, tip) = if side_hidden {
+            ("»", t!("Afficher le panneau de gauche (S)", "Show the left panel (S)"))
+        } else {
+            ("«", t!("Masquer le panneau de gauche (S)", "Hide the left panel (S)"))
+        };
         if ui.button(icon).on_hover_text(tip).clicked() {
             *toggle_side = true;
         }
-        if ui.button("Aujourd'hui").on_hover_text("T").clicked() {
+        if ui.button(t!("Aujourd'hui", "Today")).on_hover_text("T").clicked() {
             cal.today();
         }
-        if ui.button("‹").on_hover_text("Précédent (K ou ←)").clicked() {
+        if ui.button("‹").on_hover_text(t!("Précédent (K ou ←)", "Previous (K or ←)")).clicked() {
             cal.shift(-1);
         }
-        if ui.button("›").on_hover_text("Suivant (J ou →)").clicked() {
+        if ui.button("›").on_hover_text(t!("Suivant (J ou →)", "Next (J or →)")).clicked() {
             cal.shift(1);
         }
         if cal.loading_calendars || !cal.pending.is_empty() {
@@ -674,14 +678,14 @@ fn center(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Accou
                 View::Month => 0,
             };
             let custom = match cal.view {
-                View::Days(n) if n != 1 && n != 7 => format!("{n} jours"),
-                _ => "3 jours".into(),
+                View::Days(n) if n != 1 && n != 7 => tf!("{n} jours", "{n} days"),
+                _ => t!("3 jours", "3 days").into(),
             };
             let custom_v = match cal.view {
                 View::Days(n) if n != 1 && n != 7 => n as i32 + 100,
                 _ => 103,
             };
-            let opts = [(0, "Mois"), (7, "Semaine"), (custom_v, custom.as_str()), (1, "Jour")];
+            let opts = [(0, t!("Mois", "Month")), (7, t!("Semaine", "Week")), (custom_v, custom.as_str()), (1, t!("Jour", "Day"))];
             if widgets::segmented(ui, "cal_view", &opts, &mut v) {
                 cal.set_view(match v {
                     0 => View::Month,
@@ -748,7 +752,7 @@ fn connect_card(ui: &mut egui::Ui, acc: &mut Account, text: &str) {
         // Aligné à gauche, comme le contenu des autres onglets.
         let w = 600.0_f32.min(ui.available_width());
         ui.allocate_ui_with_layout(vec2(w, 0.0), Layout::top_down(Align::Min), |ui| {
-            widgets::card(ui, "Google Agenda", 0.0, |ui| {
+            widgets::card(ui, t!("Google Agenda", "Google Calendar"), 0.0, |ui| {
                 ui.label(RichText::new(text).color(theme::TEXT_MUTED()));
                 ui.add_space(12.0);
                 super::settings::google_account_form(ui, acc);
@@ -762,21 +766,23 @@ fn connect_card_consent(ui: &mut egui::Ui, acc: &mut Account) {
         // Aligné à gauche, comme le contenu des autres onglets.
         let w = 600.0_f32.min(ui.available_width());
         ui.allocate_ui_with_layout(vec2(w, 0.0), Layout::top_down(Align::Min), |ui| {
-            widgets::card(ui, "Autoriser Google Agenda", 0.0, |ui| {
+            widgets::card(ui, t!("Autoriser Google Agenda", "Allow Google Calendar"), 0.0, |ui| {
                 ui.label(
-                    RichText::new(
+                    RichText::new(t!(
                         "Ton compte est connecté pour Gmail, mais WorkTable n'a pas encore l'autorisation \
                          d'accéder à Google Agenda. Reconnecte-toi pour l'accorder (une seule fois).",
-                    )
+                        "Your account is connected for Gmail, but WorkTable is not yet allowed \
+                         to access Google Calendar. Sign in again to grant it (only once)."
+                    ))
                     .color(theme::TEXT_MUTED()),
                 );
                 ui.add_space(12.0);
                 if acc.status == Status::Connecting {
                     ui.horizontal(|ui| {
                         ui.add(egui::Spinner::new().size(14.0));
-                        ui.label("Termine l'autorisation dans le navigateur…");
+                        ui.label(t!("Termine l'autorisation dans le navigateur…", "Finish the authorization in the browser…"));
                     });
-                } else if ui.button("Autoriser l'accès à Google Agenda").clicked() {
+                } else if ui.button(t!("Autoriser l'accès à Google Agenda", "Allow access to Google Calendar")).clicked() {
                     acc.connect();
                 }
             });
@@ -789,20 +795,22 @@ fn api_disabled_card(ui: &mut egui::Ui, acc: &mut Account, cal: &mut CalendarSta
         // Aligné à gauche, comme le contenu des autres onglets.
         let w = 600.0_f32.min(ui.available_width());
         ui.allocate_ui_with_layout(vec2(w, 0.0), Layout::top_down(Align::Min), |ui| {
-            widgets::card(ui, "Activer l'API Google Agenda", 0.0, |ui| {
+            widgets::card(ui, t!("Activer l'API Google Agenda", "Enable the Google Calendar API"), 0.0, |ui| {
                 ui.label(
-                    RichText::new(
+                    RichText::new(t!(
                         "L'API Google Calendar n'est pas activée dans ton projet Google Cloud. \
                          Active-la (bouton ci-dessous), attends une minute, puis réessaie.",
-                    )
+                        "The Google Calendar API is not enabled in your Google Cloud project. \
+                         Enable it (button below), wait a minute, then try again."
+                    ))
                     .color(theme::TEXT_MUTED()),
                 );
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Ouvrir la page d'activation").clicked() {
+                    if ui.button(t!("Ouvrir la page d'activation", "Open the activation page")).clicked() {
                         let _ = webbrowser::open("https://console.cloud.google.com/apis/library/calendar-json.googleapis.com");
                     }
-                    if ui.button("Réessayer").clicked() {
+                    if ui.button(t!("Réessayer", "Try again")).clicked() {
                         cal.api_disabled = false;
                         cal.load_calendars(acc);
                     }

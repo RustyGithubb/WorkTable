@@ -10,6 +10,8 @@
 
 pub mod emoji;
 pub mod format;
+pub mod pins;
+pub mod store;
 mod view;
 
 use std::collections::{HashMap, HashSet};
@@ -37,6 +39,11 @@ const PAGE: u32 = 60;
 const PHOTOS_IN_FLIGHT: usize = 6;
 /// Nombre d'espaces récents dont on lit l'état de lecture et les membres.
 const RECENT: usize = 60;
+/// Copie locale chiffrée : enregistrée au plus toutes les 20 s quand quelque chose a changé.
+const STORE_EVERY: Duration = Duration::from_secs(20);
+/// Mise à jour automatique des conversations récentes : une demande toutes les 1,5 s, 2 à la fois.
+const SYNC_GAP: Duration = Duration::from_millis(1500);
+const SYNC_IN_FLIGHT: usize = 2;
 
 #[derive(Default, Clone)]
 pub struct NewGroup {
@@ -123,6 +130,24 @@ pub struct ChatState {
     read_requested: HashSet<String>,
     last_full: Option<Instant>,
     people_loaded: bool,
+    /// Messages épinglés (affichés dans le tableau de bord).
+    pub pins: pins::Pins,
+    pins_loaded: bool,
+    /// Copie locale chiffrée (voir `store`) : relue, à enregistrer.
+    store_loaded: bool,
+    /// Lecture de la copie en cours (fil à part).
+    store_rx: Option<std::sync::mpsc::Receiver<Option<store::Snapshot>>>,
+    /// Compte auquel appartiennent les données affichées (copie locale ou Google).
+    store_account: String,
+    /// Noms des conversations gardés dans la copie (avant que membres et personnes soient relus).
+    titles: HashMap<String, String>,
+    /// Ancien fichier des personnes en clair, à supprimer une fois repris dans la copie chiffrée.
+    legacy_people: bool,
+    store_dirty: bool,
+    store_saved: Option<Instant>,
+    /// Conversations récentes déjà mises à jour (espace → dernière activité connue).
+    synced: HashMap<String, i64>,
+    last_sync: Option<Instant>,
 }
 
 impl ChatState {
@@ -130,13 +155,49 @@ impl ChatState {
 
     /// À appeler à chaque image : relève espacée, plus fréquente quand l'onglet est affiché.
     pub fn background(&mut self, acc: &Account, visible: bool, ctx: &eframe::egui::Context) {
+        // Conversations gardées sur cet ordinateur : relues dès le lancement, dans un fil à part
+        // (avant même la connexion à Google), puis affichées aussitôt, même hors ligne.
+        if !self.store_loaded {
+            self.store_loaded = true;
+            self.store_rx = Some(store::load_async());
+        }
+        if let Some(rx) = &self.store_rx {
+            match rx.try_recv() {
+                Ok(snap) => {
+                    self.store_rx = None;
+                    if let Some(snap) = snap {
+                        self.restore(snap);
+                    }
+                    ctx.request_repaint();
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(Duration::from_millis(30)),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.store_rx = None,
+            }
+        }
         if !self.people_loaded {
             self.load_people();
+        }
+        if !self.pins_loaded {
+            self.pins = pins::Pins::load();
+            self.pins_loaded = true;
         }
         if let Some(s) = acc.session()
             && self.own_email.is_empty()
         {
             self.own_email = s.email.to_lowercase();
+        }
+        // Copie d'un autre compte : rien ne doit en rester.
+        if self.store_rx.is_none() && !self.own_email.is_empty() && self.store_account != self.own_email {
+            if !self.store_account.is_empty() {
+                self.forget_account();
+            }
+            self.store_account = self.own_email.clone();
+        }
+        if acc.session().is_none() {
+            // Déconnecté : la copie (effacée à la déconnexion) n'est plus réécrite.
+            self.store_dirty = false;
+        } else if self.store_dirty && self.store_saved.is_none_or(|t| t.elapsed() >= STORE_EVERY) {
+            self.save_store();
         }
         if !self.icons_loaded {
             self.load_icons(acc);
@@ -190,10 +251,121 @@ impl ChatState {
         {
             self.refresh_window(acc, &sp);
         }
+        self.sync_recent(acc);
         ctx.request_repaint_after(every);
     }
 
+    // --- Copie locale -----------------------------------------------------------------
+
+    /// Reprend la copie locale (sans écraser ce qui est déjà chargé depuis Google).
+    fn restore(&mut self, snap: store::Snapshot) {
+        self.store_account = snap.account;
+        if self.spaces.is_empty() {
+            self.spaces = snap.spaces;
+            self.loading = false;
+        }
+        for (sp, title) in snap.titles {
+            self.titles.entry(sp).or_insert(title);
+        }
+        for (sp, m) in snap.members {
+            self.members.entry(sp).or_insert(m);
+        }
+        for (id, name, email, photo) in snap.people {
+            self.people.entry(id.clone()).or_insert(Person { id, name, email, photo });
+        }
+        if self.sections.is_empty() {
+            self.sections = snap.sections;
+        }
+        for (sp, list) in snap.msgs {
+            if !self.msgs.contains_key(&sp) {
+                self.has_more.insert(sp.clone(), list.len() >= PAGE as usize);
+                self.msgs.insert(sp, list);
+            }
+        }
+        for (sp, t) in snap.last_read {
+            self.last_read.entry(sp).or_insert(t);
+        }
+        if self.me.is_none() {
+            self.me = snap.me;
+        }
+    }
+
+    fn snapshot(&self) -> Option<store::Snapshot> {
+        if self.own_email.is_empty() || self.spaces.is_empty() || self.store_account != self.own_email {
+            return None;
+        }
+        let mut snap = store::Snapshot::new(&self.own_email, self.me.clone(), &self.spaces, &self.msgs, &self.last_read);
+        snap.titles = self.spaces.iter().filter_map(|s| self.known_title(s).map(|t| (s.name.clone(), t))).collect();
+        snap.members = self.members.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        snap.people = self.people.values().map(|p| (p.id.clone(), p.name.clone(), p.email.clone(), p.photo.clone())).collect();
+        snap.sections = self.sections.clone();
+        Some(snap)
+    }
+
+    fn save_store(&mut self) {
+        self.store_dirty = false;
+        self.store_saved = Some(Instant::now());
+        if let Some(snap) = self.snapshot() {
+            let legacy = std::mem::take(&mut self.legacy_people).then(people_path).flatten();
+            store::save(snap, legacy);
+        }
+    }
+
+    /// Données d'un autre compte (copie locale d'un compte précédent) : effacées.
+    fn forget_account(&mut self) {
+        store::clear();
+        self.spaces.clear();
+        self.msgs.clear();
+        self.has_more.clear();
+        self.members.clear();
+        self.last_read.clear();
+        self.sections.clear();
+        self.titles.clear();
+        self.synced.clear();
+        self.open = None;
+        self.me = None;
+    }
+
+    /// À la fermeture de l'app : dernier enregistrement, sans attendre.
+    pub fn flush_store(&mut self) {
+        if self.store_dirty
+            && let Some(snap) = self.snapshot()
+        {
+            self.store_dirty = false;
+            store::save_now(&snap);
+        }
+    }
+
+    /// Garde à jour, en arrière-plan, les messages des conversations les plus récentes :
+    /// une conversation dont l'activité a changé est relue (seulement les nouveaux messages).
+    fn sync_recent(&mut self, acc: &Account) {
+        if self.loading_msgs.len() >= SYNC_IN_FLIGHT || self.last_sync.is_some_and(|t| t.elapsed() < SYNC_GAP) {
+            return;
+        }
+        let next =
+            store::recent_spaces(&self.spaces, store::KEEP_SPACES).into_iter().find(|s| !self.loading_msgs.contains(&s.name) && self.synced.get(&s.name) != Some(&s.last_active));
+        if let Some(sp) = next {
+            self.last_sync = Some(Instant::now());
+            self.synced.insert(sp.name.clone(), sp.last_active);
+            self.fetch_new(acc, &sp.name);
+        }
+    }
+
     pub fn handle(&mut self, ev: ChatEvent, acc: &Account) {
+        // Ce qui modifie les conversations (contenu, noms, membres, sections) est à recopier sur le disque.
+        self.store_dirty |= matches!(
+            ev,
+            ChatEvent::Me(_)
+                | ChatEvent::Spaces(_)
+                | ChatEvent::Messages { .. }
+                | ChatEvent::ReadStates(_)
+                | ChatEvent::Members(_)
+                | ChatEvent::Sections(_)
+                | ChatEvent::Sent { .. }
+                | ChatEvent::Updated { .. }
+                | ChatEvent::Deleted { .. }
+                | ChatEvent::Reacted { .. }
+        );
         match ev {
             ChatEvent::Me(id) => self.me = Some(id),
             ChatEvent::Spaces(list) => {
@@ -258,7 +430,7 @@ impl ChatState {
                 if let Some(m) = self.msgs.get_mut(&space).and_then(|l| l.iter_mut().find(|m| m.name == local)) {
                     m.name = local.replacen("local/", "failed/", 1);
                 }
-                self.error(format!("Message non envoyé : {error}"));
+                self.error(tf!("Message non envoyé : {error}", "Message not sent: {error}"));
             }
             ChatEvent::Noop => {}
             ChatEvent::Updated(m) | ChatEvent::Reacted(m) => {
@@ -269,7 +441,7 @@ impl ChatState {
                 if let Some(l) = self.msgs.get_mut(&space) {
                     l.retain(|m| m.name != name);
                 }
-                self.info("Message supprimé");
+                self.info(t!("Message supprimé", "Message deleted"));
             }
             ChatEvent::Image { key, image } => {
                 if key.starts_with("photo:") {
@@ -279,7 +451,7 @@ impl ChatState {
             }
             ChatEvent::File { path } => {
                 if let Err(e) = open::that(&path) {
-                    self.error(format!("Impossible d'ouvrir le fichier : {e}"));
+                    self.error(tf!("Impossible d'ouvrir le fichier : {e}", "Cannot open the file: {e}"));
                 }
             }
             ChatEvent::Dm(sp) => {
@@ -300,9 +472,13 @@ impl ChatState {
             ChatEvent::MoveFailed(e) => {
                 let low = e.to_lowercase();
                 let msg = if low.contains("scope") || low.contains("insufficient") {
-                    "Déplacement impossible : reconnecte-toi (Réglages › Google) pour autoriser la modification des sections.".to_string()
+                    t!(
+                        "Déplacement impossible : reconnecte-toi (Réglages › Google) pour autoriser la modification des sections.",
+                        "Cannot move: sign in again (Settings › Google) to allow editing sections."
+                    )
+                    .to_string()
                 } else {
-                    format!("Déplacement impossible : {e}")
+                    tf!("Déplacement impossible : {e}", "Cannot move: {e}")
                 };
                 self.error(msg);
                 self.last_sections = None;
@@ -326,10 +502,30 @@ impl ChatState {
         }
     }
 
-    /// Après une connexion (ou reconnexion) : tout est relu.
+    /// Après une connexion (ou reconnexion) : tout est relu depuis Google, mais ce qui est déjà
+    /// affiché (copie locale comprise) reste visible en attendant.
     pub fn on_ready(&mut self) {
-        let people = std::mem::take(&mut self.people);
-        *self = ChatState { people, people_loaded: true, ..Default::default() };
+        let old = std::mem::take(self);
+        *self = ChatState {
+            people: old.people,
+            people_loaded: true,
+            pins: old.pins,
+            pins_loaded: true,
+            spaces: old.spaces,
+            msgs: old.msgs,
+            has_more: old.has_more,
+            members: old.members,
+            last_read: old.last_read,
+            sections: old.sections,
+            me: old.me,
+            open: old.open,
+            titles: old.titles,
+            store_loaded: old.store_loaded,
+            store_rx: old.store_rx,
+            store_account: old.store_account,
+            legacy_people: old.legacy_people,
+            ..Default::default()
+        };
     }
 
     pub fn retry(&mut self) {
@@ -368,13 +564,13 @@ impl ChatState {
         let emails: Vec<String> =
             crate::tabs::mail::contacts::split_list(&g.members).iter().filter_map(|m| crate::tabs::mail::contacts::parse_mailbox(m).map(|(_, e)| e)).collect();
         if g.space && g.name.trim().is_empty() {
-            return self.info("Donne un nom à l'espace");
+            return self.info(t!("Donne un nom à l'espace", "Give the space a name"));
         }
         if !g.space && emails.len() < 2 {
-            return self.info("Une discussion de groupe demande au moins deux personnes");
+            return self.info(t!("Une discussion de groupe demande au moins deux personnes", "A group chat needs at least two people"));
         }
         self.new_group = None;
-        self.info("Création du groupe…");
+        self.info(t!("Création du groupe…", "Creating the group…"));
         let name = if g.space { g.name } else { String::new() };
         run(acc, move |s| chat::create_space(s, &name, &emails).map(ChatEvent::Dm));
     }
@@ -544,6 +740,7 @@ impl ChatState {
     }
 
     pub fn delete(&mut self, acc: &Account, m: &ChatMessage) {
+        self.pins.remove(&m.name);
         let (space, name) = (m.space.clone(), m.name.clone());
         run(acc, move |s| {
             chat::delete(s, &name)?;
@@ -553,6 +750,17 @@ impl ChatState {
 
     /// Réaction « optimiste » : le compteur change tout de suite, Google est prévenu ensuite
     /// (un seul appel pour ajouter) ; en cas d'écart, le message est relu.
+    /// Épingle ou désépingle un message (il apparaît alors dans le tableau de bord).
+    pub fn toggle_pin(&mut self, m: &ChatMessage) {
+        let sender = self.name_of(&m.sender);
+        let title = self.space(&m.space).map(|s| self.title(s)).unwrap_or_default();
+        if self.pins.toggle(m, sender, title) {
+            self.info(t!("Message épinglé au tableau de bord", "Message pinned to the dashboard"));
+        } else {
+            self.info(t!("Message désépinglé", "Message unpinned"));
+        }
+    }
+
     pub fn react(&mut self, acc: &Account, m: &ChatMessage, emoji: &str) {
         if m.name.contains("local/") || m.name.starts_with("failed/") {
             return;
@@ -596,7 +804,7 @@ impl ChatState {
             self.pending_dm = Some(email);
             return;
         }
-        self.info("Ouverture de la conversation…");
+        self.info(t!("Ouverture de la conversation…", "Opening the conversation…"));
         run(acc, move |s| chat::open_dm(s, &email).map(ChatEvent::Dm));
     }
 
@@ -630,7 +838,7 @@ impl ChatState {
             }
             return;
         };
-        self.info(&format!("Téléchargement de « {} »…", att.name));
+        self.info(&tf!("Téléchargement de « {} »…", "Downloading “{}”…", att.name));
         let name = sanitize(&att.name);
         let fallback = att.download_uri.clone();
         run(acc, move |s| match chat::media(s, &res) {
@@ -698,12 +906,12 @@ impl ChatState {
 
     pub fn name_of(&self, user: &str) -> String {
         if self.me.as_deref() == Some(user) || user == ME_LOCAL {
-            return "Vous".into();
+            return t!("Vous", "You").into();
         }
         match self.people.get(user) {
             Some(p) if !p.name.is_empty() => p.name.clone(),
             Some(p) if !p.email.is_empty() => p.email.clone(),
-            _ => "Utilisateur".into(),
+            _ => t!("Utilisateur", "User").into(),
         }
     }
 
@@ -717,16 +925,30 @@ impl ChatState {
     }
 
     pub fn title(&self, sp: &Space) -> String {
+        if let Some(t) = self.known_title(sp) {
+            return t;
+        }
+        match sp.kind {
+            SpaceKind::Dm if sp.bot_dm => t!("Application", "App").into(),
+            SpaceKind::Dm => t!("Message privé", "Direct message").into(),
+            _ => t!("Discussion de groupe", "Group chat").into(),
+        }
+    }
+
+    /// Vrai nom d'une conversation (sans libellé générique) : son nom, sinon les noms de ses
+    /// membres, sinon celui gardé dans la copie locale (en attendant que membres et personnes
+    /// soient relus).
+    fn known_title(&self, sp: &Space) -> Option<String> {
         if !sp.display_name.is_empty() {
-            return sp.display_name.clone();
+            return Some(sp.display_name.clone());
         }
-        let names: Vec<String> = self.others(&sp.name).iter().map(|u| self.name_of(u)).collect();
-        match (names.is_empty(), sp.kind) {
-            (false, _) => names.join(", "),
-            (true, SpaceKind::Dm) if sp.bot_dm => "Application".into(),
-            (true, SpaceKind::Dm) => "Message privé".into(),
-            _ => "Discussion de groupe".into(),
+        let others = self.others(&sp.name);
+        let names = || others.iter().map(|u| self.name_of(u)).collect::<Vec<_>>().join(", ");
+        let all_known = others.iter().all(|u| self.people.get(u).is_some_and(|p| !p.name.is_empty() || !p.email.is_empty()));
+        if !others.is_empty() && all_known {
+            return Some(names());
         }
+        self.titles.get(&sp.name).cloned().or_else(|| (!others.is_empty()).then(names))
     }
 
     pub fn unread(&self, sp: &Space) -> bool {
@@ -862,7 +1084,7 @@ impl ChatState {
                 self.icons.insert(space.to_string(), dst.clone());
                 self.load_icon(acc, space, dst);
             }
-            Err(e) => self.error(format!("Image impossible à copier : {e}")),
+            Err(e) => self.error(tf!("Image impossible à copier : {e}", "Could not copy the image: {e}")),
         }
     }
 
@@ -875,21 +1097,23 @@ impl ChatState {
 
     // --- Cache des noms -------------------------------------------------------------
 
+    /// Ancien fichier des personnes en clair (versions précédentes) : repris une fois, puis
+    /// supprimé dès que la copie chiffrée est écrite.
     fn load_people(&mut self) {
         self.people_loaded = true;
-        let list: Vec<(String, String, String, Option<String>)> =
-            people_path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let Some(p) = people_path() else { return };
+        let Ok(text) = std::fs::read_to_string(p) else { return };
+        let list: Vec<store::PersonRow> = serde_json::from_str(&text).unwrap_or_default();
         for (id, name, email, photo) in list {
-            self.people.insert(id.clone(), Person { id, name, email, photo });
+            self.people.entry(id.clone()).or_insert(Person { id, name, email, photo });
         }
+        self.legacy_people = true;
+        self.store_dirty = true;
     }
 
-    fn save_people(&self) {
-        let Some(p) = people_path() else { return };
-        let list: Vec<(&str, &str, &str, Option<&str>)> = self.people.values().map(|p| (p.id.as_str(), p.name.as_str(), p.email.as_str(), p.photo.as_deref())).collect();
-        if let Ok(s) = serde_json::to_string(&list) {
-            let _ = crate::paths::write_atomic(&p, s.as_bytes());
-        }
+    /// Les personnes sont gardées dans la copie chiffrée (plus de fichier en clair).
+    fn save_people(&mut self) {
+        self.store_dirty = true;
     }
 }
 

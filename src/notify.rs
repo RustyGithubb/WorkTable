@@ -106,6 +106,10 @@ impl Notifier {
     }
 
     fn push_full(&mut self, prefs: &Prefs, head: String, text: String, body: Option<String>, target: Target) {
+        // Ne pas déranger : la notification n'est pas affichée (ni plus tard).
+        if prefs.do_not_disturb {
+            return;
+        }
         let sound = (!prefs.notif_no_sound).then_some(match target {
             Target::Mail(_) | Target::Event(_) => crate::sound::Sound::Mail,
             Target::Space(_) | Target::Drive(_) => crate::sound::Sound::Message,
@@ -125,10 +129,10 @@ impl Notifier {
             if initial || !fresh || !inbox || !m.unread() || m.date < self.started_ms - 120_000 || prefs.notif_no_mail {
                 continue;
             }
-            let subject = if m.subject.is_empty() { "(sans objet)".to_string() } else { short(&m.subject, 120) };
+            let subject = if m.subject.is_empty() { t!("(sans objet)", "(no subject)").to_string() } else { short(&m.subject, 120) };
             // Début du mail sous l'objet (aperçu fourni par Gmail).
             let body = Some(short(&m.snippet, 260)).filter(|b| !b.trim().is_empty());
-            self.push_full(prefs, "Nouveau mail".into(), format!("{} - {subject}", m.sender_name()), body, Target::Mail(m.id.clone()));
+            self.push_full(prefs, t!("Nouveau mail", "New mail").into(), format!("{} - {subject}", m.sender_name()), body, Target::Mail(m.id.clone()));
         }
     }
 
@@ -164,7 +168,7 @@ impl Notifier {
         let title = chat.space(space).map(|s| chat.title(s)).unwrap_or_else(|| "Google Chat".into());
         let who = chat.name_of(&last.sender);
         let more = if new.len() > 1 { format!(" (+{})", new.len() - 1) } else { String::new() };
-        let head = if title == who { "Nouveau message".to_string() } else { format!("Nouveau message · {title}") };
+        let head = if title == who { t!("Nouveau message", "New message").to_string() } else { tf!("Nouveau message · {title}", "New message · {title}") };
         self.push(prefs, head, format!("{who} - {}{more}", short(&last.text, 120)), Target::Space(space.to_string()));
     }
 
@@ -182,8 +186,8 @@ impl Notifier {
             return;
         }
         for f in fresh.into_iter().take(3) {
-            let who = if f.owner.is_empty() { "Quelqu'un".to_string() } else { f.owner.clone() };
-            self.push(prefs, "Document partagé".into(), format!("{who} - {} ({})", f.name, drive::kind_label(&f)), Target::Drive(f));
+            let who = if f.owner.is_empty() { t!("Quelqu'un", "Someone").to_string() } else { f.owner.clone() };
+            self.push(prefs, t!("Document partagé", "Document shared").into(), format!("{who} - {} ({})", f.name, drive::kind_label(&f)), Target::Drive(f));
         }
     }
 
@@ -206,10 +210,10 @@ impl Notifier {
             for e in evs {
                 if self.events_done.insert(format!("{}/{}/{}", e.calendar, e.id, e.start)) {
                     let left = ((e.start - now) / 60_000).max(1);
-                    let title = if e.title.is_empty() { "(sans titre)".to_string() } else { e.title.clone() };
+                    let title = if e.title.is_empty() { t!("(sans titre)", "(untitled)").to_string() } else { e.title.clone() };
                     let place = if e.location.is_empty() { String::new() } else { format!(" · {}", short(&e.location, 50)) };
                     let when = crate::tabs::calendar::hhmm(e.start);
-                    self.push(prefs, format!("Rendez-vous dans {left} min"), format!("{title} - {when}{place}"), Target::Event(e));
+                    self.push(prefs, tf!("Rendez-vous dans {left} min", "Event in {left} min"), format!("{title} - {when}{place}"), Target::Event(e));
                 }
             }
             ctx.request_repaint_after(Duration::from_secs(15));
@@ -217,6 +221,13 @@ impl Notifier {
         if !self.achievements.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(500));
         }
+    }
+
+    /// « Ne pas déranger » activé : le bandeau en cours et ceux en attente disparaissent.
+    pub fn silence(&mut self) {
+        self.achievements.clear();
+        self.border_done = false;
+        self.shape = None;
     }
 
     /// Bandeau de notification ; renvoie la cible cliquée.
@@ -664,7 +675,7 @@ fn paint_achievement(ui: &mut egui::Ui, origin: Pos2, full: f32, extra: f32, a: 
         let mut bar_right = c.x - ACH_H / 2.0 + full - 28.0;
         let mut bar_y = r.bottom() - 6.0;
         if matches!(a.target, Target::Mail(_)) {
-            let label = p.layout_no_wrap("Ouvrir".into(), egui::FontId::new(13.0, egui::FontFamily::Name(theme::ACHIEVEMENT_FONT_BOLD.into())), theme::BG());
+            let label = p.layout_no_wrap(t!("Ouvrir", "Open").into(), egui::FontId::new(13.0, egui::FontFamily::Name(theme::ACHIEVEMENT_FONT_BOLD.into())), theme::BG());
             let size = egui::vec2(label.size().x + 28.0, 24.0);
             let pill = Rect::from_min_size(Pos2::new(r.right() - 12.0 - size.x, r.bottom() - 10.0 - size.y), size);
             let resp = ui.interact(pill, egui::Id::unique("wt_achievement_open"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -674,7 +685,7 @@ fn paint_achievement(ui: &mut egui::Ui, origin: Pos2, full: f32, extra: f32, a: 
             let grown = Rect::from_center_size(pill.center(), pill.size() * (1.0 + 0.08 * k));
             clip.rect_filled(grown, CornerRadius::same((grown.height() / 2.0) as u8), fill.gamma_multiply(an.text));
             let label = if k > 0.001 {
-                p.layout_no_wrap("Ouvrir".into(), egui::FontId::new(13.0 * (1.0 + 0.08 * k), egui::FontFamily::Name(theme::ACHIEVEMENT_FONT_BOLD.into())), theme::BG())
+                p.layout_no_wrap(t!("Ouvrir", "Open").into(), egui::FontId::new(13.0 * (1.0 + 0.08 * k), egui::FontFamily::Name(theme::ACHIEVEMENT_FONT_BOLD.into())), theme::BG())
             } else {
                 label
             };

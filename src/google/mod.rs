@@ -28,7 +28,7 @@ pub use gmail::{Attachment, FullMessage, Label, Summary};
 pub(crate) fn http_err(e: ureq::Error) -> String {
     match e {
         ureq::Error::Status(code, resp) => status_msg(code, &resp.into_string().unwrap_or_default()),
-        ureq::Error::Transport(t) => format!("Réseau : {t}"),
+        ureq::Error::Transport(t) => tf!("Réseau : {t}", "Network: {t}"),
     }
 }
 
@@ -37,7 +37,7 @@ fn status_msg(code: u16, body: &str) -> String {
         .ok()
         .and_then(|v| v["error_description"].as_str().or(v["error"]["message"].as_str()).or(v["error"].as_str()).map(str::to_string))
         .unwrap_or_else(|| body.to_string());
-    format!("Erreur {code} : {msg}")
+    tf!("Erreur {code} : {msg}", "Error {code}: {msg}")
 }
 
 // --- Limiteur de requêtes simultanées ---------------------------------------
@@ -107,7 +107,7 @@ impl Session {
 
     /// Jeton d'accès valide (rafraîchi automatiquement s'il a expiré).
     fn token(&self) -> Result<String, String> {
-        let mut t = self.tokens.lock().map_err(|_| "verrou empoisonné")?;
+        let mut t = self.tokens.lock().map_err(|_| t!("verrou empoisonné", "poisoned lock"))?;
         if Instant::now() >= t.expires_at {
             *t = auth::refresh(&self.agent, &self.cfg, &t.refresh)?;
         }

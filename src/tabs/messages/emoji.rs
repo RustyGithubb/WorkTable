@@ -8,17 +8,17 @@ use eframe::egui::{self, RichText, vec2};
 
 use crate::theme;
 
-/// Catégories (icône d'onglet, nom français).
-const GROUPS: [(emojis::Group, &str, &str); 9] = [
-    (emojis::Group::SmileysAndEmotion, "😀", "Émoticônes"),
-    (emojis::Group::PeopleAndBody, "👋", "Personnes"),
-    (emojis::Group::AnimalsAndNature, "🐻", "Animaux et nature"),
-    (emojis::Group::FoodAndDrink, "🍔", "Nourriture"),
-    (emojis::Group::TravelAndPlaces, "🚗", "Voyages et lieux"),
-    (emojis::Group::Activities, "⚽", "Activités"),
-    (emojis::Group::Objects, "💡", "Objets"),
-    (emojis::Group::Symbols, "❤️", "Symboles"),
-    (emojis::Group::Flags, "🏁", "Drapeaux"),
+/// Catégories (icône d'onglet, nom français, nom anglais).
+const GROUPS: [(emojis::Group, &str, &str, &str); 9] = [
+    (emojis::Group::SmileysAndEmotion, "😀", "Émoticônes", "Smileys"),
+    (emojis::Group::PeopleAndBody, "👋", "Personnes", "People"),
+    (emojis::Group::AnimalsAndNature, "🐻", "Animaux et nature", "Animals & nature"),
+    (emojis::Group::FoodAndDrink, "🍔", "Nourriture", "Food & drink"),
+    (emojis::Group::TravelAndPlaces, "🚗", "Voyages et lieux", "Travel & places"),
+    (emojis::Group::Activities, "⚽", "Activités", "Activities"),
+    (emojis::Group::Objects, "💡", "Objets", "Objects"),
+    (emojis::Group::Symbols, "❤️", "Symboles", "Symbols"),
+    (emojis::Group::Flags, "🏁", "Drapeaux", "Flags"),
 ];
 
 /// Quelques mots français → mots-clés anglais du catalogue.
@@ -184,7 +184,7 @@ pub fn replace_codes(text: &str) -> Option<String> {
 pub fn picker(ui: &mut egui::Ui, query: &mut String, group: &mut usize, recent: &[String]) -> Option<String> {
     let mut picked = None;
     ui.set_width(330.0);
-    ui.add(egui::TextEdit::singleline(query).hint_text("Rechercher un émoji (ex. cœur, rire, fire)").desired_width(f32::INFINITY));
+    ui.add(egui::TextEdit::singleline(query).hint_text(t!("Rechercher un émoji (ex. cœur, rire, fire)", "Search emoji (e.g. heart, laugh, fire)")).desired_width(f32::INFINITY));
     ui.add_space(4.0);
     let cat = catalog(ui.ctx());
     let q = query.trim().to_lowercase();
@@ -198,16 +198,16 @@ pub fn picker(ui: &mut egui::Ui, query: &mut String, group: &mut usize, recent: 
                 }
                 r.on_hover_text(tip).clicked()
             };
-            if !recent.is_empty() && tab(ui, "🕘", "Récents", *group == usize::MAX) {
+            if !recent.is_empty() && tab(ui, "🕘", t!("Récents", "Recent"), *group == usize::MAX) {
                 *group = usize::MAX;
             }
-            for (i, (_, icon, name)) in GROUPS.iter().enumerate() {
-                if tab(ui, icon, name, *group == i) {
+            for (i, (_, icon, fr, en)) in GROUPS.iter().enumerate() {
+                if tab(ui, icon, t!(fr, en), *group == i) {
                     *group = i;
                 }
             }
         });
-        let title = if *group == usize::MAX { "Récents" } else { GROUPS.get(*group).map(|g| g.2).unwrap_or("") };
+        let title = if *group == usize::MAX { t!("Récents", "Recent") } else { GROUPS.get(*group).map(|g| t!(g.2, g.3)).unwrap_or("") };
         ui.label(RichText::new(title.to_uppercase()).small().color(theme::TEXT_MUTED()));
     }
     let list: Vec<String> = if !q.is_empty() {
@@ -220,7 +220,7 @@ pub fn picker(ui: &mut egui::Ui, query: &mut String, group: &mut usize, recent: 
     };
     egui::ScrollArea::vertical().id_salt("wt_emoji_grid").max_height(240.0).auto_shrink([false, true]).show(ui, |ui| {
         if list.is_empty() {
-            ui.label(RichText::new("Aucun émoji").small().color(theme::TEXT_FAINT()));
+            ui.label(RichText::new(t!("Aucun émoji", "No emoji")).small().color(theme::TEXT_FAINT()));
         }
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 2.0);

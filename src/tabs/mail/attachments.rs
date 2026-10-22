@@ -105,8 +105,8 @@ impl Attachments {
     /// Clic sur une pièce jointe.
     pub fn activate(&mut self, acc: &Account, att: &Attachment) -> Notice {
         if DANGEROUS.contains(&att.extension().as_str()) {
-            self.block(att, "Type de fichier bloqué par sécurité (exécutable ou script)");
-            return Some((format!("« {} » n'est pas ouvert automatiquement par sécurité", att.filename), true));
+            self.block(att, t!("Type de fichier bloqué par sécurité (exécutable ou script)", "File type blocked for safety (executable or script)"));
+            return Some((tf!("« {} » n'est pas ouvert automatiquement par sécurité", "“{}” is not opened automatically for safety", att.filename), true));
         }
         match kind(att) {
             Kind::Image | Kind::Text => {
@@ -147,8 +147,8 @@ impl Attachments {
             }
             Err(e) => {
                 self.close_preview_of(&att);
-                self.block(&att, &format!("Téléchargement impossible : {e}"));
-                Some((format!("« {} » n'a pas pu être récupérée", att.filename), true))
+                self.block(&att, &tf!("Téléchargement impossible : {e}", "Download failed: {e}"));
+                Some((tf!("« {} » n'a pas pu être récupérée", "“{}” could not be retrieved", att.filename), true))
             }
         }
     }
@@ -176,10 +176,10 @@ impl Attachments {
         }
 
         match write_temp(att, data).and_then(|path| open::that_detached(&path).map_err(|e| e.to_string())) {
-            Ok(()) => Some((format!("« {} » ouvert dans l'application par défaut", att.filename), false)),
+            Ok(()) => Some((tf!("« {} » ouvert dans l'application par défaut", "“{}” opened in the default app", att.filename), false)),
             Err(e) => {
-                self.block(att, &format!("Aucune application n'a pu ouvrir le fichier : {e}"));
-                Some((format!("Impossible d'ouvrir « {} » sur cet ordinateur", att.filename), true))
+                self.block(att, &tf!("Aucune application n'a pu ouvrir le fichier : {e}", "No app could open the file: {e}"));
+                Some((tf!("Impossible d'ouvrir « {} » sur cet ordinateur", "Cannot open “{}” on this computer", att.filename), true))
             }
         }
     }
@@ -219,8 +219,9 @@ pub fn gmail_link(email: &str, message_id: &str) -> String {
 pub fn human_size(bytes: u64) -> String {
     match bytes {
         0 => String::new(),
-        b if b < 1024 => format!("{b} o"),
-        b if b < 1024 * 1024 => format!("{:.0} Ko", b as f64 / 1024.0),
+        b if b < 1024 => tf!("{b} o", "{b} B"),
+        b if b < 1024 * 1024 => tf!("{:.0} Ko", "{:.0} KB", b as f64 / 1024.0),
+        b if crate::i18n::en() => format!("{:.1} MB", b as f64 / (1024.0 * 1024.0)),
         b => format!("{:.1} Mo", b as f64 / (1024.0 * 1024.0)).replace('.', ","),
     }
 }

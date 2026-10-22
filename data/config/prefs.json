@@ -14,9 +14,9 @@
     "opacity": 0.7,
     "curve": "Elastic"
   },
-  "categories_collapsed": false,
+  "categories_collapsed": true,
   "mail_list_hidden": false,
-  "groups_collapsed": false,
+  "groups_collapsed": true,
   "hidden_calendars": [
     "dominique.peyronnet@artfx.fr",
     "fr.french#holiday@group.v.calendar.google.com",
@@ -46,7 +46,8 @@
   "calendar_days": 1,
   "calendar_side_hidden": false,
   "chat_favorites": [
-    "spaces/AAAA5LfFxmk"
+    "spaces/AAAA5LfFxmk",
+    "spaces/AAQA9SWfRNc"
   ],
   "chat_side_hidden": false,
   "chat_people_hidden": false,
@@ -95,12 +96,14 @@
       "scale": 1.0
     }
   },
-  "theme": "Unreal",
+  "theme": "Monochrome",
   "notif_no_mail": false,
   "notif_no_chat": false,
   "notif_no_share": false,
   "notif_no_event": false,
   "notif_no_sound": false,
+  "do_not_disturb": false,
   "clock_hidden": false,
-  "notif_event_minutes": 0
+  "notif_event_minutes": 0,
+  "language": "French"
 }

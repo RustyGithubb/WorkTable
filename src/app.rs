@@ -22,13 +22,13 @@ impl Tab {
 
     pub fn label(self) -> &'static str {
         match self {
-            Tab::Dashboard => "Tableau de bord",
-            Tab::Calendar => "Calendrier",
+            Tab::Dashboard => t!("Tableau de bord", "Dashboard"),
+            Tab::Calendar => t!("Calendrier", "Calendar"),
             Tab::Mail => "Mail",
             Tab::Messages => "Messages",
-            Tab::Notes => "Prise de notes",
-            Tab::Files => "Fichiers",
-            Tab::Settings => "Réglages",
+            Tab::Notes => t!("Prise de notes", "Notes"),
+            Tab::Files => t!("Fichiers", "Files"),
+            Tab::Settings => t!("Réglages", "Settings"),
         }
     }
 }
@@ -59,7 +59,7 @@ impl WorkTableApp {
             .map(|m| sidebar::PeekItem {
                 icon: "✉️",
                 title: m.sender_name().to_string(),
-                text: if m.subject.trim().is_empty() { "(sans objet)".into() } else { m.subject.clone() },
+                text: if m.subject.trim().is_empty() { t!("(sans objet)", "(no subject)").into() } else { m.subject.clone() },
                 when: m.date,
                 target: crate::search::Target::Mail(m.id.clone()),
             })
@@ -74,8 +74,8 @@ impl WorkTableApp {
             .map(|sp| {
                 let last = self.chat.msgs.get(&sp.name).and_then(|l| l.iter().rev().find(|m| !m.text.trim().is_empty()));
                 let text = match last {
-                    Some(m) => format!("{} : {}", self.chat.name_of(&m.sender), m.text.replace(['\n', '\r'], " ")),
-                    None => "Nouveaux messages".into(),
+                    Some(m) => tf!("{} : {}", "{}: {}", self.chat.name_of(&m.sender), m.text.replace(['\n', '\r'], " ")),
+                    None => t!("Nouveaux messages", "New messages").into(),
                 };
                 sidebar::PeekItem { icon: "💬", title: self.chat.title(sp), text, when: sp.last_active, target: crate::search::Target::Space(sp.name.clone()) }
             })
@@ -84,6 +84,7 @@ impl WorkTableApp {
 
     pub fn new(ctx: &egui::Context) -> Self {
         let mut prefs = Prefs::load();
+        crate::i18n::set(prefs.language);
         if prefs.theme == theme::ThemeId::Retired {
             prefs.theme = theme::ThemeId::Monochrome;
         }
@@ -107,11 +108,44 @@ impl WorkTableApp {
     }
 }
 
+impl WorkTableApp {
+    /// Fiche « Auteur » d'un fichier Drive : ouvre l'élément demandé dans son onglet.
+    fn drive_action(&mut self, a: tabs::files::author::DriveAction) {
+        use tabs::files::author::DriveAction as A;
+        match a {
+            A::OpenMail(id) => self.go_to(crate::search::Target::Mail(id)),
+            A::MailsFrom(email) => {
+                self.mail.show_from(&self.account, &email);
+                self.current = Tab::Mail;
+            }
+            A::WriteMail(email) => {
+                let mailbox = self.mail.contacts.get(&email).map(|c| c.mailbox()).unwrap_or(email);
+                self.mail.write_to(mailbox);
+                self.current = Tab::Mail;
+            }
+            A::ChatWith(email) => {
+                self.chat.request_dm(email);
+                self.current = Tab::Messages;
+            }
+            A::OpenSpace(space) => self.go_to(crate::search::Target::Space(space)),
+            A::OpenEvent(e) => {
+                self.calendar.show_event(&e);
+                self.current = Tab::Calendar;
+            }
+        }
+    }
+}
+
 impl eframe::App for WorkTableApp {
     /// Fond transparent : la fenêtre du bandeau de notification ne montre que la capsule
     /// (la fenêtre principale est entièrement recouverte par l'interface).
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0; 4]
+    }
+
+    /// Fermeture : dernier enregistrement de la copie locale des conversations.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.chat.flush_store();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -185,22 +219,31 @@ impl eframe::App for WorkTableApp {
         egui::CentralPanel::no_frame().frame(egui::Frame::new().fill(theme::BG()).inner_margin(Margin { left: theme::CONTENT_LEFT_INSET, right: 32, top: 36, bottom: 32 })).show(
             ui,
             |ui| match self.current {
-                Tab::Dashboard => match tabs::dashboard::show(ui, &self.calendar, &mut self.mail, &self.account, &self.prefs, &mut self.tasks, &mut self.links) {
-                    Some(tabs::dashboard::DashAction::OpenMail(id)) => {
-                        self.mail.open_from_elsewhere(&self.account, &id);
-                        self.current = Tab::Mail;
+                Tab::Dashboard => {
+                    match tabs::dashboard::show(ui, &self.calendar, &mut self.mail, &mut self.chat.pins, &self.account, &self.prefs, &mut self.tasks, &mut self.links) {
+                        Some(tabs::dashboard::DashAction::Mail(id)) => {
+                            self.mail.open_from_elsewhere(&self.account, &id);
+                            self.current = Tab::Mail;
+                        }
+                        Some(tabs::dashboard::DashAction::Event(e)) => {
+                            self.calendar.show_event(&e);
+                            self.current = Tab::Calendar;
+                        }
+                        Some(tabs::dashboard::DashAction::Chat(space)) => self.go_to(crate::search::Target::Space(space)),
+                        None => {}
                     }
-                    Some(tabs::dashboard::DashAction::OpenEvent(e)) => {
-                        self.calendar.show_event(&e);
-                        self.current = Tab::Calendar;
-                    }
-                    None => {}
-                },
+                }
                 Tab::Calendar => tabs::calendar::show(ui, &mut self.calendar, &mut self.account, &mut self.prefs, &self.mail.contacts),
                 Tab::Mail => tabs::mail::show(ui, &mut self.mail, &mut self.account, &mut self.prefs),
                 Tab::Messages => tabs::messages::show(ui, &mut self.chat, &mut self.account, &mut self.prefs, &self.mail.contacts),
                 Tab::Notes => note_action = tabs::notes::show(ui, &mut self.notes, &self.calendar, &self.mail, &self.chat, &self.tasks, &self.account),
-                Tab::Files => tabs::files::show(ui, &mut self.drive, &mut self.account, &mut self.prefs),
+                Tab::Files => {
+                    let links = tabs::files::author::Links { mail: &self.mail, chat: &self.chat, cal: &self.calendar };
+                    let action = tabs::files::show(ui, &mut self.drive, &mut self.account, &mut self.prefs, &links);
+                    if let Some(a) = action {
+                        self.drive_action(a);
+                    }
+                }
                 Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.prefs),
             },
         );
@@ -230,6 +273,17 @@ impl eframe::App for WorkTableApp {
         // Heure en haut à droite : un clic la masque ou la réaffiche (animation élastique).
         if crate::widgets::clock(ui.ctx(), window_rect, self.prefs.clock_hidden) {
             self.prefs.clock_hidden = !self.prefs.clock_hidden;
+        }
+        // « Ne pas déranger », à gauche de l'heure, seulement dans le tableau de bord : la bascule
+        // fait vibrer les panneaux en vague à partir du bouton.
+        if self.current == Tab::Dashboard
+            && let Some(origin) = crate::widgets::do_not_disturb(ui.ctx(), window_rect, self.prefs.do_not_disturb)
+        {
+            self.prefs.do_not_disturb = !self.prefs.do_not_disturb;
+            if self.prefs.do_not_disturb {
+                self.notify.silence();
+            }
+            crate::widgets::start_wave(ui.ctx(), origin);
         }
 
         // 2. Barre de navigation verticale en pilule, dessinée par-dessus (pastilles « non lus »).
@@ -277,6 +331,9 @@ impl eframe::App for WorkTableApp {
         // 5. Émojis en couleur (même rendu que dans Google Chat) dans tous les onglets.
         crate::emoji_img::colorize_frame(ui.ctx());
 
+        if self.prefs.language != prefs_before.language {
+            crate::i18n::set(self.prefs.language);
+        }
         if self.prefs.theme != prefs_before.theme {
             theme::set_theme(ui.ctx(), self.prefs.theme);
         }

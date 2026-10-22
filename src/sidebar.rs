@@ -282,7 +282,7 @@ fn draw_peek(ctx: &egui::Context, x: f32, anchor: Rect, tab: Tab, list: &[PeekIt
             ui.horizontal(|ui| {
                 ui.add_space(6.0);
                 ui.label(egui::RichText::new(tab.label().to_uppercase()).small().strong().color(theme::TEXT_MUTED()));
-                ui.label(egui::RichText::new(format!("{} en attente", list.len())).small().color(theme::TEXT_MUTED()));
+                ui.label(egui::RichText::new(tf!("{} en attente", "{} pending", list.len())).small().color(theme::TEXT_MUTED()));
             });
             ui.add_space(4.0);
             for item in list.iter().take(PEEK_MAX) {
@@ -294,7 +294,7 @@ fn draw_peek(ctx: &egui::Context, x: f32, anchor: Rect, tab: Tab, list: &[PeekIt
                 ui.add_space(2.0);
                 ui.horizontal(|ui| {
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new(format!("+ {} autres", list.len() - PEEK_MAX)).small().color(theme::TEXT_FAINT()));
+                    ui.label(egui::RichText::new(tf!("+ {} autres", "+ {} more", list.len() - PEEK_MAX)).small().color(theme::TEXT_FAINT()));
                 });
             }
             ui.add_space(4.0);
@@ -306,7 +306,7 @@ fn draw_peek(ctx: &egui::Context, x: f32, anchor: Rect, tab: Tab, list: &[PeekIt
             ui.painter().text(
                 r.left_center() + vec2(10.0, 0.0),
                 egui::Align2::LEFT_CENTER,
-                format!("Ouvrir {} →", tab.label()),
+                tf!("Ouvrir {} →", "Open {} →", tab.label()),
                 egui::FontId::proportional(13.0),
                 if resp.hovered() { theme::TEXT() } else { theme::TEXT_MUTED() },
             );
@@ -367,6 +367,12 @@ struct Spin {
 }
 
 static SPIN: Mutex<Option<Spin>> = Mutex::new(None);
+
+/// Intensité de la rotation du logo (0 = immobile ; ~1 après quelques clics, plus au-delà) :
+/// les panneaux tremblent d'autant plus fort que la roue tourne vite.
+pub fn spin_intensity() -> f32 {
+    SPIN.lock().ok().and_then(|g| g.as_ref().map(|s| s.vel.abs() / 30.0)).unwrap_or(0.0)
+}
 
 fn spinning_logo(ui: &mut egui::Ui, cell: Rect, clicked: bool) {
     use std::f32::consts::TAU;

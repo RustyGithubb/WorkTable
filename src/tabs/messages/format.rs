@@ -132,7 +132,7 @@ fn inline(text: &str, base: &Run, name_of: &dyn Fn(&str) -> String) -> Vec<Run> 
             let inner: String = chars[i + 1..i + 1 + end].iter().collect();
             if let Some(id) = inner.strip_prefix("users/").map(|id| format!("users/{id}")) {
                 push_text(&mut buf, &mut out);
-                let name = if id == "users/all" { "tout le monde".to_string() } else { name_of(&id) };
+                let name = if id == "users/all" { t!("tout le monde", "everyone").to_string() } else { name_of(&id) };
                 out.push(Run { text: format!("@{name}"), bold: true, color: Some(MENTION), ..base.clone() });
                 i += end + 2;
                 continue;

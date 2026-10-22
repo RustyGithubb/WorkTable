@@ -308,7 +308,7 @@ pub fn history(s: &Session) -> Result<HistoryResult, String> {
         }
         let v = match s.get(&format!("{API}/history"), &q) {
             Ok(v) => v,
-            Err(e) if e.starts_with("Erreur 404") => return Ok(HistoryResult::Expired),
+            Err(e) if e.starts_with("Erreur 404") || e.starts_with("Error 404") => return Ok(HistoryResult::Expired),
             Err(e) => return Err(e),
         };
         if let Some(h) = v["historyId"].as_str() {
@@ -568,10 +568,10 @@ pub fn attachment(s: &Session, a: &Attachment) -> Result<Vec<u8>, String> {
     if let Some(d) = &a.inline_data {
         return Ok(d.clone());
     }
-    let id = a.attachment_id.as_deref().ok_or("Pièce jointe sans contenu")?;
+    let id = a.attachment_id.as_deref().ok_or(t!("Pièce jointe sans contenu", "Attachment has no content"))?;
     let v = s.get(&format!("{API}/messages/{}/attachments/{id}", a.message_id), &[])?;
-    let data = v["data"].as_str().ok_or("Pièce jointe vide")?;
-    B64.decode(data).map_err(|e| format!("Pièce jointe illisible : {e}"))
+    let data = v["data"].as_str().ok_or(t!("Pièce jointe vide", "Empty attachment"))?;
+    B64.decode(data).map_err(|e| tf!("Pièce jointe illisible : {e}", "Unreadable attachment: {e}"))
 }
 
 /// Ajoute / retire des libellés. Renvoie la nouvelle liste de libellés du message.
@@ -685,7 +685,7 @@ fn signature_from_sent(s: &Session) -> Result<Option<Signature>, String> {
             find_bodies(p, &mut plain, &mut html);
         }
         if let Some(sig) = html.as_deref().and_then(extract_signature) {
-            return Ok(Some(Signature { label: "Signature de tes mails envoyés".into(), email: raw.header("From"), html: sig }));
+            return Ok(Some(Signature { label: t!("Signature de tes mails envoyés", "Signature from your sent mails").into(), email: raw.header("From"), html: sig }));
         }
     }
     Ok(None)

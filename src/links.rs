@@ -59,7 +59,7 @@ pub fn images_dir() -> Option<PathBuf> {
 fn defaults() -> Vec<Tile> {
     [
         ("Gmail", "https://mail.google.com", "✉️"),
-        ("Google Agenda", "https://calendar.google.com", "📅"),
+        (t!("Google Agenda", "Google Calendar"), "https://calendar.google.com", "📅"),
         ("Google Drive", "https://drive.google.com", "📁"),
         ("Google Docs", "https://docs.google.com", "📄"),
         ("Google Sheets", "https://sheets.google.com", "📊"),
@@ -101,12 +101,12 @@ impl Links {
         let mut t = e.tile.clone();
         t.url = normalize_url(&t.url);
         if t.url.is_empty() {
-            return Err("Indique l'adresse du site".into());
+            return Err(t!("Indique l'adresse du site", "Enter the site address").into());
         }
         if !e.use_image {
             t.image = None;
         } else if t.image.is_none() {
-            return Err("Choisis une image (ou passe en émoji)".into());
+            return Err(t!("Choisis une image (ou passe en émoji)", "Choose an image (or switch to emoji)").into());
         }
         if t.name.trim().is_empty() {
             t.name = host_of(&t.url);
@@ -154,12 +154,12 @@ pub fn host_of(url: &str) -> String {
 
 /// Importe une image : recadrée au centre en carré puis redimensionnée en 256 × 256 (PNG).
 pub fn import_image(src: &std::path::Path) -> Result<String, String> {
-    let img = image::open(src).map_err(|e| format!("Image illisible : {e}"))?;
+    let img = image::open(src).map_err(|e| tf!("Image illisible : {e}", "Unreadable image: {e}"))?;
     let (w, h) = (img.width(), img.height());
     let side = w.min(h).max(1);
     let square = img.crop_imm((w - side) / 2, (h - side) / 2, side, side);
     let out = square.resize_exact(IMAGE_PX, IMAGE_PX, image::imageops::FilterType::Lanczos3);
-    let dir = images_dir().ok_or("dossier introuvable")?;
+    let dir = images_dir().ok_or(t!("dossier introuvable", "folder not found"))?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let name = format!("logo-{}.png", chrono::Local::now().format("%Y%m%d%H%M%S%3f"));
     out.save_with_format(dir.join(&name), image::ImageFormat::Png).map_err(|e| e.to_string())?;

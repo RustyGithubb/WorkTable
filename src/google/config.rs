@@ -26,7 +26,7 @@ impl Config {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let p = Self::path().ok_or("Dossier de configuration introuvable")?;
+        let p = Self::path().ok_or(t!("Dossier de configuration introuvable", "Configuration folder not found"))?;
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         crate::paths::write_atomic(&p, json.as_bytes()).map_err(|e| e.to_string())
     }

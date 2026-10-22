@@ -56,6 +56,7 @@ pub fn clock(ctx: &egui::Context, window: egui::Rect, hidden: bool) -> bool {
     let center_y = window.top() + CONTENT_TOP + over + gap + 2.0 + HEADER_TITLE_H / 2.0;
     let full = ctx.fonts_mut(|f| f.layout_no_wrap(text.clone(), theme::title_font(32.0), theme::TEXT())).size();
     let zone = egui::Rect::from_min_size(egui::pos2(window.right() - CONTENT_RIGHT - full.x, center_y - full.y / 2.0), full);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("wt_clock_zone"), zone));
 
     // Ressort : 1 = affichée, 0 = masquée, avec dépassement (élastique).
     let dt = ctx.input(|i| i.stable_dt).clamp(0.0, 1.0 / 30.0);
@@ -104,7 +105,7 @@ pub fn clock(ctx: &egui::Context, window: egui::Rect, hidden: bool) -> bool {
     let mut clicked = false;
     egui::Area::new(egui::Id::unique("wt_clock")).order(egui::Order::Middle).fixed_pos(zone.min).show(ctx, |ui| {
         let (r, resp) = ui.allocate_exact_size(full, if armed { egui::Sense::click() } else { egui::Sense::hover() });
-        let tip = if hidden { "Afficher l'heure" } else { "Masquer l'heure" };
+        let tip = if hidden { t!("Afficher l'heure", "Show the clock") } else { t!("Masquer l'heure", "Hide the clock") };
         let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
         let base = if resp.hovered() && !hidden { theme::TEXT_MUTED() } else { theme::TEXT() };
         let (size, alpha) = if s > 0.02 { (32.0 * s.max(0.0), s.clamp(0.0, 1.0)) } else { (32.0, ghost) };
@@ -125,6 +126,197 @@ pub fn clock(ctx: &egui::Context, window: egui::Rect, hidden: bool) -> bool {
     clicked
 }
 
+/// Bouton « Ne pas déranger » : pilule à gauche de l'heure, dont la pastille (tête de raton
+/// laveur, qui se masque) glisse de gauche (notifications actives) à droite
+/// (ne pas déranger) avec un rebond élastique. Renvoie le centre du bouton s'il a été cliqué
+/// (origine de la vague de retour visuel).
+pub fn do_not_disturb(ctx: &egui::Context, window: egui::Rect, on: bool) -> Option<egui::Pos2> {
+    const W: f32 = 58.0;
+    const H: f32 = 30.0;
+    // À gauche de la zone de l'heure (même ligne), qu'elle soit affichée ou masquée.
+    let clock = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::unique("wt_clock_zone")));
+    let (right, cy) = match clock {
+        Some(z) => (z.left() - 18.0, z.center().y),
+        None => (window.right() - CONTENT_RIGHT - 110.0, window.top() + CONTENT_TOP + 40.0),
+    };
+    let rect = egui::Rect::from_min_size(egui::pos2(right - W, cy - H / 2.0), egui::vec2(W, H));
+    // Pastille liquide (0 = gauche, 1 = droite), en ease-in-out : le bord avant part le premier,
+    // le bord arrière suit avec un léger retard, si bien que la pastille s'étire en chemin puis
+    // se reforme en goutte à l'arrivée.
+    const DURATION: f64 = 0.55;
+    let id = egui::Id::unique("wt_dnd_knob");
+    let now = ctx.input(|i| i.time);
+    let target = if on { 1.0 } else { 0.0 };
+    // (départ, arrivée, début de l'animation)
+    // Premier affichage : la pastille est mémorisée à sa place, au repos. Sans cela, l'état
+    // n'existerait pas encore au premier clic et serait recréé directement à l'arrivée (pas
+    // d'animation).
+    let (from, to, start) = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(id, || (target, target, f64::NEG_INFINITY)));
+    let mut t = ((now - start) / DURATION) as f32;
+    let (mut from, mut to) = (from, to);
+    if to != target {
+        // Nouveau clic (même en pleine course) : on repart de la position actuelle.
+        let (lead, trail) = liquid_edges(from, to, t);
+        (from, to, t) = ((lead + trail) / 2.0, target, 0.0);
+        ctx.data_mut(|d| d.insert_temp(id, (from, to, now)));
+    }
+    let (lead, trail) = liquid_edges(from, to, t);
+    let moving = t < 1.0;
+    // Position moyenne : sert à l'icône et au fondu des couleurs.
+    let x = (lead + trail) / 2.0;
+
+    let mut clicked = None;
+    egui::Area::new(egui::Id::unique("wt_dnd")).order(egui::Order::Middle).fixed_pos(rect.min).show(ctx, |ui| {
+        let (r, resp) = ui.allocate_exact_size(rect.size(), egui::Sense::click());
+        let tip = if on {
+            t!("Ne pas déranger : activé (clic : réactiver les notifications)", "Do not disturb: on (click: turn notifications back on)")
+        } else {
+            t!("Notifications actives (clic : ne pas déranger)", "Notifications on (click: do not disturb)")
+        };
+        let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
+        let p = ui.painter();
+        let k = x.clamp(0.0, 1.0);
+        // Fond : discret (actif) → couleur de sélection (ne pas déranger), en fondu.
+        let off_bg = if resp.hovered() { theme::SURFACE_HI() } else { theme::SURFACE() };
+        let fill = crate::sidebar::lerp_color(off_bg, theme::TEXT(), k);
+        p.rect(r, CornerRadius::same(255), fill, Stroke::new(1.0, theme::BORDER().gamma_multiply(1.0 - k)), egui::StrokeKind::Inside);
+        let d = H - 6.0;
+        let travel = W - 6.0 - d;
+        let left = r.left() + 3.0 + d / 2.0;
+        let c = egui::pos2(left + x * travel, r.center().y);
+        // Goutte étirée entre ses deux bords, un peu amincie quand elle s'allonge.
+        let (a, b) = (left + lead.min(trail) * travel, left + lead.max(trail) * travel);
+        let stretch = (b - a) / travel;
+        let thick = d * (1.0 - 0.12 * stretch);
+        let blob = egui::Rect::from_min_max(egui::pos2(a - thick / 2.0, c.y - thick / 2.0), egui::pos2(b + thick / 2.0, c.y + thick / 2.0));
+        let knob = crate::sidebar::lerp_color(theme::SURFACE_HI(), theme::BG(), k);
+        p.rect_filled(blob.translate(egui::vec2(0.0, 1.0)), CornerRadius::same(255), egui::Color32::from_black_alpha(60));
+        p.rect_filled(blob, CornerRadius::same(255), knob);
+        let icon = crate::sidebar::lerp_color(theme::TEXT_MUTED(), theme::TEXT(), k);
+        raccoon(p, c, d * 0.56, icon, knob, k);
+        if resp.clicked() {
+            clicked = Some(r.center());
+        }
+    });
+    if moving {
+        ctx.request_repaint();
+    }
+    clicked
+}
+
+/// Bords avant et arrière de la pastille liquide à l'instant `t` (0 → 1) d'un trajet de `from`
+/// à `to` : chacun suit une courbe ease-in-out, le bord arrière avec un léger retard.
+fn liquid_edges(from: f32, to: f32, t: f32) -> (f32, f32) {
+    const LAG: f32 = 0.22;
+    let ease = |t: f32| crate::prefs::Curve::EaseInOut.apply(t.clamp(0.0, 1.0));
+    let lead = from + (to - from) * ease(t / (1.0 - LAG));
+    let trail = from + (to - from) * ease((t - LAG) / (1.0 - LAG));
+    (lead, trail)
+}
+
+/// Icône : tête de raton laveur. Normal : deux taches en larme autour des yeux ouverts ;
+/// masqué (`masked` 0 → 1) : les taches se rejoignent en un loup et les yeux se ferment.
+/// `bg` : couleur de la pastille (détails en creux).
+fn raccoon(p: &egui::Painter, c: egui::Pos2, s: f32, color: egui::Color32, bg: egui::Color32, masked: f32) {
+    use egui::{Pos2, Shape, pos2, vec2};
+    let k = masked.clamp(0.0, 1.0);
+    let r = s * 0.6;
+    let h = c + vec2(0.0, s * 0.1);
+    let at = |x: f32, y: f32| pos2(h.x + x * r, h.y + y * r);
+    // Ellipse inclinée (taches autour des yeux).
+    let tilted = |center: Pos2, a: f32, b: f32, angle: f32| -> Vec<Pos2> {
+        (0..20)
+            .map(|i| {
+                let t = i as f32 / 20.0 * std::f32::consts::TAU;
+                let (x, y) = (a * t.cos(), b * t.sin());
+                pos2(center.x + x * angle.cos() - y * angle.sin(), center.y + x * angle.sin() + y * angle.cos())
+            })
+            .collect()
+    };
+    // Oreilles arrondies, intérieur en creux.
+    for side in [-1.0f32, 1.0] {
+        p.add(Shape::convex_polygon(vec![at(side * 0.95, -0.35), at(side * 0.8, -1.15), at(side * 0.25, -0.8)], color, Stroke::NONE));
+        p.circle_filled(at(side * 0.75, -0.95), r * 0.2, color);
+        p.add(Shape::convex_polygon(vec![at(side * 0.78, -0.55), at(side * 0.72, -0.92), at(side * 0.45, -0.72)], bg, Stroke::NONE));
+    }
+    // Tête large, touffes de poils pointues sur les joues, menton.
+    let head = vec![at(-0.55, -0.82), at(0.55, -0.82), at(0.98, -0.3), at(1.32, 0.3), at(0.62, 0.72), at(0.0, 0.9), at(-0.62, 0.72), at(-1.32, 0.3), at(-0.98, -0.3)];
+    p.add(Shape::convex_polygon(head, color, Stroke::NONE));
+    // Taches des yeux (en larme, tombantes vers l'extérieur) ; masqué : réunies en un loup.
+    let eye_y = -0.12;
+    for side in [-1.0f32, 1.0] {
+        let patch = tilted(at(side * 0.5, eye_y + 0.06), r * (0.42 + 0.1 * k), r * 0.26, side * (0.45 * (1.0 - k)));
+        p.add(Shape::convex_polygon(patch, bg, Stroke::NONE));
+    }
+    if k > 0.01 {
+        p.rect_filled(egui::Rect::from_center_size(at(0.0, eye_y + 0.04), vec2(r * 1.1 * k, r * 0.4)), CornerRadius::same(255), bg);
+    }
+    // Yeux : ouverts (ronds), puis fermés (traits) une fois masqué.
+    for side in [-1.0f32, 1.0] {
+        let e = at(side * 0.48, eye_y);
+        if k < 0.5 {
+            p.circle_filled(e, r * 0.14 * (1.0 - k), color);
+        } else {
+            p.line_segment([e - vec2(r * 0.16, 0.0), e + vec2(r * 0.16, 0.0)], Stroke::new((r * 0.1).max(1.0), color));
+        }
+    }
+    // Museau : truffe en creux au bout.
+    p.circle_filled(at(0.0, 0.55), r * 0.14, bg);
+}
+
+/// Vague de retour visuel (bascule « Ne pas déranger ») : origine et heure de départ.
+pub fn start_wave(ctx: &egui::Context, origin: egui::Pos2) {
+    let now = ctx.input(|i| i.time);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("wt_dnd_wave"), (origin, now)));
+}
+
+/// Décalage d'un panneau (de rectangle `r`) pendant la vague : il vibre quand le front de
+/// l'onde l'atteint (plus tard s'il est loin de l'icône), dans la direction de l'onde.
+pub fn wave_offset(ctx: &egui::Context, r: egui::Rect) -> egui::Vec2 {
+    const SPEED: f32 = 1800.0; // px/s
+    const DURATION: f32 = 0.55;
+    let Some((origin, start)) = ctx.data(|d| d.get_temp::<(egui::Pos2, f64)>(egui::Id::unique("wt_dnd_wave"))) else { return egui::Vec2::ZERO };
+    let elapsed = (ctx.input(|i| i.time) - start) as f32;
+    let reach = r.distance_to_pos(origin) / SPEED;
+    let t = elapsed - reach;
+    if elapsed > reach + DURATION + 0.1 {
+        // Onde terminée pour ce panneau (les plus lointains la reçoivent en dernier).
+        return egui::Vec2::ZERO;
+    }
+    ctx.request_repaint();
+    if t <= 0.0 || t >= DURATION {
+        return egui::Vec2::ZERO;
+    }
+    let dir = (r.center() - origin).normalized();
+    // Amplitude plus faible pour les panneaux éloignés, oscillation amortie.
+    let fade = (1.0 - r.distance_to_pos(origin) / 2400.0).clamp(0.35, 1.0);
+    let a = 7.0 * fade * (-t * 7.0).exp() * (t * 38.0).sin();
+    dir * a
+}
+
+/// Tremblement des panneaux pendant que le logo de la barre tourne : amplitude et fréquence
+/// croissent avec la vitesse de la roue ; `seed` décale chaque panneau (ils ne tremblent pas en
+/// bloc).
+pub fn shake_offset(ctx: &egui::Context, seed: f32) -> egui::Vec2 {
+    let k = crate::sidebar::spin_intensity();
+    if k < 0.04 {
+        return egui::Vec2::ZERO;
+    }
+    // Plus la roue tourne vite, plus c'est fort (progression plus que proportionnelle, plafonnée).
+    let amp = (5.0 * k.powf(1.35)).min(16.0);
+    let freq = 26.0 + 14.0 * k.min(3.0);
+    let t = ctx.input(|i| i.time) as f32;
+    let x = (t * freq + seed * 1.7).sin() + 0.5 * (t * freq * 1.9 + seed * 3.1).sin();
+    let y = (t * freq * 1.3 + seed * 2.3).cos() + 0.5 * (t * freq * 2.3 + seed * 0.7).sin();
+    ctx.request_repaint();
+    egui::vec2(x, y) * amp / 1.5
+}
+
+/// Affiche `body` décalé de `offset` (effet visuel seulement), sans surcoût quand il est nul.
+pub fn shifted<R>(ui: &mut egui::Ui, offset: egui::Vec2, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    if offset == egui::Vec2::ZERO { body(ui) } else { ui.with_visual_transform(egui::emath::TSTransform::from_translation(offset), body).inner }
+}
+
 /// Titre de section (cartes, colonnes) : police « Titres ».
 pub fn section_title(text: &str) -> RichText {
     RichText::new(text).font(theme::title_font(15.0)).color(theme::TEXT())
@@ -132,6 +324,11 @@ pub fn section_title(text: &str) -> RichText {
 
 /// Carte de contenu avec bordure fine.
 pub fn card<R>(ui: &mut egui::Ui, title: &str, min_height: f32, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let jolt = shake_offset(ui.ctx(), ui.cursor().top() * 0.013 + title.len() as f32);
+    shifted(ui, jolt, |ui| card_inner(ui, title, min_height, body))
+}
+
+fn card_inner<R>(ui: &mut egui::Ui, title: &str, min_height: f32, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::new()
         .fill(theme::SURFACE())
         .stroke(Stroke::new(1.0, theme::BORDER()))
@@ -151,6 +348,11 @@ pub fn card<R>(ui: &mut egui::Ui, title: &str, min_height: f32, body: impl FnOnc
 
 /// Panneau plein (utilisé pour les colonnes Mail / Notes).
 pub fn pane<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let jolt = shake_offset(ui.ctx(), ui.max_rect().left() * 0.011);
+    shifted(ui, jolt, |ui| pane_inner(ui, body))
+}
+
+fn pane_inner<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::new()
         .fill(theme::SURFACE())
         .stroke(Stroke::new(1.0, theme::BORDER()))
@@ -235,4 +437,24 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, salt: &str, options: &[
         },
     );
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::liquid_edges;
+
+    #[test]
+    fn liquid_knob_stretches_then_settles() {
+        assert_eq!(liquid_edges(0.0, 1.0, 0.0), (0.0, 0.0), "au départ : une goutte ronde");
+        assert_eq!(liquid_edges(0.0, 1.0, 1.0), (1.0, 1.0), "à l'arrivée : une goutte ronde");
+        let (lead, trail) = liquid_edges(0.0, 1.0, 0.5);
+        assert!(lead > trail + 0.2, "étirée en chemin ({lead} / {trail})");
+        // Ease-in-out : départ et arrivée en douceur, plus rapide au milieu.
+        let step = |a: f32, b: f32| liquid_edges(0.0, 1.0, b).0 - liquid_edges(0.0, 1.0, a).0;
+        assert!(step(0.0, 0.1) < step(0.35, 0.45));
+        assert!(step(0.68, 0.78) < step(0.35, 0.45));
+        // Retour : même mouvement dans l'autre sens.
+        let (lead, trail) = liquid_edges(1.0, 0.0, 0.5);
+        assert!(lead < trail);
+    }
 }
