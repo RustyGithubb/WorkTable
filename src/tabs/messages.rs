@@ -148,6 +148,31 @@ pub struct ChatState {
     /// Conversations récentes déjà mises à jour (espace → dernière activité connue).
     synced: HashMap<String, i64>,
     last_sync: Option<Instant>,
+    /// Vérification des noms en arrière-plan : dernière passe.
+    last_audit: Option<Instant>,
+    /// Conversations dont les membres n'ont pas pu être lus : (dernier essai, nombre d'essais).
+    members_retry: HashMap<String, (Instant, u32)>,
+    /// Personnes sans nom ni adresse (ou en échec) : (dernier essai, nombre d'essais).
+    people_retry: HashMap<String, (Instant, u32)>,
+}
+
+/// Passe de vérification des noms des conversations.
+const AUDIT_EVERY: Duration = Duration::from_secs(20);
+/// Conversations dont on relit les membres à chaque passe (au plus).
+const AUDIT_MEMBERS: usize = 30;
+/// Personnes relues à chaque passe (au plus).
+const AUDIT_PEOPLE: usize = 40;
+
+/// Attente avant un nouvel essai : 1 min, 5 min, 30 min, puis toutes les 3 h.
+fn retry_due(entry: Option<&(Instant, u32)>) -> bool {
+    let Some((at, n)) = entry else { return true };
+    let wait = match n {
+        0 | 1 => 60,
+        2 => 300,
+        3 => 1800,
+        _ => 3 * 3600,
+    };
+    at.elapsed() >= Duration::from_secs(wait)
 }
 
 impl ChatState {
@@ -252,6 +277,9 @@ impl ChatState {
             self.refresh_window(acc, &sp);
         }
         self.sync_recent(acc);
+        if !self.spaces.is_empty() {
+            self.audit_names(acc);
+        }
         ctx.request_repaint_after(every);
     }
 
@@ -360,6 +388,7 @@ impl ChatState {
                 | ChatEvent::Messages { .. }
                 | ChatEvent::ReadStates(_)
                 | ChatEvent::Members(_)
+                | ChatEvent::People(_)
                 | ChatEvent::Sections(_)
                 | ChatEvent::Sent { .. }
                 | ChatEvent::Updated { .. }
@@ -401,8 +430,32 @@ impl ChatState {
                 let mut users = Vec::new();
                 for (sp, m) in list {
                     self.members_pending.remove(&sp);
-                    users.extend(m.iter().cloned());
-                    self.members.insert(sp, m);
+                    let Some(m) = m else {
+                        // Lecture impossible : nouvel essai plus tard (vérification en arrière-plan).
+                        let n = self.members_retry.get(&sp).map(|r| r.1).unwrap_or(0) + 1;
+                        self.members_retry.insert(sp, (Instant::now(), n));
+                        continue;
+                    };
+                    // Nom affiché fourni avec les membres : repris si la personne n'en a pas.
+                    for (id, name) in &m {
+                        if name.trim().is_empty() {
+                            continue;
+                        }
+                        let p = self.people.entry(id.clone()).or_insert_with(|| Person { id: id.clone(), name: String::new(), email: String::new(), photo: None });
+                        if p.name.is_empty() {
+                            p.name = name.clone();
+                        }
+                    }
+                    let ids: Vec<String> = m.into_iter().map(|(id, _)| id).collect();
+                    // Conversation privée sans l'autre personne : membres à relire plus tard.
+                    if ids.iter().all(|u| Some(u.as_str()) == self.me.as_deref()) {
+                        let n = self.members_retry.get(&sp).map(|r| r.1).unwrap_or(0) + 1;
+                        self.members_retry.insert(sp.clone(), (Instant::now(), n));
+                    } else {
+                        self.members_retry.remove(&sp);
+                    }
+                    users.extend(ids.iter().cloned());
+                    self.members.insert(sp, ids);
                 }
                 self.request_people(acc, users);
                 self.infer_me();
@@ -410,10 +463,30 @@ impl ChatState {
             ChatEvent::People(list) => {
                 for p in list {
                     self.people_pending.remove(&p.id);
+                    if p.name.is_empty() && p.email.is_empty() {
+                        // Introuvable pour l'instant : nouvel essai plus tard ; on garde ce qu'on savait.
+                        let n = self.people_retry.get(&p.id).map(|r| r.1).unwrap_or(0) + 1;
+                        self.people_retry.insert(p.id.clone(), (Instant::now(), n));
+                        self.people.entry(p.id.clone()).or_insert(p);
+                        continue;
+                    }
+                    self.people_retry.remove(&p.id);
+                    let known = self.people.get(&p.id).map(|x| x.name.clone()).unwrap_or_default();
+                    let mut p = p;
+                    if p.name.is_empty() {
+                        p.name = known;
+                    }
                     self.people.insert(p.id.clone(), p);
                 }
                 self.save_people();
                 self.infer_me();
+            }
+            ChatEvent::PeopleFailed(ids) => {
+                for id in ids {
+                    self.people_pending.remove(&id);
+                    let n = self.people_retry.get(&id).map(|r| r.1).unwrap_or(0) + 1;
+                    self.people_retry.insert(id, (Instant::now(), n));
+                }
             }
             ChatEvent::Sent { space, msg, local } => {
                 if self.me.is_none() && !msg.sender.is_empty() {
@@ -869,13 +942,16 @@ impl ChatState {
         run(acc, move |s| chat::read_states(s, &todo).map(ChatEvent::ReadStates));
     }
 
+    /// Membres des conversations sans nom (messages privés, groupes sans titre) : toutes, pas
+    /// seulement les plus récentes, par lots (la suite est demandée à la passe suivante).
     fn request_members(&mut self, acc: &Account) {
         let todo: Vec<String> = self
             .spaces
             .iter()
-            .take(RECENT)
             .filter(|s| s.kind != SpaceKind::Space && s.display_name.is_empty())
             .filter(|s| !self.members.contains_key(&s.name) && !self.members_pending.contains(&s.name))
+            .filter(|s| retry_due(self.members_retry.get(&s.name)))
+            .take(AUDIT_MEMBERS)
             .map(|s| s.name.clone())
             .collect();
         if todo.is_empty() {
@@ -886,9 +962,15 @@ impl ChatState {
     }
 
     fn request_people(&mut self, acc: &Account, ids: Vec<String>) {
+        let ids: Vec<String> = ids.into_iter().filter(|id| !self.people.contains_key(id)).collect();
+        self.fetch_people(acc, ids);
+    }
+
+    /// Lit des personnes dans l'annuaire (même déjà connues : nouvel essai pour les noms manquants).
+    fn fetch_people(&mut self, acc: &Account, ids: Vec<String>) {
         let mut todo: Vec<String> = Vec::new();
         for id in ids {
-            if id.starts_with("users/") && !self.people.contains_key(&id) && !self.people_pending.contains(&id) && !todo.contains(&id) {
+            if id.starts_with("users/") && !self.people_pending.contains(&id) && !todo.contains(&id) {
                 todo.push(id);
             }
         }
@@ -898,10 +980,78 @@ impl ChatState {
         self.people_pending.extend(todo.iter().cloned());
         let ids = todo.clone();
         acc.run(move |s| {
-            // L'annuaire peut être inaccessible : on garde les identifiants sans nom.
-            let list = chat::people(s, &ids).unwrap_or_else(|_| ids.iter().map(|id| Person { id: id.clone(), name: String::new(), email: String::new(), photo: None }).collect());
-            Ok(Event::Chat(ChatEvent::People(list)))
+            // Annuaire inaccessible (erreur, quota) : rien n'est enregistré, nouvel essai plus tard.
+            Ok(Event::Chat(match chat::people(s, &ids) {
+                Ok(list) => ChatEvent::People(list),
+                Err(_) => ChatEvent::PeopleFailed(ids),
+            }))
         });
+    }
+
+    /// Vérification en arrière-plan : chaque conversation doit avoir un vrai nom (celui de la
+    /// personne ou des membres). Celles qui n'en ont pas voient leurs membres puis leurs
+    /// personnes relus, par lots, avec de nouveaux essais espacés en cas d'échec.
+    fn audit_names(&mut self, acc: &Account) {
+        if self.last_audit.is_some_and(|t| t.elapsed() < AUDIT_EVERY) {
+            return;
+        }
+        self.last_audit = Some(Instant::now());
+        // 1. Membres manquants (ou conversation privée sans l'autre personne).
+        let stale: Vec<String> = self
+            .spaces
+            .iter()
+            .filter(|s| s.kind != SpaceKind::Space && s.display_name.is_empty() && !s.bot_dm)
+            .filter(|s| self.members.get(&s.name).is_some_and(|m| m.iter().all(|u| Some(u.as_str()) == self.me.as_deref())))
+            .filter(|s| retry_due(self.members_retry.get(&s.name)))
+            .map(|s| s.name.clone())
+            .collect();
+        for sp in stale {
+            self.members.remove(&sp);
+        }
+        self.request_members(acc);
+        // 2. Personnes sans nom ni adresse dans les conversations sans nom.
+        let mut todo: Vec<String> = Vec::new();
+        for s in self.spaces.iter().filter(|s| s.kind != SpaceKind::Space && s.display_name.is_empty() && !s.bot_dm) {
+            for u in self.others(&s.name) {
+                let nameless = self.people.get(&u).is_none_or(|p| p.name.is_empty() && p.email.is_empty());
+                if nameless && retry_due(self.people_retry.get(&u)) && !todo.contains(&u) {
+                    todo.push(u);
+                }
+            }
+            if todo.len() >= AUDIT_PEOPLE {
+                break;
+            }
+        }
+        for id in &todo {
+            let n = self.people_retry.get(id).map(|r| r.1).unwrap_or(0);
+            self.people_retry.insert(id.clone(), (Instant::now(), n));
+        }
+        self.fetch_people(acc, todo);
+    }
+
+    /// Nom réel connu : celui de la conversation, ou celui (ou l'adresse) de chacun des autres membres.
+    fn has_real_name(&self, sp: &Space) -> bool {
+        if !sp.display_name.is_empty() {
+            return true;
+        }
+        let others = self.others(&sp.name);
+        !others.is_empty() && others.iter().all(|u| self.people.get(u).is_some_and(|p| !p.name.is_empty() || !p.email.is_empty()))
+    }
+
+    /// Conversations encore sans vrai nom dont la vérification est en cours (premiers essais) ;
+    /// celles qui restent introuvables ne sont plus comptées (nouvel essai toutes les 3 h).
+    pub fn unnamed_count(&self) -> usize {
+        let active = |r: Option<&(Instant, u32)>| r.is_none_or(|(_, n)| *n < 4);
+        self.spaces
+            .iter()
+            .filter(|s| s.kind != SpaceKind::Space && s.display_name.is_empty() && !s.bot_dm && !self.has_real_name(s))
+            .filter(|s| {
+                if !self.members.contains_key(&s.name) {
+                    return active(self.members_retry.get(&s.name));
+                }
+                self.others(&s.name).iter().any(|u| active(self.people_retry.get(u)))
+            })
+            .count()
     }
 
     pub fn name_of(&self, user: &str) -> String {
@@ -1174,6 +1324,30 @@ mod tests {
 
     fn m(name: &str, t: i64) -> ChatMessage {
         ChatMessage { name: name.into(), created: t, ..Default::default() }
+    }
+
+    #[test]
+    fn retries_are_spaced_out() {
+        assert!(retry_due(None), "premier essai tout de suite");
+        let now = Instant::now();
+        assert!(!retry_due(Some(&(now, 1))), "pas de nouvel essai immédiat");
+        let old = now.checked_sub(Duration::from_secs(120)).unwrap_or(now);
+        assert!(retry_due(Some(&(old, 1))), "après 1 min");
+        assert!(!retry_due(Some(&(old, 2))), "5 min au 2e échec");
+    }
+
+    #[test]
+    fn unnamed_dm_is_counted_until_resolved() {
+        let mut c = ChatState { me: Some("users/me".into()), ..Default::default() };
+        c.spaces.push(Space { name: "spaces/dm".into(), display_name: String::new(), kind: SpaceKind::Dm, threaded: false, last_active: 1, members: 2, bot_dm: false });
+        assert_eq!(c.unnamed_count(), 1, "membres inconnus");
+        assert_eq!(c.title(&c.spaces[0].clone()), "Message privé");
+        c.members.insert("spaces/dm".into(), vec!["users/me".into(), "users/7".into()]);
+        c.people.insert("users/7".into(), Person { id: "users/7".into(), name: String::new(), email: String::new(), photo: None });
+        assert_eq!(c.unnamed_count(), 1, "personne sans nom");
+        c.people.get_mut("users/7").unwrap().name = "Léa Martin".into();
+        assert_eq!(c.unnamed_count(), 0);
+        assert_eq!(c.title(&c.spaces[0].clone()), "Léa Martin");
     }
 
     #[test]

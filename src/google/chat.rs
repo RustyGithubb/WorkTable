@@ -129,8 +129,12 @@ pub enum ChatEvent {
         more: bool,
     },
     ReadStates(Vec<(String, i64)>),
-    Members(Vec<(String, Vec<String>)>),
+    /// Membres de chaque conversation demandée : (identifiant, nom affiché s'il est fourni) ;
+    /// `None` : lecture impossible (à réessayer plus tard).
+    Members(Vec<SpaceMembers>),
     People(Vec<Person>),
+    /// Personnes que l'annuaire n'a pas pu lire (erreur, quota) : à redemander plus tard.
+    PeopleFailed(Vec<String>),
     /// Message envoyé : remplace l'aperçu local `local`.
     Sent {
         space: String,
@@ -315,12 +319,27 @@ pub fn mark_read(s: &Session, space: &str, at: i64) -> Result<(), String> {
 }
 
 /// Membres (humains) de plusieurs espaces.
-pub fn members(s: &Session, spaces: &[String]) -> Result<Vec<(String, Vec<String>)>, String> {
+/// Membres d'une conversation : (espace, `Some` liste de (identifiant, nom affiché) ou `None` si
+/// la lecture a échoué).
+pub type SpaceMembers = (String, Option<Vec<(String, String)>>);
+
+pub fn members(s: &Session, spaces: &[String]) -> Result<Vec<SpaceMembers>, String> {
     let mut out = Vec::new();
     for sp in spaces {
-        let Ok(v) = s.get(&format!("{API}/{sp}/members"), &[("pageSize", "100")]) else { continue };
-        let users = v["memberships"].as_array().into_iter().flatten().filter_map(|m| m["member"]["name"].as_str().map(str::to_string)).collect();
-        out.push((sp.clone(), users));
+        let Ok(v) = s.get(&format!("{API}/{sp}/members"), &[("pageSize", "100")]) else {
+            out.push((sp.clone(), None));
+            continue;
+        };
+        let users = v["memberships"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|m| {
+                let id = m["member"]["name"].as_str()?;
+                Some((id.to_string(), m["member"]["displayName"].as_str().unwrap_or_default().to_string()))
+            })
+            .collect();
+        out.push((sp.clone(), Some(users)));
     }
     Ok(out)
 }

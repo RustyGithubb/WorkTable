@@ -327,6 +327,11 @@ Enregistrement automatique une seconde après la dernière frappe.
   Google (effacée à la déconnexion ou si un autre compte se connecte) ; Réglages › Données › « Vider ».
 - **Épingler** un message (📌 dans la barre d'actions au survol) : il apparaît dans le panneau
   « Messages épinglés » du tableau de bord ; « · épinglé » s'affiche à côté de l'heure.
+- **Noms des conversations vérifiés en arrière-plan** : toutes les conversations privées et les
+  groupes sans titre (pas seulement les plus récents) voient leurs membres et leurs personnes
+  relus par lots toutes les 20 s, jusqu'à afficher un vrai nom au lieu de « Message privé » /
+  « Utilisateur ». Échec (erreur, quota Google) : nouvel essai après 1 min, 5 min, 30 min, puis
+  toutes les 3 h. Petit indicateur à côté du titre « Personnes » pendant l'identification.
 - Recherche de personne : la conversation existante s'affiche ; sinon les contacts de l'annuaire
   (ou l'adresse tapée) proposent « Écrire › », qui crée la conversation privée. Entrée ouvre le
   premier résultat.

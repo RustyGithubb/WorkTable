@@ -526,6 +526,12 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
     ui.horizontal(|ui| {
         ui.label(widgets::section_title(t!("Personnes", "People")));
         ui.label(RichText::new(people.len().to_string()).small().color(theme::TEXT_FAINT()));
+        // Noms encore inconnus : vérification en arrière-plan (indicateur discret).
+        let unnamed = chat.unnamed_count();
+        if unnamed > 0 {
+            ui.add(egui::Spinner::new().size(10.0))
+                .on_hover_text(tf!("Identification de {unnamed} conversation(s) en arrière-plan…", "Identifying {unnamed} conversation(s) in the background…"));
+        }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if ui.button("+").on_hover_text(t!("Nouvelle conversation privée", "New direct conversation")).clicked() {
                 chat.new_dm = if chat.new_dm.is_some() { None } else { Some(String::new()) };
