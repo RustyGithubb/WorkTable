@@ -2,6 +2,7 @@
 name = "worktable"
 version = "0.1.0"
 edition = "2024"
+repository = "https://github.com/tonpseudo/WorkTable"
 
 [dependencies]
 aes-gcm = "0.10"
@@ -33,3 +34,8 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphic
 [build-dependencies]
 # Icône du fichier .exe (Explorateur Windows), à partir de assets/logo.ico.
 winresource = "0.1"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
