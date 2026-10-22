@@ -3,20 +3,17 @@
 use std::time::Duration;
 
 use chrono::{Datelike, Local, TimeZone};
-use eframe::egui::{
-    self, Align, Color32, CornerRadius, FontId, Layout, Painter, Pos2, Rect, RichText, Sense,
-    Stroke, Vec2, vec2,
-};
+use eframe::egui::{self, Align, Color32, CornerRadius, FontId, Layout, Painter, Pos2, Rect, RichText, Sense, Stroke, Vec2, vec2};
 use eframe::epaint::text::{LayoutJob, TextWrapping};
 
 use super::attachments::{self, Content};
 use super::{DocTarget, INBOX, MailState, composer, contacts, directory, groups, inline};
-use crate::prefs::GroupColor;
-use crate::liquid::{self, Liquid};
-use crate::prefs::Prefs;
-use crate::google::html::{Align as HAlign, BodyBlock, Dim, Para};
 use crate::google::compose::Draft;
+use crate::google::html::{Align as HAlign, BodyBlock, Dim, Para};
 use crate::google::{Account, Attachment, FullMessage, Label, Summary};
+use crate::liquid::{self, Liquid};
+use crate::prefs::GroupColor;
+use crate::prefs::Prefs;
 use crate::{tabs, theme, widgets};
 
 const FOLDERS: [&str; 4] = [INBOX, "SENT", "SPAM", "TRASH"];
@@ -114,11 +111,12 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
     toast(ui, mail);
 
     // Suppr : mail ouvert à la corbeille (hors saisie de texte).
-    if !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::Delete)) {
-        if let Some(s) = mail.open.as_ref().map(|m| &m.summary) {
-            let in_trash = s.labels.iter().any(|l| l == "TRASH");
-            actions.push(Action::Trash(s.id.clone(), !in_trash));
-        }
+    if !ui.ctx().egui_wants_keyboard_input()
+        && ui.input(|i| i.key_pressed(egui::Key::Delete))
+        && let Some(s) = mail.open.as_ref().map(|m| &m.summary)
+    {
+        let in_trash = s.labels.iter().any(|l| l == "TRASH");
+        actions.push(Action::Trash(s.id.clone(), !in_trash));
     }
 
     for a in actions {
@@ -219,87 +217,78 @@ fn connect_screen(ui: &mut egui::Ui, acc: &mut Account) {
 
 fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats: &mut bool, actions: &mut Vec<Action>) {
     let full_w = ui.available_width();
-    if ui
-        .add_sized([full_w, 32.0], egui::Button::new("Nouveau message"))
-        .clicked()
-    {
+    if ui.add_sized([full_w, 32.0], egui::Button::new("Nouveau message")).clicked() {
         actions.push(Action::Compose);
     }
     ui.add_space(12.0);
 
     // Moitié haute : dossiers + catégories.
     let top_h = (ui.available_height() * 0.62).max(160.0);
-    egui::ScrollArea::vertical()
-        .id_salt("mail_folders")
-        .max_height(top_h)
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            // Une seule forme liquide pour dossiers, annuaire et catégories.
-            let mut hl = Liquid::begin(ui, "mail_nav");
-            section_title(ui, "Dossiers");
-            for id in FOLDERS {
-                if nav_row(ui, &mail.folder_name(id), !mail.directory && mail.folder == id, &mut hl).clicked() {
-                    actions.push(Action::Folder(id.into()));
-                }
+    egui::ScrollArea::vertical().id_salt("mail_folders").max_height(top_h).auto_shrink([false, true]).show(ui, |ui| {
+        // Une seule forme liquide pour dossiers, annuaire et catégories.
+        let mut hl = Liquid::begin(ui, "mail_nav");
+        section_title(ui, "Dossiers");
+        for id in FOLDERS {
+            if nav_row(ui, &mail.folder_name(id), !mail.directory && mail.folder == id, &mut hl).clicked() {
+                actions.push(Action::Folder(id.into()));
             }
-            if nav_row(ui, &format!("Annuaire · {}", mail.contacts.len()), mail.directory, &mut hl).clicked() {
-                actions.push(Action::Directory);
-            }
+        }
+        if nav_row(ui, &format!("Annuaire · {}", mail.contacts.len()), mail.directory, &mut hl).clicked() {
+            actions.push(Action::Directory);
+        }
 
-            ui.add_space(12.0);
-            ui.horizontal(|ui| {
-                // En-tête cliquable : replie / déplie les catégories.
-                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 30.0, 18.0), Sense::click());
-                let resp = resp
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text(if cats_open { "Replier les catégories" } else { "Déplier les catégories" });
-                let k = liquid::animate(ui.ctx(), "cats_chevron", cats_open);
-                chevron(ui.painter(), Pos2::new(r.left() + 5.0, r.center().y), k, theme::TEXT_MUTED());
-                let n = mail.labels.iter().filter(|l| l.user).count();
-                let title = if cats_open { "CATÉGORIES".to_string() } else { format!("CATÉGORIES · {n}") };
-                ui.painter().text(
-                    Pos2::new(r.left() + 16.0, r.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    title,
-                    FontId::proportional(11.0),
-                    if resp.hovered() { theme::TEXT() } else { theme::TEXT_MUTED() },
-                );
-                if resp.clicked() {
-                    *toggle_cats = true;
-                }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.small_button("+").on_hover_text("Nouvelle catégorie").clicked() {
-                        actions.push(Action::StartCategory);
-                        if !cats_open {
-                            *toggle_cats = true;
-                        }
-                    }
-                });
-            });
-            if let Some(name) = &mut mail.new_category {
-                match name_input(ui, "new_category", name, "Nom de la catégorie") {
-                    Some(true) if !name.trim().is_empty() => actions.push(Action::CreateCategory(name.clone())),
-                    Some(_) => actions.push(Action::CancelCategory),
-                    None => {}
-                }
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            // En-tête cliquable : replie / déplie les catégories.
+            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 30.0, 18.0), Sense::click());
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if cats_open { "Replier les catégories" } else { "Déplier les catégories" });
+            let k = liquid::animate(ui.ctx(), "cats_chevron", cats_open);
+            chevron(ui.painter(), Pos2::new(r.left() + 5.0, r.center().y), k, theme::TEXT_MUTED());
+            let n = mail.labels.iter().filter(|l| l.user).count();
+            let title = if cats_open { "CATÉGORIES".to_string() } else { format!("CATÉGORIES · {n}") };
+            ui.painter().text(
+                Pos2::new(r.left() + 16.0, r.center().y),
+                egui::Align2::LEFT_CENTER,
+                title,
+                FontId::proportional(11.0),
+                if resp.hovered() { theme::TEXT() } else { theme::TEXT_MUTED() },
+            );
+            if resp.clicked() {
+                *toggle_cats = true;
             }
-            let cats: Vec<Label> = mail.labels.iter().filter(|l| l.user).cloned().collect();
-            let (folder, directory) = (mail.folder.clone(), mail.directory);
-            liquid::collapse(ui, "mail_categories", cats_open, |ui| {
-                if cats.is_empty() && mail.new_category.is_none() {
-                    ui.label(RichText::new("Aucune catégorie").small().color(theme::TEXT_FAINT()));
-                }
-                for l in &cats {
-                    if nav_row(ui, &l.name, !directory && folder == l.id, &mut hl).clicked() {
-                        actions.push(Action::Folder(l.id.clone()));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.small_button("+").on_hover_text("Nouvelle catégorie").clicked() {
+                    actions.push(Action::StartCategory);
+                    if !cats_open {
+                        *toggle_cats = true;
                     }
                 }
             });
-            hl.end(ui, SELECTED(), 6.0);
-
-            ui.add_space(12.0);
-            groups_section(ui, mail);
         });
+        if let Some(name) = &mut mail.new_category {
+            match name_input(ui, "new_category", name, "Nom de la catégorie") {
+                Some(true) if !name.trim().is_empty() => actions.push(Action::CreateCategory(name.clone())),
+                Some(_) => actions.push(Action::CancelCategory),
+                None => {}
+            }
+        }
+        let cats: Vec<Label> = mail.labels.iter().filter(|l| l.user).cloned().collect();
+        let (folder, directory) = (mail.folder.clone(), mail.directory);
+        liquid::collapse(ui, "mail_categories", cats_open, |ui| {
+            if cats.is_empty() && mail.new_category.is_none() {
+                ui.label(RichText::new("Aucune catégorie").small().color(theme::TEXT_FAINT()));
+            }
+            for l in &cats {
+                if nav_row(ui, &l.name, !directory && folder == l.id, &mut hl).clicked() {
+                    actions.push(Action::Folder(l.id.clone()));
+                }
+            }
+        });
+        hl.end(ui, SELECTED(), 6.0);
+
+        ui.add_space(12.0);
+        groups_section(ui, mail);
+    });
 
     // Moitié basse : favoris, toujours visibles tant qu'ils restent en favoris.
     ui.add_space(8.0);
@@ -310,31 +299,24 @@ fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats
         draw_star(ui.painter(), r.center(), 6.0, true, theme::TEXT());
         section_title(ui, &format!("Favoris · {}", mail.starred.len()));
     });
-    egui::ScrollArea::vertical()
-        .id_salt("mail_starred")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            if mail.starred.is_empty() {
-                ui.label(
-                    RichText::new("Ajoute un mail en favori pour le garder ici")
-                        .small()
-                        .color(theme::TEXT_FAINT()),
-                );
+    egui::ScrollArea::vertical().id_salt("mail_starred").auto_shrink([false, false]).show(ui, |ui| {
+        if mail.starred.is_empty() {
+            ui.label(RichText::new("Ajoute un mail en favori pour le garder ici").small().color(theme::TEXT_FAINT()));
+        }
+        let open_id = mail.open.as_ref().map(|m| m.summary.id.as_str());
+        let mut hl = Liquid::begin(ui, "mail_starred");
+        for m in &mail.starred {
+            let r = starred_row(ui, m, open_id == Some(m.id.as_str()), &mut hl);
+            if let Some(g) = groups::group_of(m, &mail.groups) {
+                let bar = Rect::from_min_size(r.rect.left_top() + vec2(0.0, 8.0), vec2(3.0, r.rect.height() - 16.0));
+                ui.painter().rect_filled(bar, CornerRadius::same(2), groups::color32(g.color));
             }
-            let open_id = mail.open.as_ref().map(|m| m.summary.id.as_str());
-            let mut hl = Liquid::begin(ui, "mail_starred");
-            for m in &mail.starred {
-                let r = starred_row(ui, m, open_id == Some(m.id.as_str()), &mut hl);
-                if let Some(g) = groups::group_of(m, &mail.groups) {
-                    let bar = Rect::from_min_size(r.rect.left_top() + vec2(0.0, 8.0), vec2(3.0, r.rect.height() - 16.0));
-                    ui.painter().rect_filled(bar, CornerRadius::same(2), groups::color32(g.color));
-                }
-                if r.clicked() {
-                    actions.push(Action::Open(m.id.clone()));
-                }
+            if r.clicked() {
+                actions.push(Action::Open(m.id.clone()));
             }
-            hl.end(ui, SELECTED(), 6.0);
-        });
+        }
+        hl.end(ui, SELECTED(), 6.0);
+    });
 }
 
 /// Champ de saisie avec boutons « ✓ » / « ✕ ».
@@ -385,9 +367,7 @@ fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) {
     let open = mail.groups_open;
     ui.horizontal(|ui| {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 30.0, 18.0), Sense::click());
-        let resp = resp
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text(if open { "Replier les groupes" } else { "Déplier les groupes" });
+        let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if open { "Replier les groupes" } else { "Déplier les groupes" });
         let k = liquid::animate(ui.ctx(), "groups_chevron", open);
         chevron(ui.painter(), Pos2::new(r.left() + 5.0, r.center().y), k, theme::TEXT_MUTED());
         let title = if open { "GROUPES".to_string() } else { format!("GROUPES · {}", mail.groups.len()) };
@@ -454,11 +434,7 @@ fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) {
             ui.label(RichText::new("Détectés — cliquer pour colorer").small().color(theme::TEXT_FAINT()));
             for a in detected.iter().take(6) {
                 let gal = one_line(ui.painter(), &format!("+  {a}"), FontId::proportional(12.0), theme::TEXT_FAINT(), ui.available_width() - 8.0);
-                if ui
-                    .add(egui::Button::new(gal).frame(false))
-                    .on_hover_text("Associer une couleur à cette adresse")
-                    .clicked()
-                {
+                if ui.add(egui::Button::new(gal).frame(false)).on_hover_text("Associer une couleur à cette adresse").clicked() {
                     edits.push(groups::GroupEdit::Color(a.clone(), groups::next_color(&groups_list)));
                 }
             }
@@ -522,10 +498,8 @@ fn message_list(ui: &mut egui::Ui, mail: &MailState, actions: &mut Vec<Action>) 
     ui.horizontal(|ui| {
         ui.label(RichText::new(mail.folder_name(&mail.folder)).strong());
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if mail.folder.starts_with("from:") {
-                if ui.small_button("×").on_hover_text("Retirer le filtre").clicked() {
-                    actions.push(Action::Folder(INBOX.into()));
-                }
+            if mail.folder.starts_with("from:") && ui.small_button("×").on_hover_text("Retirer le filtre").clicked() {
+                actions.push(Action::Folder(INBOX.into()));
             }
             if ui.small_button("Actualiser").clicked() {
                 actions.push(Action::Refresh);
@@ -544,12 +518,7 @@ fn message_list(ui: &mut egui::Ui, mail: &MailState, actions: &mut Vec<Action>) 
         ui.horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
             draw_pin(ui.painter(), r.center(), 6.0, true, theme::TEXT());
-            ui.label(
-                RichText::new(format!("ÉPINGLÉS · {}/{}", mail.pinned.list.len(), super::pinned::MAX))
-                    .small()
-                    .strong()
-                    .color(theme::TEXT_MUTED()),
-            );
+            ui.label(RichText::new(format!("ÉPINGLÉS · {}/{}", mail.pinned.list.len(), super::pinned::MAX)).small().strong().color(theme::TEXT_MUTED()));
         });
         ui.add_space(2.0);
         ui.spacing_mut().item_spacing.y = 2.0;
@@ -582,54 +551,44 @@ fn message_list(ui: &mut egui::Ui, mail: &MailState, actions: &mut Vec<Action>) 
         return;
     }
 
-    egui::ScrollArea::vertical()
-        .id_salt("mail_list")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 2.0;
-            let mut hl = Liquid::begin(ui, "mail_list");
-            // Une ligne par conversation (le message le plus récent), comme Gmail.
-            let mut threads_seen = std::collections::HashSet::new();
-            let pinned_threads: std::collections::HashSet<&str> =
-                if show_pins { mail.pinned.list.iter().map(|m| m.thread_id.as_str()).collect() } else { Default::default() };
-            for m in &mail.messages {
-                let pinned = mail.pinned.contains(&m.id);
-                if (pinned && show_pins) || (!m.thread_id.is_empty() && pinned_threads.contains(m.thread_id.as_str())) {
-                    continue; // déjà affiché en haut
-                }
-                if !m.thread_id.is_empty() && !threads_seen.insert(m.thread_id.as_str()) {
-                    continue;
-                }
-                let group = groups::group_of(m, &mail.groups);
-                let n = mail.thread_sizes.get(&m.thread_id).copied().unwrap_or(1);
-                message_row(ui, m, open_id == Some(m.id.as_str()), pinned, n, &mut hl, group, actions);
+    egui::ScrollArea::vertical().id_salt("mail_list").auto_shrink([false, false]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        let mut hl = Liquid::begin(ui, "mail_list");
+        // Une ligne par conversation (le message le plus récent), comme Gmail.
+        let mut threads_seen = std::collections::HashSet::new();
+        let pinned_threads: std::collections::HashSet<&str> = if show_pins { mail.pinned.list.iter().map(|m| m.thread_id.as_str()).collect() } else { Default::default() };
+        for m in &mail.messages {
+            let pinned = mail.pinned.contains(&m.id);
+            if (pinned && show_pins) || (!m.thread_id.is_empty() && pinned_threads.contains(m.thread_id.as_str())) {
+                continue; // déjà affiché en haut
             }
-            hl.end(ui, SELECTED(), 8.0);
-        });
+            if !m.thread_id.is_empty() && !threads_seen.insert(m.thread_id.as_str()) {
+                continue;
+            }
+            let group = groups::group_of(m, &mail.groups);
+            let n = mail.thread_sizes.get(&m.thread_id).copied().unwrap_or(1);
+            message_row(ui, m, open_id == Some(m.id.as_str()), pinned, n, &mut hl, group, actions);
+        }
+        hl.end(ui, SELECTED(), 8.0);
+    });
 }
 
-fn message_row(
-    ui: &mut egui::Ui,
-    m: &Summary,
-    active: bool,
-    pinned: bool,
-    count: usize,
-    hl: &mut Liquid,
-    group: Option<&GroupColor>,
-    actions: &mut Vec<Action>,
-) {
+#[allow(clippy::too_many_arguments)]
+fn message_row(ui: &mut egui::Ui, m: &Summary, active: bool, pinned: bool, count: usize, hl: &mut Liquid, group: Option<&GroupColor>, actions: &mut Vec<Action>) {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 66.0), Sense::click());
     let star_rect = Rect::from_center_size(rect.right_bottom() + vec2(-16.0, -16.0), vec2(22.0, 22.0));
-    let star = ui
-        .interact(star_rect, resp.id.with("star"), Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(if m.starred() { "Retirer des favoris" } else { "Ajouter aux favoris" });
+    let star = ui.interact(star_rect, resp.id.with("star"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if m.starred() {
+        "Retirer des favoris"
+    } else {
+        "Ajouter aux favoris"
+    });
 
     let pin_rect = star_rect.translate(vec2(-24.0, 0.0));
-    let pin = ui
-        .interact(pin_rect, resp.id.with("pin"), Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(if pinned { "Décrocher" } else { "Épingler en haut de la boîte (3 max)" });
+    let pin = ui.interact(pin_rect, resp.id.with("pin"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if pinned {
+        "Décrocher"
+    } else {
+        "Épingler en haut de la boîte (3 max)"
+    });
 
     if star.clicked() {
         actions.push(Action::Star(m.clone()));
@@ -748,27 +707,12 @@ fn message_row(
 
 // --- Lecture / rédaction ---------------------------------------------------
 
-fn reading_pane(
-    ui: &mut egui::Ui,
-    mail: &mut MailState,
-    acc: &Account,
-    email: &str,
-    list_hidden: bool,
-    toggle_list: &mut bool,
-    actions: &mut Vec<Action>,
-) {
+fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &str, list_hidden: bool, toggle_list: &mut bool, actions: &mut Vec<Action>) {
     // Bouton pour masquer / réafficher la liste des mails.
     ui.horizontal(|ui| {
-        let (label, tip) = if list_hidden {
-            ("›  Afficher la liste", "Réafficher la liste des mails")
-        } else {
-            ("‹  Masquer la liste", "Masquer la liste pour agrandir la lecture")
-        };
-        if ui
-            .add(egui::Button::new(RichText::new(label).small().color(theme::TEXT_MUTED())).frame(false))
-            .on_hover_text(tip)
-            .clicked()
-        {
+        let (label, tip) =
+            if list_hidden { ("›  Afficher la liste", "Réafficher la liste des mails") } else { ("‹  Masquer la liste", "Masquer la liste pour agrandir la lecture") };
+        if ui.add(egui::Button::new(RichText::new(label).small().color(theme::TEXT_MUTED())).frame(false)).on_hover_text(tip).clicked() {
             *toggle_list = true;
         }
     });
@@ -797,9 +741,7 @@ fn reading_pane(
         match composer::show(ui, d, &mut mail.editor, mail.sending, &mail.contacts, &mail.signatures, &mut preview) {
             Some(composer::Out::Send) => actions.push(Action::Send),
             Some(composer::Out::Cancel) => actions.push(Action::CancelDraft),
-            Some(composer::Out::Error(e)) => {
-                mail.notice = Some(super::Notice { text: e, error: true, at: std::time::Instant::now() })
-            }
+            Some(composer::Out::Error(e)) => mail.notice = Some(super::Notice { text: e, error: true, at: std::time::Instant::now() }),
             None => {}
         }
         return;
@@ -816,10 +758,7 @@ fn reading_pane(
     };
     let s = &m.summary;
 
-    ui.add(
-        egui::Label::new(RichText::new(if s.subject.is_empty() { "(sans objet)" } else { &s.subject }).font(theme::title_font(20.0)))
-            .wrap(),
-    );
+    ui.add(egui::Label::new(RichText::new(if s.subject.is_empty() { "(sans objet)" } else { &s.subject }).font(theme::title_font(20.0))).wrap());
     ui.add_space(4.0);
     // Conversation : messages plus anciens au-dessus, plus récents (ex. ta réponse) en dessous.
     let (earlier, later): (Vec<&FullMessage>, Vec<&FullMessage>) = mail.thread.iter().partition(|t| t.summary.date <= s.date);
@@ -828,145 +767,139 @@ fn reading_pane(
         ui.label(RichText::new(format!("CONVERSATION · {} MESSAGES", mail.thread.len() + 1)).small().strong().color(theme::TEXT_MUTED()));
     }
     ui.add_space(6.0);
-    egui::ScrollArea::vertical()
-        .id_salt("mail_body")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-    for t in &earlier {
-        let open = mail.thread_expanded.contains(&t.summary.id);
-        if thread_card(ui, t, open, &mut mail.inline, &mail.attachments, email, actions) {
-            actions.push(Action::ToggleThread(t.summary.id.clone()));
+    egui::ScrollArea::vertical().id_salt("mail_body").auto_shrink([false, false]).show(ui, |ui| {
+        for t in &earlier {
+            let open = mail.thread_expanded.contains(&t.summary.id);
+            if thread_card(ui, t, open, &mut mail.inline, &mail.attachments, email, actions) {
+                actions.push(Action::ToggleThread(t.summary.id.clone()));
+            }
         }
-    }
-    if !earlier.is_empty() {
-        ui.add_space(6.0);
-    }
-    ui.horizontal(|ui| {
-        sender_menu(ui, &mail.contacts, &s.from, actions);
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(RichText::new(long_date(s.date)).small().color(theme::TEXT_MUTED()));
+        if !earlier.is_empty() {
+            ui.add_space(6.0);
+        }
+        ui.horizontal(|ui| {
+            sender_menu(ui, &mail.contacts, &s.from, actions);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(RichText::new(long_date(s.date)).small().color(theme::TEXT_MUTED()));
+            });
         });
-    });
-    if !m.to.is_empty() {
-        ui.add(egui::Label::new(RichText::new(format!("À : {}", m.to)).small().color(theme::TEXT_MUTED())).wrap());
-    }
-    if !m.cc.is_empty() {
-        ui.add(egui::Label::new(RichText::new(format!("Cc : {}", m.cc)).small().color(theme::TEXT_MUTED())).wrap());
-    }
-    // Reçu via une adresse intermédiaire (groupe / liste) : couleur réglable.
-    let via = groups::intermediates(s, &mail.own);
-    if !via.is_empty() {
-        ui.add_space(4.0);
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Reçu via").small().color(theme::TEXT_MUTED()));
-            for a in via.iter().take(4) {
-                match mail.groups.iter().find(|g| g.address.eq_ignore_ascii_case(a)) {
-                    Some(g) => {
-                        if let Some(e) = groups::swatch(ui, g, 11.0) {
-                            mail.group_edits.push(e);
+        if !m.to.is_empty() {
+            ui.add(egui::Label::new(RichText::new(format!("À : {}", m.to)).small().color(theme::TEXT_MUTED())).wrap());
+        }
+        if !m.cc.is_empty() {
+            ui.add(egui::Label::new(RichText::new(format!("Cc : {}", m.cc)).small().color(theme::TEXT_MUTED())).wrap());
+        }
+        // Reçu via une adresse intermédiaire (groupe / liste) : couleur réglable.
+        let via = groups::intermediates(s, &mail.own);
+        if !via.is_empty() {
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("Reçu via").small().color(theme::TEXT_MUTED()));
+                for a in via.iter().take(4) {
+                    match mail.groups.iter().find(|g| g.address.eq_ignore_ascii_case(a)) {
+                        Some(g) => {
+                            if let Some(e) = groups::swatch(ui, g, 11.0) {
+                                mail.group_edits.push(e);
+                            }
+                            ui.label(RichText::new(a).small().color(groups::color32(g.color)));
                         }
-                        ui.label(RichText::new(a).small().color(groups::color32(g.color)));
-                    }
-                    None => {
-                        ui.label(RichText::new(a).small().color(theme::TEXT_MUTED()));
-                        if ui.small_button("Colorer").on_hover_text("Colorer les mails reçus via cette adresse").clicked() {
-                            mail.group_edits.push(groups::GroupEdit::Color(a.clone(), groups::next_color(&mail.groups)));
+                        None => {
+                            ui.label(RichText::new(a).small().color(theme::TEXT_MUTED()));
+                            if ui.small_button("Colorer").on_hover_text("Colorer les mails reçus via cette adresse").clicked() {
+                                mail.group_edits.push(groups::GroupEdit::Color(a.clone(), groups::next_color(&mail.groups)));
+                            }
                         }
                     }
                 }
-            }
-        });
-    }
+            });
+        }
 
-    ui.add_space(10.0);
-    ui.horizontal_wrapped(|ui| {
-        ui.menu_button("Action  ▾", |ui| {
-            ui.set_min_width(170.0);
-            if ui.button("Répondre").clicked() {
-                actions.push(Action::Reply);
-                ui.close();
-            }
-            if ui.button("Répondre à tous").clicked() {
-                actions.push(Action::ReplyAll);
-                ui.close();
-            }
-            if ui.button("Transférer").clicked() {
-                actions.push(Action::Forward);
-                ui.close();
-            }
-        });
-        let is_spam = s.labels.iter().any(|l| l == "SPAM");
-        let (spam_label, spam_tip) = if is_spam {
-            ("Pas un spam", "Remettre ce mail dans la boîte de réception")
-        } else {
-            ("Spam", "Signaler comme spam : le mail part dans le dossier Spam")
-        };
-        if ui.button(spam_label).on_hover_text(spam_tip).clicked() {
-            actions.push(Action::Spam(s.id.clone(), !is_spam));
-        }
-        let in_trash = s.labels.iter().any(|l| l == "TRASH");
-        let (trash_label, trash_tip) = if in_trash {
-            ("Restaurer", "Sortir ce mail de la corbeille (retour dans la boîte de réception)")
-        } else {
-            ("🗑 Corbeille", "Mettre ce mail à la corbeille (Suppr)")
-        };
-        if ui.button(trash_label).on_hover_text(trash_tip).clicked() {
-            actions.push(Action::Trash(s.id.clone(), !in_trash));
-        }
-        let fav = if s.starred() { "Retirer des favoris" } else { "Ajouter aux favoris" };
-        if icon_button(ui, fav, |p, c, col| draw_star(p, c, 8.0, s.starred(), col), s.starred()).clicked() {
-            actions.push(Action::Star(s.clone()));
-        }
-        let pinned = mail.pinned.contains(&s.id);
-        let pin = if pinned { "Décrocher" } else { "Épingler en haut de la boîte (3 max)" };
-        if icon_button(ui, pin, |p, c, col| draw_pin(p, c, 8.0, pinned, col), pinned).clicked() {
-            actions.push(Action::Pin(s.clone()));
-        }
-        ui.menu_button("Ranger dans…", |ui| {
-            ui.set_min_width(200.0);
-            let cats: Vec<&Label> = mail.labels.iter().filter(|l| l.user).collect();
-            if cats.is_empty() {
-                ui.label(RichText::new("Crée d'abord une catégorie (bouton + à gauche)").small().color(theme::TEXT_MUTED()));
-            }
-            for l in cats {
-                let already = s.labels.contains(&l.id);
-                if ui.add_enabled(!already, egui::Button::new(&l.name)).clicked() {
-                    actions.push(Action::Move(s.id.clone(), l.clone()));
+        ui.add_space(10.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.menu_button("Action  ▾", |ui| {
+                ui.set_min_width(170.0);
+                if ui.button("Répondre").clicked() {
+                    actions.push(Action::Reply);
                     ui.close();
                 }
-            }
-        });
-    });
-
-    // Catégories déjà attribuées.
-    let tags: Vec<&Label> = mail.labels.iter().filter(|l| l.user && s.labels.contains(&l.id)).collect();
-    if !tags.is_empty() {
-        ui.add_space(6.0);
-        ui.horizontal_wrapped(|ui| {
-            for l in tags {
-                chip(ui, &l.name);
-            }
-        });
-    }
-
-    // Pastilles « documents » : une par pièce jointe et par lien de téléchargement ;
-    // un clic fait défiler jusqu'au document et le met en surbrillance.
-    let docs = documents(m);
-    if !docs.is_empty() {
-        ui.add_space(8.0);
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-            for d in &docs {
-                if doc_pill(ui, d).clicked() {
-                    mail.jump = Some(d.target.clone());
+                if ui.button("Répondre à tous").clicked() {
+                    actions.push(Action::ReplyAll);
+                    ui.close();
                 }
+                if ui.button("Transférer").clicked() {
+                    actions.push(Action::Forward);
+                    ui.close();
+                }
+            });
+            let is_spam = s.labels.iter().any(|l| l == "SPAM");
+            let (spam_label, spam_tip) =
+                if is_spam { ("Pas un spam", "Remettre ce mail dans la boîte de réception") } else { ("Spam", "Signaler comme spam : le mail part dans le dossier Spam") };
+            if ui.button(spam_label).on_hover_text(spam_tip).clicked() {
+                actions.push(Action::Spam(s.id.clone(), !is_spam));
             }
+            let in_trash = s.labels.iter().any(|l| l == "TRASH");
+            let (trash_label, trash_tip) = if in_trash {
+                ("Restaurer", "Sortir ce mail de la corbeille (retour dans la boîte de réception)")
+            } else {
+                ("🗑 Corbeille", "Mettre ce mail à la corbeille (Suppr)")
+            };
+            if ui.button(trash_label).on_hover_text(trash_tip).clicked() {
+                actions.push(Action::Trash(s.id.clone(), !in_trash));
+            }
+            let fav = if s.starred() { "Retirer des favoris" } else { "Ajouter aux favoris" };
+            if icon_button(ui, fav, |p, c, col| draw_star(p, c, 8.0, s.starred(), col), s.starred()).clicked() {
+                actions.push(Action::Star(s.clone()));
+            }
+            let pinned = mail.pinned.contains(&s.id);
+            let pin = if pinned { "Décrocher" } else { "Épingler en haut de la boîte (3 max)" };
+            if icon_button(ui, pin, |p, c, col| draw_pin(p, c, 8.0, pinned, col), pinned).clicked() {
+                actions.push(Action::Pin(s.clone()));
+            }
+            ui.menu_button("Ranger dans…", |ui| {
+                ui.set_min_width(200.0);
+                let cats: Vec<&Label> = mail.labels.iter().filter(|l| l.user).collect();
+                if cats.is_empty() {
+                    ui.label(RichText::new("Crée d'abord une catégorie (bouton + à gauche)").small().color(theme::TEXT_MUTED()));
+                }
+                for l in cats {
+                    let already = s.labels.contains(&l.id);
+                    if ui.add_enabled(!already, egui::Button::new(&l.name)).clicked() {
+                        actions.push(Action::Move(s.id.clone(), l.clone()));
+                        ui.close();
+                    }
+                }
+            });
         });
-    }
 
-    ui.add_space(10.0);
-    ui.separator();
-    ui.add_space(6.0);
+        // Catégories déjà attribuées.
+        let tags: Vec<&Label> = mail.labels.iter().filter(|l| l.user && s.labels.contains(&l.id)).collect();
+        if !tags.is_empty() {
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                for l in tags {
+                    chip(ui, &l.name);
+                }
+            });
+        }
+
+        // Pastilles « documents » : une par pièce jointe et par lien de téléchargement ;
+        // un clic fait défiler jusqu'au document et le met en surbrillance.
+        let docs = documents(m);
+        if !docs.is_empty() {
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                for d in &docs {
+                    if doc_pill(ui, d).clicked() {
+                        mail.jump = Some(d.target.clone());
+                    }
+                }
+            });
+        }
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.add_space(6.0);
         {
             let ctx = ui.ctx().clone();
             for (i, block) in m.blocks.iter().enumerate() {
@@ -983,10 +916,10 @@ fn reading_pane(
                     BodyBlock::Image { src, alt, width, height, max_width, align, link } => {
                         let key = inline::key(&m.summary.id, i, src);
                         let spec = ImageSpec { width: *width, height: *height, max_width: *max_width, align: *align };
-                        if body_image(ui, mail.inline.get(&ctx, &key), alt, spec, link.as_deref()) {
-                            if let Some(url) = link {
-                                let _ = webbrowser::open(url);
-                            }
+                        if body_image(ui, mail.inline.get(&ctx, &key), alt, spec, link.as_deref())
+                            && let Some(url) = link
+                        {
+                            let _ = webbrowser::open(url);
                         }
                     }
                 }
@@ -1010,13 +943,13 @@ fn reading_pane(
                 ui.add_space(12.0);
             }
         }
-    for t in &later {
-        let open = mail.thread_expanded.contains(&t.summary.id) != (latest.as_deref() == Some(t.summary.id.as_str()));
-        if thread_card(ui, t, open, &mut mail.inline, &mail.attachments, email, actions) {
-            actions.push(Action::ToggleThread(t.summary.id.clone()));
+        for t in &later {
+            let open = mail.thread_expanded.contains(&t.summary.id) != (latest.as_deref() == Some(t.summary.id.as_str()));
+            if thread_card(ui, t, open, &mut mail.inline, &mail.attachments, email, actions) {
+                actions.push(Action::ToggleThread(t.summary.id.clone()));
+            }
         }
-    }
-        });
+    });
 }
 
 /// Message d'une conversation : replié (expéditeur, date, aperçu) ou déplié (corps complet).
@@ -1069,10 +1002,10 @@ fn thread_card(
                     BodyBlock::Image { src, alt, width, height, max_width, align, link } => {
                         let key = inline::key(&s.id, i, src);
                         let spec = ImageSpec { width: *width, height: *height, max_width: *max_width, align: *align };
-                        if body_image(ui, inline_imgs.get(&ctx, &key), alt, spec, link.as_deref()) {
-                            if let Some(url) = link {
-                                let _ = webbrowser::open(url);
-                            }
+                        if body_image(ui, inline_imgs.get(&ctx, &key), alt, spec, link.as_deref())
+                            && let Some(url) = link
+                        {
+                            let _ = webbrowser::open(url);
                         }
                     }
                 }
@@ -1114,10 +1047,8 @@ struct Doc {
 }
 
 fn documents(m: &crate::google::FullMessage) -> Vec<Doc> {
-    let mut out: Vec<Doc> = m
-        .listed_attachments()
-        .map(|a| Doc { target: DocTarget::Attachment(a.key()), label: a.filename.clone(), tag: a.extension().to_uppercase(), link: false })
-        .collect();
+    let mut out: Vec<Doc> =
+        m.listed_attachments().map(|a| Doc { target: DocTarget::Attachment(a.key()), label: a.filename.clone(), tag: a.extension().to_uppercase(), link: false }).collect();
     let mut seen = std::collections::HashSet::new();
     for (i, b) in m.blocks.iter().enumerate() {
         let BodyBlock::Para(p) = b else { continue };
@@ -1142,11 +1073,7 @@ fn link_label(text: &str, url: &str) -> String {
         let path = url.split(['?', '#']).next().unwrap_or(url);
         let last = path.trim_end_matches('/').rsplit('/').next().unwrap_or(path);
         let host = url.split("//").nth(1).and_then(|h| h.split('/').next()).unwrap_or(url);
-        if last.contains('.') && !last.contains(host) {
-            urlencoding::decode(last).map(|s| s.into_owned()).unwrap_or_else(|_| last.to_string())
-        } else {
-            host.to_string()
-        }
+        if last.contains('.') && !last.contains(host) { urlencoding::decode(last).map(|s| s.into_owned()).unwrap_or_else(|_| last.to_string()) } else { host.to_string() }
     };
     let mut chars = label.chars();
     let short: String = chars.by_ref().take(32).collect();
@@ -1178,14 +1105,7 @@ fn doc_pill(ui: &mut egui::Ui, d: &Doc) -> egui::Response {
 }
 
 /// Défile vers l'élément s'il est la cible demandée, puis le met en surbrillance qui s'estompe.
-fn jump_target(
-    ui: &mut egui::Ui,
-    jump: &mut Option<DocTarget>,
-    flash: &mut Option<(DocTarget, std::time::Instant)>,
-    me: DocTarget,
-    rect: Rect,
-    color: Color32,
-) {
+fn jump_target(ui: &mut egui::Ui, jump: &mut Option<DocTarget>, flash: &mut Option<(DocTarget, std::time::Instant)>, me: DocTarget, rect: Rect, color: Color32) {
     if jump.as_ref() == Some(&me) {
         ui.scroll_to_rect(rect.expand(24.0), Some(Align::Center));
         *flash = Some((me.clone(), std::time::Instant::now()));
@@ -1199,13 +1119,7 @@ fn jump_target(
             // Deux pulsations qui s'estompent.
             let k = (1.0 - e / FLASH) * (0.6 + 0.4 * (e * 7.0).cos().abs());
             let r = rect.expand(5.0);
-            ui.painter().rect(
-                r,
-                CornerRadius::same(8),
-                color.gamma_multiply(0.10 * k),
-                Stroke::new(1.5, color.gamma_multiply(k)),
-                egui::StrokeKind::Outside,
-            );
+            ui.painter().rect(r, CornerRadius::same(8), color.gamma_multiply(0.10 * k), Stroke::new(1.5, color.gamma_multiply(k)), egui::StrokeKind::Outside);
             ui.ctx().request_repaint();
         } else {
             *flash = None;
@@ -1352,13 +1266,13 @@ pub(crate) fn rich_para(ui: &mut egui::Ui, p: &Para) -> (Option<String>, Rect) {
             let c = galley.cursor_from_pos(pos - galley_pos).index.0;
             links.iter().find(|(a, b, _)| c >= *a && c < *b).map(|(_, _, u)| u.clone())
         };
-        if let Some(pos) = resp.hover_pos() {
-            if let Some(url) = link_at(pos) {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                resp.clone().on_hover_text(&url);
-                if resp.clicked() {
-                    clicked = Some(url);
-                }
+        if let Some(pos) = resp.hover_pos()
+            && let Some(url) = link_at(pos)
+        {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            resp.clone().on_hover_text(&url);
+            if resp.clicked() {
+                clicked = Some(url);
             }
         }
         // Émojis en couleur (style 3D), centrés sur leur emplacement dans le texte.
@@ -1455,11 +1369,7 @@ fn body_image(ui: &mut egui::Ui, state: Option<&inline::ImgState>, alt: &str, sp
         }
         Some(inline::ImgState::Loading) | Some(inline::ImgState::Ready { .. }) => {
             // Emplacement réservé à la taille annoncée, pour éviter les sauts de mise en page.
-            let size = if spec.width.is_some() || spec.height.is_some() {
-                image_size(vec2(320.0, 120.0), spec, avail)
-            } else {
-                vec2(avail.min(320.0), 120.0)
-            };
+            let size = if spec.width.is_some() || spec.height.is_some() { image_size(vec2(320.0, 120.0), spec, avail) } else { vec2(avail.min(320.0), 120.0) };
             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
             ui.painter().rect_filled(rect, CornerRadius::same(8), theme::SURFACE_HI());
             egui::Spinner::new().size(16.0).paint_at(ui, Rect::from_center_size(rect.center(), vec2(16.0, 16.0)));
@@ -1512,12 +1422,7 @@ fn attachment_chip(ui: &mut egui::Ui, a: &Attachment, atts: &attachments::Attach
     }
 
     let resp = ui
-        .add(
-            egui::Button::new(text)
-                .fill(theme::SURFACE_HI())
-                .stroke(Stroke::new(1.0, theme::BORDER()))
-                .corner_radius(CornerRadius::same(255)),
-        )
+        .add(egui::Button::new(text).fill(theme::SURFACE_HI()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(255)))
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text("Aperçu");
     if resp.clicked() {
@@ -1530,11 +1435,7 @@ fn attachment_chip(ui: &mut egui::Ui, a: &Attachment, atts: &attachments::Attach
     // Dernier recours : uniquement si l'aperçu et l'ouverture locale ont échoué.
     if let Some(reason) = atts.blocked.get(&key) {
         let pill = ui
-            .add(
-                egui::Button::new(RichText::new("Voir dans Gmail").small().color(theme::BG()))
-                    .fill(theme::TEXT())
-                    .corner_radius(CornerRadius::same(255)),
-            )
+            .add(egui::Button::new(RichText::new("Voir dans Gmail").small().color(theme::BG())).fill(theme::TEXT()).corner_radius(CornerRadius::same(255)))
             .on_hover_cursor(egui::CursorIcon::PointingHand)
             .on_hover_text(format!("{reason}\nOuvre le message dans Gmail pour visualiser le document."));
         if pill.clicked() {
@@ -1553,13 +1454,7 @@ fn preview_modal(ui: &mut egui::Ui, mail: &mut MailState, actions: &mut Vec<Acti
 
     let resp = egui::Modal::new(egui::Id::unique("attachment_preview"))
         .backdrop_color(Color32::from_black_alpha(190))
-        .frame(
-            egui::Frame::new()
-                .fill(theme::SURFACE())
-                .stroke(Stroke::new(1.0, theme::BORDER()))
-                .corner_radius(CornerRadius::same(12))
-                .inner_margin(egui::Margin::same(16)),
-        )
+        .frame(egui::Frame::new().fill(theme::SURFACE()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(12)).inner_margin(egui::Margin::same(16)))
         .show(&ctx, |ui| {
             ui.set_max_size(max);
             ui.horizontal(|ui| {
@@ -1608,13 +1503,9 @@ fn preview_modal(ui: &mut egui::Ui, mail: &mut MailState, actions: &mut Vec<Acti
 // --- Petits éléments -------------------------------------------------------
 
 fn chip(ui: &mut egui::Ui, text: &str) {
-    egui::Frame::new()
-        .stroke(Stroke::new(1.0, theme::BORDER()))
-        .corner_radius(CornerRadius::same(255))
-        .inner_margin(egui::Margin::symmetric(10, 2))
-        .show(ui, |ui| {
-            ui.label(RichText::new(text).small().color(theme::TEXT_MUTED()));
-        });
+    egui::Frame::new().stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(255)).inner_margin(egui::Margin::symmetric(10, 2)).show(ui, |ui| {
+        ui.label(RichText::new(text).small().color(theme::TEXT_MUTED()));
+    });
 }
 
 fn toast(ui: &mut egui::Ui, mail: &mut MailState) {
@@ -1626,32 +1517,24 @@ fn toast(ui: &mut egui::Ui, mail: &mut MailState) {
     }
     ui.ctx().request_repaint_after(Duration::from_millis(250));
     let screen = ui.ctx().content_rect();
-    egui::Area::new(egui::Id::unique("mail_toast"))
-        .order(egui::Order::Foreground)
-        .anchor(egui::Align2::RIGHT_BOTTOM, vec2(-24.0, -24.0))
-        .show(ui.ctx(), |ui| {
-            ui.set_max_width((screen.width() * 0.4).max(260.0));
-            egui::Frame::new()
-                .fill(if n.error { theme::TEXT() } else { theme::SURFACE_HI() })
-                .stroke(Stroke::new(1.0, theme::BORDER()))
-                .corner_radius(CornerRadius::same(10))
-                .inner_margin(egui::Margin::symmetric(14, 10))
-                .show(ui, |ui| {
-                    let c = if n.error { theme::BG() } else { theme::TEXT() };
-                    ui.add(egui::Label::new(RichText::new(&n.text).color(c)).wrap());
-                });
-        });
+    egui::Area::new(egui::Id::unique("mail_toast")).order(egui::Order::Foreground).anchor(egui::Align2::RIGHT_BOTTOM, vec2(-24.0, -24.0)).show(ui.ctx(), |ui| {
+        ui.set_max_width((screen.width() * 0.4).max(260.0));
+        egui::Frame::new()
+            .fill(if n.error { theme::TEXT() } else { theme::SURFACE_HI() })
+            .stroke(Stroke::new(1.0, theme::BORDER()))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(egui::Margin::symmetric(14, 10))
+            .show(ui, |ui| {
+                let c = if n.error { theme::BG() } else { theme::TEXT() };
+                ui.add(egui::Label::new(RichText::new(&n.text).color(c)).wrap());
+            });
+    });
 }
 
 /// Texte sur une ligne, tronqué avec « … ».
 pub(crate) fn one_line(p: &Painter, text: &str, font: FontId, color: Color32, max_w: f32) -> std::sync::Arc<egui::Galley> {
     let mut job = LayoutJob::simple_singleline(text.replace('\n', " "), font, color);
-    job.wrap = TextWrapping {
-        max_width: max_w.max(10.0),
-        max_rows: 1,
-        break_anywhere: true,
-        overflow_character: Some('…'),
-    };
+    job.wrap = TextWrapping { max_width: max_w.max(10.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
     p.layout_job(job)
 }
 
@@ -1710,9 +1593,7 @@ pub(crate) fn short_date(ms: i64) -> String {
     if d.date_naive() == now.date_naive() {
         d.format("%H:%M").to_string()
     } else if d.year() == now.year() {
-        const ABBR: [&str; 12] = [
-            "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc.",
-        ];
+        const ABBR: [&str; 12] = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
         format!("{} {}", d.day(), ABBR[d.month0() as usize])
     } else {
         d.format("%d/%m/%Y").to_string()
@@ -1721,12 +1602,5 @@ pub(crate) fn short_date(ms: i64) -> String {
 
 pub(crate) fn long_date(ms: i64) -> String {
     let Some(d) = to_local(ms) else { return String::new() };
-    format!(
-        "{} {} {} {}, {}",
-        tabs::weekday_fr(d.weekday()),
-        d.day(),
-        tabs::month_fr(d.month()),
-        d.year(),
-        d.format("%H:%M")
-    )
+    format!("{} {} {} {}, {}", tabs::weekday_fr(d.weekday()), d.day(), tabs::month_fr(d.month()), d.year(), d.format("%H:%M"))
 }

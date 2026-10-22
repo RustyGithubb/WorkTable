@@ -2,7 +2,8 @@
 name = "worktable"
 version = "0.1.1"
 edition = "2024"
-repository = "https://github.com/tonpseudo/WorkTable"
+description = "Organisation de travail : tableau de bord, calendrier, mail, messages, notes et fichiers Google"
+repository = "https://github.com/RustyGithubb/WorkTable"
 
 [dependencies]
 aes-gcm = "0.10"
@@ -19,6 +20,7 @@ keyring = { version = "3", features = ["windows-native", "apple-native", "linux-
 lettre = { version = "0.11.23", default-features = false, features = ["builder"] }
 open = "5.4.4"
 rfd = "0.17.2"
+raw-window-handle = "0.6"
 scraper = "0.27.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -35,7 +37,11 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphic
 # Icône du fichier .exe (Explorateur Windows), à partir de assets/logo.ico.
 winresource = "0.1"
 
-# The profile that 'dist' will build with
+[profile.release]
+# Exécutable plus petit (symboles de débogage retirés).
+strip = true
+
+# Profil de la version distribuée (installeur, `dist`) : optimisations à l'édition de liens.
 [profile.dist]
 inherits = "release"
 lto = "thin"

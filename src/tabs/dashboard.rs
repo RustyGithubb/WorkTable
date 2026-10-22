@@ -22,15 +22,7 @@ pub enum DashAction {
 
 const GAP: f32 = 12.0;
 
-pub fn show(
-    ui: &mut egui::Ui,
-    cal: &CalendarState,
-    mail: &mut MailState,
-    acc: &Account,
-    prefs: &Prefs,
-    tasks: &mut Tasks,
-    links: &mut crate::links::Links,
-) -> Option<DashAction> {
+pub fn show(ui: &mut egui::Ui, cal: &CalendarState, mail: &mut MailState, acc: &Account, prefs: &Prefs, tasks: &mut Tasks, links: &mut crate::links::Links) -> Option<DashAction> {
     let mut out = None;
     tasks.roll_over(Local::now().timestamp_millis());
     mail.refresh_shared_files(acc);
@@ -40,7 +32,6 @@ pub fn show(
     let today = super::today_long();
     widgets::page_header_with(ui, "Tableau de bord", greeting, |ui| widgets::header_badge(ui, &today, false));
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-
         let w = ui.available_width() - 12.0;
         let wide = w > 1050.0;
         // Ligne 1 : liens importants (en premier) | planning | mails.
@@ -125,18 +116,13 @@ fn panel_with(ui: &mut egui::Ui, title: impl FnOnce(&mut egui::Ui), body: impl F
 /// Panneau avec un fond et un contour choisis.
 fn panel_styled(ui: &mut egui::Ui, fill: Color32, border: Color32, title: impl FnOnce(&mut egui::Ui), body: impl FnOnce(&mut egui::Ui)) {
     let h = ui.available_height();
-    egui::Frame::new()
-        .fill(fill)
-        .stroke(Stroke::new(1.0, border))
-        .corner_radius(CornerRadius::same(12))
-        .inner_margin(egui::Margin::same(16))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.set_height(h - 34.0);
-            ui.horizontal(title);
-            ui.add_space(10.0);
-            body(ui);
-        });
+    egui::Frame::new().fill(fill).stroke(Stroke::new(1.0, border)).corner_radius(CornerRadius::same(12)).inner_margin(egui::Margin::same(16)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.set_height(h - 34.0);
+        ui.horizontal(title);
+        ui.add_space(10.0);
+        body(ui);
+    });
 }
 
 // --- Planning du jour -------------------------------------------------------------------
@@ -291,29 +277,25 @@ fn reminders(ui: &mut egui::Ui, tasks: &mut Tasks) {
     }
     egui::ScrollArea::vertical().id_salt("dash_reminders").auto_shrink([false, false]).show(ui, |ui| {
         for (id, title, status, days) in list {
-            egui::Frame::new()
-                .fill(theme::SURFACE_HI())
-                .corner_radius(CornerRadius::same(8))
-                .inner_margin(egui::Margin::symmetric(10, 8))
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.add(egui::Label::new(RichText::new(&title).color(theme::TEXT())).wrap());
-                    let what = match status {
-                        Status::Todo => format!("À faire · {}", tasks::ago(days)),
-                        _ => format!("En cours · {}", tasks::ago(days)),
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(what).small().color(if days >= 3 { theme::TODAY() } else { theme::TEXT_MUTED() }));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.small_button("✓ Archiver").clicked() {
-                                tasks.set_status(id, Status::Done);
-                            }
-                            if status == Status::Todo && ui.small_button("▶ Commencer").clicked() {
-                                tasks.set_status(id, Status::Doing);
-                            }
-                        });
+            egui::Frame::new().fill(theme::SURFACE_HI()).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.add(egui::Label::new(RichText::new(&title).color(theme::TEXT())).wrap());
+                let what = match status {
+                    Status::Todo => format!("À faire · {}", tasks::ago(days)),
+                    _ => format!("En cours · {}", tasks::ago(days)),
+                };
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(what).small().color(if days >= 3 { theme::TODAY() } else { theme::TEXT_MUTED() }));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.small_button("✓ Archiver").clicked() {
+                            tasks.set_status(id, Status::Done);
+                        }
+                        if status == Status::Todo && ui.small_button("▶ Commencer").clicked() {
+                            tasks.set_status(id, Status::Doing);
+                        }
                     });
                 });
+            });
             ui.add_space(6.0);
         }
     });
@@ -360,10 +342,10 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
                             let id = egui::Id::unique("wt_dash_new_task");
                             let mut text: String = ui.ctx().data(|d| d.get_temp(id)).unwrap_or_default();
                             let r = ui.add(egui::TextEdit::singleline(&mut text).hint_text("+ Ajouter une tâche (Entrée)").desired_width(f32::INFINITY));
-                            if r.changed() {
-                                if let Some(t) = crate::tabs::messages::emoji::replace_codes(&text) {
-                                    text = t;
-                                }
+                            if r.changed()
+                                && let Some(t) = crate::tabs::messages::emoji::replace_codes(&text)
+                            {
+                                text = t;
                             }
                             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !text.trim().is_empty() {
                                 tasks.add(&text);
@@ -386,26 +368,26 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
                 })
                 .response;
             // Dépôt d'une tâche glissée dans cette colonne.
-            if let Some(d) = &dragging {
-                if ui.ctx().pointer_latest_pos().is_some_and(|p| r.rect.contains(p)) {
-                    ui.painter().rect_stroke(r.rect, CornerRadius::same(10), Stroke::new(1.5, theme::TODAY()), egui::StrokeKind::Inside);
-                    if ui.input(|i| i.pointer.any_released()) {
-                        moves.push((d.0, status));
-                        egui::DragAndDrop::clear_payload(ui.ctx());
-                    }
+            if let Some(d) = &dragging
+                && ui.ctx().pointer_latest_pos().is_some_and(|p| r.rect.contains(p))
+            {
+                ui.painter().rect_stroke(r.rect, CornerRadius::same(10), Stroke::new(1.5, theme::TODAY()), egui::StrokeKind::Inside);
+                if ui.input(|i| i.pointer.any_released()) {
+                    moves.push((d.0, status));
+                    egui::DragAndDrop::clear_payload(ui.ctx());
                 }
             }
         }
     });
-    if let (Some(d), Some(p)) = (dragging, ui.ctx().pointer_latest_pos()) {
-        if let Some(t) = tasks.list.iter().find(|t| t.id == d.0) {
-            let title = t.title.clone();
-            egui::Area::new(egui::Id::unique("wt_task_ghost")).order(egui::Order::Tooltip).fixed_pos(p + vec2(12.0, 8.0)).interactable(false).show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.label(RichText::new(title).strong());
-                });
+    if let (Some(d), Some(p)) = (dragging, ui.ctx().pointer_latest_pos())
+        && let Some(t) = tasks.list.iter().find(|t| t.id == d.0)
+    {
+        let title = t.title.clone();
+        egui::Area::new(egui::Id::unique("wt_task_ghost")).order(egui::Order::Tooltip).fixed_pos(p + vec2(12.0, 8.0)).interactable(false).show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.label(RichText::new(title).strong());
             });
-        }
+        });
     }
     for (id, s) in moves {
         tasks.set_status(id, s);
@@ -419,16 +401,7 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn task_card(
-    ui: &mut egui::Ui,
-    id: u64,
-    title: &str,
-    since: i64,
-    status: Status,
-    moves: &mut Vec<(u64, Status)>,
-    deletes: &mut Vec<u64>,
-    renames: &mut Vec<(u64, String)>,
-) {
+fn task_card(ui: &mut egui::Ui, id: u64, title: &str, since: i64, status: Status, moves: &mut Vec<(u64, Status)>, deletes: &mut Vec<u64>, renames: &mut Vec<(u64, String)>) {
     let edit_id = egui::Id::unique(("wt_task_edit", id));
     let editing: Option<String> = ui.ctx().data(|d| d.get_temp(edit_id));
     let frame = egui::Frame::new()
@@ -445,10 +418,10 @@ fn task_card(
                 let mut cancel = false;
                 ui.horizontal(|ui| {
                     let r = ui.add(egui::TextEdit::singleline(&mut t).id(field_id).desired_width(ui.available_width() - 60.0));
-                    if r.changed() {
-                        if let Some(x) = crate::tabs::messages::emoji::replace_codes(&t) {
-                            t = x;
-                        }
+                    if r.changed()
+                        && let Some(x) = crate::tabs::messages::emoji::replace_codes(&t)
+                    {
+                        t = x;
                     }
                     // Focus donné une seule fois, à l'ouverture (sinon le champ ne peut jamais être quitté).
                     let started = edit_id.with("started");
@@ -780,7 +753,8 @@ fn links_grid(ui: &mut egui::Ui, links: &mut crate::links::Links) {
             match t.image.as_ref().and_then(|f| logo_texture(ui.ctx(), links, f)) {
                 Some(tex) => {
                     let ir = rr.shrink(side * 0.12);
-                    ui.painter().add(egui::epaint::RectShape::filled(ir, CornerRadius::same(10), Color32::WHITE).with_texture(tex, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))));
+                    ui.painter()
+                        .add(egui::epaint::RectShape::filled(ir, CornerRadius::same(10), Color32::WHITE).with_texture(tex, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))));
                 }
                 None => {
                     let e = if t.emoji.is_empty() { "🔗" } else { t.emoji.as_str() };
@@ -806,10 +780,10 @@ fn links_grid(ui: &mut egui::Ui, links: &mut crate::links::Links) {
             });
         }
         // Glisser une case sur une autre : échange.
-        if let Some(d) = resp.dnd_hover_payload::<LinkDrag>() {
-            if d.0 != k {
-                ui.painter().rect_stroke(r, CornerRadius::same(14), Stroke::new(1.5, theme::TEXT()), egui::StrokeKind::Inside);
-            }
+        if let Some(d) = resp.dnd_hover_payload::<LinkDrag>()
+            && d.0 != k
+        {
+            ui.painter().rect_stroke(r, CornerRadius::same(14), Stroke::new(1.5, theme::TEXT()), egui::StrokeKind::Inside);
         }
         if let Some(d) = resp.dnd_release_payload::<LinkDrag>() {
             swap = Some((d.0, k));
@@ -880,7 +854,9 @@ fn links_editor(ctx: &egui::Context, links: &mut crate::links::Links) {
             ui.painter().rect_filled(r, CornerRadius::same(14), theme::SURFACE_HI());
             if e.use_image {
                 if let Some(t) = preview_tex {
-                    ui.painter().add(egui::epaint::RectShape::filled(r.shrink(8.0), CornerRadius::same(8), Color32::WHITE).with_texture(t, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))));
+                    ui.painter().add(
+                        egui::epaint::RectShape::filled(r.shrink(8.0), CornerRadius::same(8), Color32::WHITE).with_texture(t, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))),
+                    );
                 }
             } else {
                 let em = if e.tile.emoji.is_empty() { "🔗" } else { e.tile.emoji.as_str() };
@@ -888,15 +864,15 @@ fn links_editor(ctx: &egui::Context, links: &mut crate::links::Links) {
             }
             ui.vertical(|ui| {
                 if e.use_image {
-                    if ui.button("Choisir une image…").clicked() {
-                        if let Some(p) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]).pick_file() {
-                            match crate::links::import_image(&p) {
-                                Ok(name) => {
-                                    e.tile.image = Some(name);
-                                    e.error = None;
-                                }
-                                Err(err) => e.error = Some(err),
+                    if ui.button("Choisir une image…").clicked()
+                        && let Some(p) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]).pick_file()
+                    {
+                        match crate::links::import_image(&p) {
+                            Ok(name) => {
+                                e.tile.image = Some(name);
+                                e.error = None;
                             }
+                            Err(err) => e.error = Some(err),
                         }
                     }
                     ui.label(RichText::new("Recadrée en carré et redimensionnée en 256 × 256 px.").small().color(theme::TEXT_FAINT()));
@@ -947,10 +923,10 @@ fn links_editor(ctx: &egui::Context, links: &mut crate::links::Links) {
         close = true;
     }
     if save {
-        if let Err(err) = links.commit() {
-            if let Some(e) = links.edit.as_mut() {
-                e.error = Some(err);
-            }
+        if let Err(err) = links.commit()
+            && let Some(e) = links.edit.as_mut()
+        {
+            e.error = Some(err);
         }
     } else if close {
         links.edit = None;

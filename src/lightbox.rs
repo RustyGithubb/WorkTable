@@ -103,31 +103,36 @@ pub fn show(ctx: &egui::Context) {
         // Barre du bas : nom, zoom, actions.
         let bar = Rect::from_center_size(Pos2::new(screen.center().x, screen.bottom() - 44.0), vec2(560.0_f32.min(screen.width() - 40.0), 44.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(bar), |ui| {
-            egui::Frame::new().fill(theme::SURFACE()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(255)).inner_margin(egui::Margin::symmetric(14, 6)).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add(egui::Label::new(RichText::new(&v.name).color(theme::TEXT())).truncate());
-                    ui.label(RichText::new(format!("{:.0} %", fit * v.zoom * 100.0)).small().color(theme::TEXT_MUTED()));
-                    if ui.small_button("−").on_hover_text("Dézoomer (−)").clicked() {
-                        v.zoom = (v.zoom / 1.25).max(0.2);
-                    }
-                    if ui.small_button("+").on_hover_text("Zoomer (+ ou molette)").clicked() {
-                        v.zoom = (v.zoom * 1.25).min(8.0);
-                    }
-                    let label = match v.open {
-                        OpenWith::None => None,
-                        OpenWith::Url(_) => Some(("Ouvrir", "Ouvrir dans le navigateur")),
-                        _ => Some(("Ouvrir", "Ouvrir avec l'application par défaut")),
-                    };
-                    if let Some((l, tip)) = label {
-                        if ui.small_button(l).on_hover_text(tip).clicked() {
+            egui::Frame::new()
+                .fill(theme::SURFACE())
+                .stroke(Stroke::new(1.0, theme::BORDER()))
+                .corner_radius(CornerRadius::same(255))
+                .inner_margin(egui::Margin::symmetric(14, 6))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(RichText::new(&v.name).color(theme::TEXT())).truncate());
+                        ui.label(RichText::new(format!("{:.0} %", fit * v.zoom * 100.0)).small().color(theme::TEXT_MUTED()));
+                        if ui.small_button("−").on_hover_text("Dézoomer (−)").clicked() {
+                            v.zoom = (v.zoom / 1.25).max(0.2);
+                        }
+                        if ui.small_button("+").on_hover_text("Zoomer (+ ou molette)").clicked() {
+                            v.zoom = (v.zoom * 1.25).min(8.0);
+                        }
+                        let label = match v.open {
+                            OpenWith::None => None,
+                            OpenWith::Url(_) => Some(("Ouvrir", "Ouvrir dans le navigateur")),
+                            _ => Some(("Ouvrir", "Ouvrir avec l'application par défaut")),
+                        };
+                        if let Some((l, tip)) = label
+                            && ui.small_button(l).on_hover_text(tip).clicked()
+                        {
                             open = true;
                         }
-                    }
-                    if ui.small_button("✕").on_hover_text("Fermer (Échap)").clicked() {
-                        close = true;
-                    }
+                        if ui.small_button("✕").on_hover_text("Fermer (Échap)").clicked() {
+                            close = true;
+                        }
+                    });
                 });
-            });
         });
         if bg_resp.clicked() && !img_resp.hovered() {
             close = true;

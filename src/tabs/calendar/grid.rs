@@ -7,9 +7,7 @@
 //! - clic sur un événement : ouvre le panneau de détail.
 
 use chrono::{Datelike, Local, NaiveDate, Timelike};
-use eframe::egui::{
-    self, Align2, Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, vec2,
-};
+use eframe::egui::{self, Align2, Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, vec2};
 
 use super::{CalendarState, DAY_MS, Drag, View, at, color32, date_of, day_start, hhmm, minutes_of, snap};
 use crate::google::Account;
@@ -37,10 +35,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Acc
     for (i, d) in days.iter().enumerate() {
         let x = head.left() + GUTTER + i as f32 * col_w;
         let r = Rect::from_min_size(Pos2::new(x, head.top()), vec2(col_w, HEADER_H));
-        let resp = ui
-            .interact(r, ui.scope_id().with(("day_head", i)), Sense::click())
-            .on_hover_cursor(CursorIcon::PointingHand)
-            .on_hover_text("Afficher ce jour");
+        let resp = ui.interact(r, ui.scope_id().with(("day_head", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text("Afficher ce jour");
         let p = ui.painter();
         // Jour et numéro côte à côte : « MAR. 20 » (aujourd'hui en terracotta).
         let label = WEEKDAYS[d.weekday().num_days_from_monday() as usize];
@@ -83,9 +78,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Acc
     ui.painter().hline(ui.min_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, theme::BORDER()));
 
     // --- Grille horaire ------------------------------------------------------------------
-    let mut area = egui::ScrollArea::vertical()
-        .id_salt("cal_grid")
-        .auto_shrink([false, false]);
+    let mut area = egui::ScrollArea::vertical().id_salt("cal_grid").auto_shrink([false, false]);
     if cal.scroll_to_now {
         let now_min = (Local::now().hour() * 60) as f32;
         area = area.vertical_scroll_offset(((now_min / 60.0) - 2.0).max(0.0) * HOUR_H);
@@ -141,20 +134,21 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Acc
         }
 
         // Nouvel événement en cours de saisie : visible dans la grille jusqu'à l'enregistrement.
-        if let (None, Some(ed)) = (&cal.drag, &cal.editor) {
-            if ed.original.is_none() && !ed.ev.all_day {
-                let ev = ed.build().unwrap_or_else(|_| ed.ev.clone());
-                if let Some(i) = days.iter().position(|d| *d == date_of(ev.start)) {
-                    let c = col_rect(i);
-                    let (a, b) = (minutes_of(ev.start), if date_of(ev.end) == date_of(ev.start) { minutes_of(ev.end) } else { 24 * 60 });
-                    let r = Rect::from_min_max(Pos2::new(c.left() + 2.0, y_of(a) + 1.0), Pos2::new(c.right() - 6.0, y_of(b).max(y_of(a) + 18.0) - 1.0));
-                    let col = color32(ev.color.unwrap_or_else(|| cal.color_of(&ev)));
-                    p.rect(r, CornerRadius::same(6), col.gamma_multiply(0.45), Stroke::new(1.5, theme::TEXT()), StrokeKind::Inside);
-                    let title = if ev.title.trim().is_empty() { "(Nouvel événement)".to_string() } else { ev.title.clone() };
-                    let tp = p.with_clip_rect(r.shrink(1.0).intersect(p.clip_rect()));
-                    tp.text(r.left_top() + vec2(8.0, 5.0), Align2::LEFT_TOP, title, theme::editor_font(12.0, true), theme::TEXT());
-                    tp.text(r.left_top() + vec2(8.0, 21.0), Align2::LEFT_TOP, format!("{} – {}", fmt_min(a), fmt_min(b)), FontId::proportional(11.0), theme::TEXT_MUTED());
-                }
+        if let (None, Some(ed)) = (&cal.drag, &cal.editor)
+            && ed.original.is_none()
+            && !ed.ev.all_day
+        {
+            let ev = ed.build().unwrap_or_else(|_| ed.ev.clone());
+            if let Some(i) = days.iter().position(|d| *d == date_of(ev.start)) {
+                let c = col_rect(i);
+                let (a, b) = (minutes_of(ev.start), if date_of(ev.end) == date_of(ev.start) { minutes_of(ev.end) } else { 24 * 60 });
+                let r = Rect::from_min_max(Pos2::new(c.left() + 2.0, y_of(a) + 1.0), Pos2::new(c.right() - 6.0, y_of(b).max(y_of(a) + 18.0) - 1.0));
+                let col = color32(ev.color.unwrap_or_else(|| cal.color_of(&ev)));
+                p.rect(r, CornerRadius::same(6), col.gamma_multiply(0.45), Stroke::new(1.5, theme::TEXT()), StrokeKind::Inside);
+                let title = if ev.title.trim().is_empty() { "(Nouvel événement)".to_string() } else { ev.title.clone() };
+                let tp = p.with_clip_rect(r.shrink(1.0).intersect(p.clip_rect()));
+                tp.text(r.left_top() + vec2(8.0, 5.0), Align2::LEFT_TOP, title, theme::editor_font(12.0, true), theme::TEXT());
+                tp.text(r.left_top() + vec2(8.0, 21.0), Align2::LEFT_TOP, format!("{} – {}", fmt_min(a), fmt_min(b)), FontId::proportional(11.0), theme::TEXT_MUTED());
             }
         }
 
@@ -293,15 +287,15 @@ fn interact(
     let hit_at = |pos: Pos2| hits.iter().rev().find(|(r, ..)| r.contains(pos));
 
     // Curseur : poignée de durée en bas d'un événement, main sur un événement.
-    if let Some(pos) = resp.hover_pos() {
-        if let Some((r, e, ends_here)) = hit_at(pos) {
-            if writable(e) && *ends_here && pos.y > r.bottom() - 6.0 {
-                ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
-            } else if writable(e) {
-                ui.ctx().set_cursor_icon(CursorIcon::Grab);
-            } else {
-                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-            }
+    if let Some(pos) = resp.hover_pos()
+        && let Some((r, e, ends_here)) = hit_at(pos)
+    {
+        if writable(e) && *ends_here && pos.y > r.bottom() - 6.0 {
+            ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
+        } else if writable(e) {
+            ui.ctx().set_cursor_icon(CursorIcon::Grab);
+        } else {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         }
     }
 
@@ -325,22 +319,22 @@ fn interact(
         };
     }
     if resp.dragged() {
-        if let (Some(pos), Some(drag)) = (resp.interact_pointer_pos(), cal.drag.as_mut()) {
-            if let Some((day, m)) = locate(pos) {
-                match drag {
-                    Drag::Create { day: d0, to, .. } => {
-                        if day == *d0 {
-                            *to = snap(m, 15);
-                        }
+        if let (Some(pos), Some(drag)) = (resp.interact_pointer_pos(), cal.drag.as_mut())
+            && let Some((day, m)) = locate(pos)
+        {
+            match drag {
+                Drag::Create { day: d0, to, .. } => {
+                    if day == *d0 {
+                        *to = snap(m, 15);
                     }
-                    Drag::Move { orig, grab, day: d, start } => {
-                        let dur = ((orig.end - orig.start) / 60_000) as i32;
-                        *d = day;
-                        *start = snap(m - *grab, 15).clamp(0, (24 * 60 - dur).max(0));
-                    }
-                    Drag::Resize { orig, end } => {
-                        *end = snap(m, 15).max(minutes_of(orig.start) + 15);
-                    }
+                }
+                Drag::Move { orig, grab, day: d, start } => {
+                    let dur = ((orig.end - orig.start) / 60_000) as i32;
+                    *d = day;
+                    *start = snap(m - *grab, 15).clamp(0, (24 * 60 - dur).max(0));
+                }
+                Drag::Resize { orig, end } => {
+                    *end = snap(m, 15).max(minutes_of(orig.start) + 15);
                 }
             }
         }
@@ -378,15 +372,15 @@ fn interact(
             None => {}
         }
     }
-    if resp.clicked() {
-        if let Some(pos) = resp.interact_pointer_pos() {
-            match hit_at(pos) {
-                Some((_, e, _)) => cal.open_event(e),
-                None => {
-                    if let Some((day, m)) = locate(pos) {
-                        let a = snap(m - 15, 30).min(23 * 60);
-                        cal.new_event(prefs, at(day, a), at(day, a + 60), false);
-                    }
+    if resp.clicked()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        match hit_at(pos) {
+            Some((_, e, _)) => cal.open_event(e),
+            None => {
+                if let Some((day, m)) = locate(pos) {
+                    let a = snap(m - 15, 30).min(23 * 60);
+                    cal.new_event(prefs, at(day, a), at(day, a + 60), false);
                 }
             }
         }
@@ -442,11 +436,11 @@ fn all_day_row(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, days: 
         cal.open_event(&e);
     } else if resp.double_clicked() {
         // Double-clic : nouvel événement « journée entière » ce jour-là.
-        if let Some(pos) = resp.interact_pointer_pos() {
-            if pos.x > grid_left {
-                let i = (((pos.x - grid_left) / col_w) as usize).min(days.len() - 1);
-                cal.new_event(prefs, day_start(days[i]), day_start(days[i]) + DAY_MS, true);
-            }
+        if let Some(pos) = resp.interact_pointer_pos()
+            && pos.x > grid_left
+        {
+            let i = (((pos.x - grid_left) / col_w) as usize).min(days.len() - 1);
+            cal.new_event(prefs, day_start(days[i]), day_start(days[i]) + DAY_MS, true);
         }
     }
 }

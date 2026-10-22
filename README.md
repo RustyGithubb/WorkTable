@@ -48,22 +48,43 @@ invalide l'autorisation au bout de 7 jours : il suffit de cliquer à nouveau sur
 pour un usage personnel, aucune validation Google n'est nécessaire, l'avertissement
 « app non validée » restera simplement affiché à la connexion.
 
-### Où sont stockées les données — dossier `data\` transportable
-Tout est rassemblé dans le dossier **`data\`** du projet (à côté de `Cargo.toml` ; ou à côté de
-`worktable.exe` si l'exécutable est copié seul) : copie le dossier du projet sur une clé USB ou
-pousse-le sur git, les réglages, notes, tâches, liens et caches suivent.
-- `data\config\` : réglages (`prefs.json`), tâches, contacts, mails épinglés, liens et logos,
-  icônes et annuaire Chat, `crash.log` ;
-- `data\data\notes\` : notes Markdown et leurs pièces jointes ;
-- `data\cache\` : émojis téléchargés (recréés automatiquement si absents) ;
-- `data\secrets\` : identifiants Google (`google.json`) et jeton de connexion — **ignoré par git**
-  (`.gitignore`) pour ne jamais publier tes accès. Sur clé USB il est copié avec le reste :
-  garde la clé en lieu sûr. Sans ce dossier, il suffit de se reconnecter à Google.
-- Au premier lancement de cette version, les données de l'ancien emplacement
-  (`%APPDATA%\WorkTable\WorkTable`) et le jeton du Gestionnaire d'identification Windows sont
-  **copiés** dans `data\` (l'ancien dossier n'est pas supprimé).
-- Variable d'environnement `WORKTABLE_DATA` : utiliser un autre dossier.
-- Aucun mail n'est stocké sur le disque : tout est lu en direct depuis Gmail.
+### Où sont stockées les données
+L'emplacement dépend de la façon dont l'app est lancée (Réglages › Données l'affiche, avec
+« Ouvrir le dossier » et « Importer… ») :
+
+| Mode | Quand | Données |
+|---|---|---|
+| **Installée** | lancée depuis l'installeur | `%APPDATA%\WorkTable\` (+ cache dans `%LOCALAPPDATA%\WorkTable\cache\`) |
+| **Portable** | un dossier `data\` (ou un fichier vide `portable`) à côté de l'exe | ce dossier `data\` |
+| **Développement** | `cargo run` | `data\` du projet |
+| Forcé | variable `WORKTABLE_DATA=<dossier>` | ce dossier |
+
+Dans ce dossier :
+- `config\` : réglages (`prefs.json`), tâches, contacts, mails épinglés, liens et logos, icônes
+  et annuaire Chat, `crash.log` ;
+- `data\notes\` : notes Markdown et leurs pièces jointes ;
+- `cache\` : émojis téléchargés (recréés automatiquement si absents) ;
+- `secrets\` : identifiants Google (`google.json`) et jeton de connexion — **ignoré par git**,
+  à ne jamais publier.
+
+Les fichiers sont enregistrés de façon atomique (fichier temporaire puis renommage) : une coupure
+ne laisse jamais un réglage ou une note à moitié écrit. Aucun mail n'est stocké sur le disque.
+Pour passer d'une version portable / de développement à la version installée : Réglages ›
+Données › **Importer…** et choisir l'ancien dossier `data`.
+
+## Installeur Windows
+```
+powershell -ExecutionPolicy Bypass -File installer\build.ps1
+```
+Prérequis : Rust et [Inno Setup 6](https://jrsoftware.org/isdl.php). Le script compile la version
+finale, lit la version dans `Cargo.toml` et produit `installer\Output\WorkTable-<version>-setup.exe`.
+- Installation par utilisateur (sans droits administrateur) dans `%LOCALAPPDATA%\Programs\WorkTable`,
+  ou pour tous les utilisateurs ; raccourcis menu Démarrer / Bureau, lancement à l'ouverture de
+  session en option. Icône, nom et version visibles dans « Applications installées ».
+- Les données restent dans le profil de l'utilisateur : une mise à jour (nouvel installeur) les
+  conserve ; à la désinstallation, l'utilisateur choisit de les garder ou de les supprimer.
+- Pour livrer les identifiants OAuth Google avec l'app, placer `google.json` dans `installer\`
+  avant de construire (ignoré par git) : il est installé à côté de l'exe et sert par défaut.
 
 ## Fichiers (Google Drive)
 - Navigation : Mon Drive, Partagés avec moi, Récents, Suivis, Drives partagés (colonne masquable « ).

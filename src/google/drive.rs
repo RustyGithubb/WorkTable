@@ -61,15 +61,32 @@ pub enum Source {
 }
 
 pub enum DriveEvent {
-    Listing { source: Source, files: Vec<DriveFile>, next: Option<String>, append: bool },
+    Listing {
+        source: Source,
+        files: Vec<DriveFile>,
+        next: Option<String>,
+        append: bool,
+    },
     Drives(Vec<SharedDrive>),
     /// Chemin d'un dossier (de la racine au dossier).
-    Path { folder: String, path: Vec<(String, String)> },
-    Thumb { key: String, image: Result<std::sync::Arc<eframe::egui::ColorImage>, String> },
+    Path {
+        folder: String,
+        path: Vec<(String, String)>,
+    },
+    Thumb {
+        key: String,
+        image: Result<std::sync::Arc<eframe::egui::ColorImage>, String>,
+    },
     /// Fichier prêt sur le disque : ouvert avec l'application par défaut.
-    Downloaded { path: std::path::PathBuf, open: bool },
+    Downloaded {
+        path: std::path::PathBuf,
+        open: bool,
+    },
     /// Recherche de la barre globale.
-    Found { query: String, files: Vec<DriveFile> },
+    Found {
+        query: String,
+        files: Vec<DriveFile>,
+    },
     Error(String),
 }
 
@@ -112,14 +129,8 @@ pub fn list(s: &Session, source: &Source, page: Option<&str>) -> Result<(Vec<Dri
             (format!("trashed = false and (name contains '{t}' or fullText contains '{t}')"), "", "allDrives", None)
         }
     };
-    let mut query: Vec<(&str, &str)> = vec![
-        ("q", q.as_str()),
-        ("fields", FIELDS),
-        ("pageSize", "100"),
-        ("supportsAllDrives", "true"),
-        ("includeItemsFromAllDrives", "true"),
-        ("corpora", corpora),
-    ];
+    let mut query: Vec<(&str, &str)> =
+        vec![("q", q.as_str()), ("fields", FIELDS), ("pageSize", "100"), ("supportsAllDrives", "true"), ("includeItemsFromAllDrives", "true"), ("corpora", corpora)];
     if !order.is_empty() {
         query.push(("orderBy", order));
     }

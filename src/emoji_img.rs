@@ -11,10 +11,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use eframe::egui::{self, Align2, Color32, ColorImage, FontId, Pos2, Rect, TextureHandle, vec2};
 
-const SOURCES: [&str; 2] = [
-    "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/3D/png/72/emoji_u",
-    "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/2D/png/72/emoji_u",
-];
+const SOURCES: [&str; 2] =
+    ["https://raw.githubusercontent.com/googlefonts/noto-emoji/main/3D/png/72/emoji_u", "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/2D/png/72/emoji_u"];
 /// Chargements simultanés (disque ou réseau).
 const MAX_DOWNLOADS: usize = 24;
 
@@ -34,12 +32,7 @@ static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 /// Nom de fichier Noto : points de code en hexadécimal (4 chiffres min.), sans sélecteur de variante.
 pub fn file_code(emoji: &str) -> String {
-    emoji
-        .chars()
-        .filter(|c| *c != '\u{FE0F}')
-        .map(|c| format!("{:04x}", c as u32))
-        .collect::<Vec<_>>()
-        .join("_")
+    emoji.chars().filter(|c| *c != '\u{FE0F}').map(|c| format!("{:04x}", c as u32)).collect::<Vec<_>>().join("_")
 }
 
 fn disk_dir() -> Option<PathBuf> {
@@ -55,13 +48,7 @@ fn decode(bytes: &[u8]) -> Option<Arc<ColorImage>> {
 /// Client HTTP partagé : la connexion (TLS) est réutilisée d'un émoji à l'autre.
 fn agent() -> &'static ureq::Agent {
     static A: OnceLock<ureq::Agent> = OnceLock::new();
-    A.get_or_init(|| {
-        ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(15))
-            .max_idle_connections_per_host(16)
-            .try_proxy_from_env(true)
-            .build()
-    })
+    A.get_or_init(|| ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(15)).max_idle_connections_per_host(16).try_proxy_from_env(true).build())
 }
 
 fn fetch(code: &str) -> Option<Vec<u8>> {
@@ -127,13 +114,8 @@ pub fn texture(ctx: &egui::Context, emoji: &str) -> Option<TextureHandle> {
 /// ils apparaissent ensuite instantanément.
 pub fn prefetch(list: Vec<String>) {
     let Some(dir) = disk_dir() else { return };
-    let todo: Vec<String> = list
-        .iter()
-        .map(|e| file_code(e))
-        .filter(|c| !c.is_empty() && !dir.join(format!("{c}.png")).exists())
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
+    let todo: Vec<String> =
+        list.iter().map(|e| file_code(e)).filter(|c| !c.is_empty() && !dir.join(format!("{c}.png")).exists()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
     if todo.is_empty() {
         return;
     }
@@ -141,10 +123,11 @@ pub fn prefetch(list: Vec<String>) {
     let queue = Arc::new(Mutex::new(todo));
     for _ in 0..6 {
         let (queue, dir) = (queue.clone(), dir.clone());
-        std::thread::spawn(move || loop {
-            let Some(code) = queue.lock().ok().and_then(|mut q| q.pop()) else { break };
-            if let Some(b) = fetch(&code) {
-                let _ = std::fs::write(dir.join(format!("{code}.png")), b);
+        std::thread::spawn(move || {
+            while let Some(code) = queue.lock().ok().and_then(|mut q| q.pop()) {
+                if let Some(b) = fetch(&code) {
+                    let _ = std::fs::write(dir.join(format!("{code}.png")), b);
+                }
             }
         });
     }
@@ -242,10 +225,7 @@ fn emoji_runs(galley: &egui::Galley) -> Vec<(Vec<(usize, usize)>, String)> {
     if !maybe_emoji(&text) {
         return Vec::new();
     }
-    find(&text)
-        .into_iter()
-        .map(|(i, n, e)| (chars[i..(i + n).min(chars.len())].iter().map(|(r, g, _)| (*r, *g)).collect(), e))
-        .collect()
+    find(&text).into_iter().map(|(i, n, e)| (chars[i..(i + n).min(chars.len())].iter().map(|(r, g, _)| (*r, *g)).collect(), e)).collect()
 }
 
 fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
@@ -279,11 +259,8 @@ fn colorize(shape: &mut egui::Shape, tex: &HashMap<String, egui::TextureId>) -> 
                 let row = &t.galley.rows[r0];
                 let first = &row.glyphs[g0];
                 // Émoji déjà dessiné en image par l'onglet (glyphe transparent) : rien à faire.
-                let color = if first.uv_rect.is_nothing() {
-                    Color32::WHITE
-                } else {
-                    row.visuals.mesh.vertices.get(first.first_vertex as usize).map(|v| v.color).unwrap_or(Color32::WHITE)
-                };
+                let color =
+                    if first.uv_rect.is_nothing() { Color32::WHITE } else { row.visuals.mesh.vertices.get(first.first_vertex as usize).map(|v| v.color).unwrap_or(Color32::WHITE) };
                 if color.a() == 0 || t.override_text_color.is_some_and(|c| c.a() == 0) {
                     continue;
                 }

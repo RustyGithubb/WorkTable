@@ -1,8 +1,8 @@
 //! Appels à l'API Gmail v1 et conversion vers des types simples.
 
 use base64::Engine;
-use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use base64::engine::DecodePaddingMode;
+use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -13,10 +13,7 @@ use super::html::{self, BodyBlock, ImageSrc};
 const API: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 /// base64url tolérant (Gmail renvoie parfois du padding, parfois non).
-const B64: GeneralPurpose = GeneralPurpose::new(
-    &base64::alphabet::URL_SAFE,
-    GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
-);
+const B64: GeneralPurpose = GeneralPurpose::new(&base64::alphabet::URL_SAFE, GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent));
 
 // --- Types exposés ---------------------------------------------------------
 
@@ -84,11 +81,9 @@ impl FullMessage {
 
     /// Pièces jointes à lister (sans les images déjà affichées dans le corps).
     pub fn listed_attachments(&self) -> impl Iterator<Item = &Attachment> {
-        self.attachments.iter().filter(|a| {
-            !a.content_id.as_ref().is_some_and(|cid| {
-                self.blocks.iter().any(|b| matches!(b, BodyBlock::Image { src: ImageSrc::Cid(c), .. } if c == cid))
-            })
-        })
+        self.attachments
+            .iter()
+            .filter(|a| !a.content_id.as_ref().is_some_and(|cid| self.blocks.iter().any(|b| matches!(b, BodyBlock::Image { src: ImageSrc::Cid(c), .. } if c == cid))))
     }
 }
 
@@ -163,11 +158,7 @@ struct Body {
 
 impl RawMessage {
     fn header(&self, name: &str) -> String {
-        self.payload
-            .as_ref()
-            .and_then(|p| p.headers.iter().find(|h| h.name.eq_ignore_ascii_case(name)))
-            .map(|h| h.value.clone())
-            .unwrap_or_default()
+        self.payload.as_ref().and_then(|p| p.headers.iter().find(|h| h.name.eq_ignore_ascii_case(name))).map(|h| h.value.clone()).unwrap_or_default()
     }
 
     fn summary(&self) -> Summary {
@@ -179,11 +170,7 @@ impl RawMessage {
             snippet: decode_entities(&self.snippet),
             date: self.internal_date.parse().unwrap_or(0),
             labels: self.label_ids.clone(),
-            recipients: [self.header("To"), self.header("Cc")]
-                .into_iter()
-                .filter(|h| !h.is_empty())
-                .collect::<Vec<_>>()
-                .join(", "),
+            recipients: [self.header("To"), self.header("Cc")].into_iter().filter(|h| !h.is_empty()).collect::<Vec<_>>().join(", "),
             list_id: self.header("List-Id"),
         }
     }
@@ -198,10 +185,7 @@ fn parse<T: for<'de> Deserialize<'de>>(v: serde_json::Value) -> Result<T, String
 /// Adresse du compte et identifiant d'historique courant.
 pub fn profile(s: &Session) -> Result<(String, String), String> {
     let v = s.get(&format!("{API}/profile"), &[])?;
-    Ok((
-        v["emailAddress"].as_str().unwrap_or_default().to_string(),
-        v["historyId"].as_str().unwrap_or_default().to_string(),
-    ))
+    Ok((v["emailAddress"].as_str().unwrap_or_default().to_string(), v["historyId"].as_str().unwrap_or_default().to_string()))
 }
 
 /// Mémorise le point de départ de la synchronisation incrémentale
@@ -214,27 +198,17 @@ pub fn mark_history(s: &Session) -> Result<(), String> {
 
 pub fn labels(s: &Session) -> Result<Vec<Label>, String> {
     let v = s.get(&format!("{API}/labels"), &[])?;
-    let mut out: Vec<Label> = v["labels"]
-        .as_array()
-        .map(|a| a.iter().map(label_from_json).collect())
-        .unwrap_or_default();
+    let mut out: Vec<Label> = v["labels"].as_array().map(|a| a.iter().map(label_from_json).collect()).unwrap_or_default();
     out.sort_by_key(|l| l.name.to_lowercase());
     Ok(out)
 }
 
 fn label_from_json(l: &serde_json::Value) -> Label {
-    Label {
-        id: l["id"].as_str().unwrap_or_default().to_string(),
-        name: l["name"].as_str().unwrap_or_default().to_string(),
-        user: l["type"].as_str() == Some("user"),
-    }
+    Label { id: l["id"].as_str().unwrap_or_default().to_string(), name: l["name"].as_str().unwrap_or_default().to_string(), user: l["type"].as_str() == Some("user") }
 }
 
 pub fn create_label(s: &Session, name: &str) -> Result<Label, String> {
-    let v = s.post(
-        &format!("{API}/labels"),
-        json!({ "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show" }),
-    )?;
+    let v = s.post(&format!("{API}/labels"), json!({ "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show" }))?;
     // La réponse de création ne contient pas toujours le champ « type » :
     // un libellé créé ici est forcément une catégorie de l'utilisateur.
     let mut l = label_from_json(&v);
@@ -258,10 +232,7 @@ pub fn list(s: &Session, label: &str, max: usize) -> Result<Vec<Summary>, String
         ("labelIds", label)
     };
     let v = s.get(&format!("{API}/messages"), &[filter, ("maxResults", &max_s)])?;
-    let ids: Vec<String> = v["messages"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|m| m["id"].as_str().map(str::to_string)).collect())
-        .unwrap_or_default();
+    let ids: Vec<String> = v["messages"].as_array().map(|a| a.iter().filter_map(|m| m["id"].as_str().map(str::to_string)).collect()).unwrap_or_default();
 
     fetch_missing(s, &ids)?;
     let cache = s.cache.lock().map_err(|_| "verrou")?;
@@ -282,10 +253,7 @@ fn fetch_missing(s: &Session, ids: &[String]) -> Result<(), String> {
     // Quelques threads ; le limiteur de la session plafonne de toute façon la concurrence.
     let chunk = missing.len().div_ceil(4).max(1);
     let results: Vec<Result<Vec<Summary>, String>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = missing
-            .chunks(chunk)
-            .map(|c| scope.spawn(move || c.iter().map(|id| metadata(s, id)).collect()))
-            .collect();
+        let handles: Vec<_> = missing.chunks(chunk).map(|c| scope.spawn(move || c.iter().map(|id| metadata(s, id)).collect())).collect();
         handles.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("thread".into()))).collect()
     });
     let mut cache = s.cache.lock().map_err(|_| "verrou")?;
@@ -313,7 +281,10 @@ fn metadata(s: &Session, id: &str) -> Result<Summary, String> {
 }
 
 pub enum HistoryResult {
-    Delta { changed: Vec<Summary>, deleted: Vec<String> },
+    Delta {
+        changed: Vec<Summary>,
+        deleted: Vec<String>,
+    },
     /// Point de départ expiré ou inconnu : recharger entièrement.
     Expired,
 }
@@ -348,10 +319,7 @@ pub fn history(s: &Session) -> Result<HistoryResult, String> {
                 for item in rec[kind].as_array().into_iter().flatten() {
                     let m = &item["message"];
                     if let Some(id) = m["id"].as_str() {
-                        let labels = m["labelIds"]
-                            .as_array()
-                            .map(|a| a.iter().filter_map(|l| l.as_str().map(str::to_string)).collect())
-                            .unwrap_or_default();
+                        let labels = m["labelIds"].as_array().map(|a| a.iter().filter_map(|l| l.as_str().map(str::to_string)).collect()).unwrap_or_default();
                         labels_of.insert(id.to_string(), labels);
                     }
                 }
@@ -467,13 +435,7 @@ fn doc_title(link_text: &str, subject: &str, kind: SharedKind) -> String {
 
 /// Derniers fichiers partagés par mail : PDF joints et documents Google (Docs, Sheets, Forms).
 pub fn recent_shared(s: &Session, n: usize) -> Result<Vec<(Summary, SharedFile)>, String> {
-    let v = s.get(
-        &format!("{API}/messages"),
-        &[
-            ("q", "(filename:pdf OR \"docs.google.com\") -in:sent -in:chats -in:spam -in:trash"),
-            ("maxResults", "40"),
-        ],
-    )?;
+    let v = s.get(&format!("{API}/messages"), &[("q", "(filename:pdf OR \"docs.google.com\") -in:sent -in:chats -in:spam -in:trash"), ("maxResults", "40")])?;
     let mut out: Vec<(Summary, SharedFile)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for m in v["messages"].as_array().into_iter().flatten() {
@@ -483,10 +445,8 @@ pub fn recent_shared(s: &Session, n: usize) -> Result<Vec<(Summary, SharedFile)>
         let Some(id) = m["id"].as_str() else { continue };
         let Ok(full) = get_full(s, id) else { continue };
         for a in full.listed_attachments() {
-            if a.mime == "application/pdf" || a.extension().eq_ignore_ascii_case("pdf") {
-                if seen.insert(a.key()) {
-                    out.push((full.summary.clone(), SharedFile { kind: SharedKind::Pdf, title: a.filename.clone(), url: None, attachment: Some(a.clone()) }));
-                }
+            if (a.mime == "application/pdf" || a.extension().eq_ignore_ascii_case("pdf")) && seen.insert(a.key()) {
+                out.push((full.summary.clone(), SharedFile { kind: SharedKind::Pdf, title: a.filename.clone(), url: None, attachment: Some(a.clone()) }));
             }
         }
         for b in &full.blocks {
@@ -520,18 +480,14 @@ pub fn thread_sizes(s: &Session, ids: &[String]) -> Result<Vec<(String, usize)>,
     let mut out = Vec::new();
     for id in ids {
         // Un échec compte pour 1 : pas de nouvel essai en boucle.
-        let n = s
-            .get(&format!("{API}/threads/{id}"), &[("format", "minimal"), ("fields", "messages/id")])
-            .ok()
-            .and_then(|v| v["messages"].as_array().map(|a| a.len()))
-            .unwrap_or(1);
+        let n =
+            s.get(&format!("{API}/threads/{id}"), &[("format", "minimal"), ("fields", "messages/id")]).ok().and_then(|v| v["messages"].as_array().map(|a| a.len())).unwrap_or(1);
         out.push((id.clone(), n));
     }
     Ok(out)
 }
 
 fn full_from_raw(raw: RawMessage) -> FullMessage {
-
     let mut plain = None;
     let mut html = None;
     let mut attachments = Vec::new();
@@ -591,11 +547,7 @@ fn find_attachments(p: &Part, message_id: &str, out: &mut Vec<Attachment>) {
     let inline_image = content_id.is_some() && p.mime_type.starts_with("image/");
     if !p.filename.is_empty() || inline_image {
         let body = p.body.as_ref();
-        let filename = if p.filename.is_empty() {
-            format!("image.{}", p.mime_type.trim_start_matches("image/"))
-        } else {
-            p.filename.clone()
-        };
+        let filename = if p.filename.is_empty() { format!("image.{}", p.mime_type.trim_start_matches("image/")) } else { p.filename.clone() };
         out.push(Attachment {
             message_id: message_id.to_string(),
             attachment_id: body.and_then(|b| b.attachment_id.clone()),
@@ -624,10 +576,7 @@ pub fn attachment(s: &Session, a: &Attachment) -> Result<Vec<u8>, String> {
 
 /// Ajoute / retire des libellés. Renvoie la nouvelle liste de libellés du message.
 pub fn modify(s: &Session, id: &str, add: &[String], remove: &[String]) -> Result<Vec<String>, String> {
-    let v = s.post(
-        &format!("{API}/messages/{id}/modify"),
-        json!({ "addLabelIds": add, "removeLabelIds": remove }),
-    )?;
+    let v = s.post(&format!("{API}/messages/{id}/modify"), json!({ "addLabelIds": add, "removeLabelIds": remove }))?;
     let labels = parse::<RawMessage>(v)?.label_ids;
     if let Some(m) = s.cache.lock().map_err(|_| "verrou")?.get_mut(id) {
         m.labels = labels.clone();
@@ -683,12 +632,7 @@ pub fn send(s: &Session, mime: &[u8], thread_id: Option<&str>) -> Result<(), Str
 }
 
 fn decode_entities(s: &str) -> String {
-    s.replace("&#39;", "'")
-        .replace("&quot;", "\"")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
+    s.replace("&#39;", "'").replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ").replace("&amp;", "&")
 }
 
 // --- Signatures --------------------------------------------------------------
@@ -722,10 +666,10 @@ pub fn signatures(s: &Session) -> Result<Vec<Signature>, String> {
             if primary { out.insert(0, sig) } else { out.push(sig) }
         }
     }
-    if out.is_empty() {
-        if let Some(sig) = signature_from_sent(s)? {
-            out.push(sig);
-        }
+    if out.is_empty()
+        && let Some(sig) = signature_from_sent(s)?
+    {
+        out.push(sig);
     }
     Ok(out)
 }
@@ -733,10 +677,7 @@ pub fn signatures(s: &Session) -> Result<Vec<Signature>, String> {
 /// Cherche la signature dans les derniers mails envoyés (au plus 12 lus).
 fn signature_from_sent(s: &Session) -> Result<Option<Signature>, String> {
     let v = s.get(&format!("{API}/messages"), &[("labelIds", "SENT"), ("maxResults", "12")])?;
-    let ids: Vec<String> = v["messages"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|m| m["id"].as_str().map(str::to_string)).collect())
-        .unwrap_or_default();
+    let ids: Vec<String> = v["messages"].as_array().map(|a| a.iter().filter_map(|m| m["id"].as_str().map(str::to_string)).collect()).unwrap_or_default();
     for id in ids {
         let raw: RawMessage = parse(s.get(&format!("{API}/messages/{id}"), &[("format", "full")])?)?;
         let (mut plain, mut html) = (None, None);
@@ -754,9 +695,7 @@ fn signature_from_sent(s: &Session) -> Result<Option<Signature>, String> {
 pub fn extract_signature(html: &str) -> Option<String> {
     let doc = scraper::Html::parse_fragment(html);
     let sel = scraper::Selector::parse(".gmail_signature").ok()?;
-    doc.select(&sel)
-        .map(|e| e.html())
-        .find(|h| !normalize(&super::html::to_text(h)).is_empty())
+    doc.select(&sel).map(|e| e.html()).find(|h| !normalize(&super::html::to_text(h)).is_empty())
 }
 
 #[cfg(test)]

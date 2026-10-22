@@ -35,11 +35,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
         ui.add_enabled_ui(writable && !ed.saving, |ui| {
             // Titre
             let title = ui.add(
-                egui::TextEdit::singleline(&mut ed.ev.title)
-                    .hint_text("Ajouter un titre")
-                    .font(theme::title_font(19.0))
-                    .frame(egui::Frame::NONE)
-                    .desired_width(f32::INFINITY),
+                egui::TextEdit::singleline(&mut ed.ev.title).hint_text("Ajouter un titre").font(theme::title_font(19.0)).frame(egui::Frame::NONE).desired_width(f32::INFINITY),
             );
             if ed.focus_title {
                 title.request_focus();
@@ -70,12 +66,12 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
                 row(ui, "Durée", |ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     for (label, min) in [("15 min", 15), ("30 min", 30), ("1 h", 60), ("2 h", 120)] {
-                        if ui.small_button(label).clicked() {
-                            if let Ok(e) = ed.build() {
-                                let end = e.start + min * 60_000;
-                                ed.end_date = super::date_of(end).format("%d/%m/%Y").to_string();
-                                ed.end_time = super::hhmm(end);
-                            }
+                        if ui.small_button(label).clicked()
+                            && let Ok(e) = ed.build()
+                        {
+                            let end = e.start + min * 60_000;
+                            ed.end_date = super::date_of(end).format("%d/%m/%Y").to_string();
+                            ed.end_time = super::hhmm(end);
                         }
                     }
                 });
@@ -85,20 +81,17 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
             // Agenda
             row(ui, "Agenda", |ui| {
                 let current = cals.iter().find(|c| c.id == ed.ev.calendar);
-                egui::ComboBox::from_id_salt("cal_pick")
-                    .selected_text(current.map(|c| c.name.as_str()).unwrap_or("—"))
-                    .width(ui.available_width() - 8.0)
-                    .show_ui(ui, |ui| {
-                        for c in cals.iter().filter(|c| c.writable) {
-                            ui.horizontal(|ui| {
-                                let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
-                                ui.painter().circle_filled(r.center(), 5.0, color32(c.color));
-                                if ui.selectable_label(ed.ev.calendar == c.id, &c.name).clicked() {
-                                    ed.ev.calendar = c.id.clone();
-                                }
-                            });
-                        }
-                    });
+                egui::ComboBox::from_id_salt("cal_pick").selected_text(current.map(|c| c.name.as_str()).unwrap_or("—")).width(ui.available_width() - 8.0).show_ui(ui, |ui| {
+                    for c in cals.iter().filter(|c| c.writable) {
+                        ui.horizontal(|ui| {
+                            let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
+                            ui.painter().circle_filled(r.center(), 5.0, color32(c.color));
+                            if ui.selectable_label(ed.ev.calendar == c.id, &c.name).clicked() {
+                                ed.ev.calendar = c.id.clone();
+                            }
+                        });
+                    }
+                });
             });
 
             // Couleur de l'événement (sinon celle de l'agenda)
@@ -173,8 +166,11 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
         if !is_new && writable {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let label = if ed.confirm_delete { "Confirmer la suppression" } else { "Supprimer" };
-                let btn = egui::Button::new(RichText::new(label).color(if ed.confirm_delete { theme::BG() } else { theme::TEXT_MUTED() }))
-                    .fill(if ed.confirm_delete { Color32::from_rgb(0xEB, 0x57, 0x57) } else { Color32::TRANSPARENT });
+                let btn = egui::Button::new(RichText::new(label).color(if ed.confirm_delete { theme::BG() } else { theme::TEXT_MUTED() })).fill(if ed.confirm_delete {
+                    Color32::from_rgb(0xEB, 0x57, 0x57)
+                } else {
+                    Color32::TRANSPARENT
+                });
                 if ui.add(btn).clicked() {
                     if ed.confirm_delete {
                         delete = true;

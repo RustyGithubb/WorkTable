@@ -5,9 +5,7 @@ use std::time::Duration;
 use chrono::{Datelike, Local, TimeZone};
 use eframe::egui::text::{CCursor, CCursorRange};
 use eframe::egui::text_edit::TextEditState;
-use eframe::egui::{
-    self, Align, Align2, Color32, CornerRadius, FontId, Key, Layout, Modifiers, Pos2, Rect, RichText, Sense, Stroke, vec2,
-};
+use eframe::egui::{self, Align, Align2, Color32, CornerRadius, FontId, Key, Layout, Modifiers, Pos2, Rect, RichText, Sense, Stroke, vec2};
 
 use super::{ChatState, PendingFile, draft_key, emoji, format};
 use crate::google::chat::{ChatAttachment, ChatMessage, Space, SpaceKind};
@@ -121,9 +119,7 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
     dropped_files(ui, chat);
 
     // Blocs « Groupes » et « Personnes » masquables, avec le rebond élastique du calendrier.
-    let anim = |ui: &egui::Ui, salt: &str, on: bool| {
-        ui.ctx().animate_bool_with_time_and_easing(egui::Id::unique(salt), on, 0.28, |t| crate::prefs::Curve::Elastic.apply(t))
-    };
+    let anim = |ui: &egui::Ui, salt: &str, on: bool| ui.ctx().animate_bool_with_time_and_easing(egui::Id::unique(salt), on, 0.28, |t| crate::prefs::Curve::Elastic.apply(t));
     let kg = anim(ui, "wt_chat_side", !prefs.chat_side_hidden);
     let kp = anim(ui, "wt_chat_people", !prefs.chat_people_hidden);
     let groups_w = if SIDE_W * kg < 24.0 { 0.0 } else { SIDE_W * kg };
@@ -154,10 +150,10 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
     });
     toast(ui, chat);
     // « Ouvrir » dans la visionneuse : téléchargement puis application par défaut.
-    if crate::lightbox::take_tag("chat:").is_some() {
-        if let Some(a) = chat.viewer.clone() {
-            chat.open_attachment(acc, &a);
-        }
+    if crate::lightbox::take_tag("chat:").is_some()
+        && let Some(a) = chat.viewer.clone()
+    {
+        chat.open_attachment(acc, &a);
     }
 
     for a in actions {
@@ -248,16 +244,12 @@ fn react_picker(ui: &mut egui::Ui, chat: &mut ChatState, actions: &mut Vec<Actio
     let recent = chat.recent_emojis.clone();
     let (mut q, mut g) = (std::mem::take(&mut chat.emoji_query), chat.emoji_group);
     let mut picked = None;
-    let area = egui::Area::new(egui::Id::unique("wt_chat_react_picker"))
-        .order(egui::Order::Foreground)
-        .fixed_pos(pos + vec2(-300.0, 4.0))
-        .constrain(true)
-        .show(ui.ctx(), |ui| {
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.label(RichText::new("RÉAGIR").small().strong().color(theme::TEXT_MUTED()));
-                picked = emoji::picker(ui, &mut q, &mut g, &recent);
-            });
+    let area = egui::Area::new(egui::Id::unique("wt_chat_react_picker")).order(egui::Order::Foreground).fixed_pos(pos + vec2(-300.0, 4.0)).constrain(true).show(ui.ctx(), |ui| {
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.label(RichText::new("RÉAGIR").small().strong().color(theme::TEXT_MUTED()));
+            picked = emoji::picker(ui, &mut q, &mut g, &recent);
         });
+    });
     chat.emoji_query = q;
     chat.emoji_group = g;
     let outside = ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p)));
@@ -528,9 +520,7 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
     ui.add_space(8.0);
     if let Some(addr) = &mut chat.new_dm {
         recipients::field(ui, "", addr, "chat_new_dm", "Nom ou adresse (annuaire)", book, &mut chat.suggest);
-        let email = crate::tabs::mail::contacts::parse_mailbox(addr.trim().trim_end_matches(','))
-            .map(|(_, e)| e)
-            .unwrap_or_else(|| addr.trim().trim_end_matches(',').to_string());
+        let email = crate::tabs::mail::contacts::parse_mailbox(addr.trim().trim_end_matches(',')).map(|(_, e)| e).unwrap_or_else(|| addr.trim().trim_end_matches(',').to_string());
         let mut cancel = false;
         ui.horizontal(|ui| {
             if ui.add_enabled(email.contains('@'), egui::Button::new("Ouvrir")).clicked() {
@@ -560,13 +550,8 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
     // Recherche : conversations existantes d'abord ; sinon contacts de l'annuaire avec qui en démarrer une.
     let mut starts: Vec<(String, String)> = Vec::new();
     if !q.is_empty() {
-        let known: std::collections::HashSet<String> = chat
-            .spaces
-            .iter()
-            .filter(|s| is_person(s))
-            .filter_map(|s| chat.others(&s.name).first().and_then(|u| chat.email_of(u)))
-            .map(|e| e.to_lowercase())
-            .collect();
+        let known: std::collections::HashSet<String> =
+            chat.spaces.iter().filter(|s| is_person(s)).filter_map(|s| chat.others(&s.name).first().and_then(|u| chat.email_of(u))).map(|e| e.to_lowercase()).collect();
         for c in book.search(&chat.people_query, 8) {
             if !known.contains(&c.email.to_lowercase()) {
                 starts.push((c.display_name().to_string(), c.email.clone()));
@@ -585,7 +570,13 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
         }
     }
     if all.is_empty() && starts.is_empty() {
-        let hint = if !q.is_empty() { "Aucune conversation ni contact : tape une adresse complète" } else if chat.loading { "Chargement…" } else { "Ouvre une conversation avec « + »" };
+        let hint = if !q.is_empty() {
+            "Aucune conversation ni contact : tape une adresse complète"
+        } else if chat.loading {
+            "Chargement…"
+        } else {
+            "Ouvre une conversation avec « + »"
+        };
         widgets::empty_state(ui, "Aucune personne", hint);
         return;
     }
@@ -628,7 +619,13 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
         if all.is_empty() {
             return;
         }
-        let open = section_header(ui, chat, "people_all", if q.is_empty() { "Toutes les personnes" } else { "Conversations existantes" }, &all.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>());
+        let open = section_header(
+            ui,
+            chat,
+            "people_all",
+            if q.is_empty() { "Toutes les personnes" } else { "Conversations existantes" },
+            &all.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>(),
+        );
         liquid::collapse(ui, "chat_people_all", open, |ui| {
             let mut letter = None;
             for (key, s) in &all {
@@ -678,7 +675,13 @@ fn recent_row(ui: &mut egui::Ui, chat: &ChatState, s: &Space, actions: &mut Vec<
     }
     let title = chat.title(s);
     space_avatar(p, chat, Pos2::new(rect.left() + 16.0, rect.center().y), 11.0, s, &title);
-    let color = if muted { theme::TEXT_FAINT() } else if unread || active { theme::TEXT() } else { crate::theme::gray(0xC8) };
+    let color = if muted {
+        theme::TEXT_FAINT()
+    } else if unread || active {
+        theme::TEXT()
+    } else {
+        crate::theme::gray(0xC8)
+    };
     let g = one_line(p, &title, theme::editor_font(13.0, unread), color, rect.width() - 56.0);
     p.galley(Pos2::new(rect.left() + 34.0, rect.center().y - g.size().y / 2.0), g, color);
     status_mark(p, Pos2::new(rect.right() - 12.0, rect.center().y), unread, muted, false);
@@ -703,7 +706,13 @@ fn person_entry(ui: &mut egui::Ui, chat: &ChatState, s: &Space, fav: bool, hl: &
     let title = chat.title(s);
     space_avatar(p, chat, Pos2::new(rect.left() + 20.0, rect.center().y), 15.0, s, &title);
     let left = rect.left() + 42.0;
-    let color = if muted { theme::TEXT_FAINT() } else if unread || active { theme::TEXT() } else { crate::theme::gray(0xD0) };
+    let color = if muted {
+        theme::TEXT_FAINT()
+    } else if unread || active {
+        theme::TEXT()
+    } else {
+        crate::theme::gray(0xD0)
+    };
     let ng = one_line(p, &title, theme::editor_font(13.5, unread), color, rect.right() - left - 24.0);
     p.galley(Pos2::new(left, rect.top() + 6.0), ng, color);
     let email = chat.others(&s.name).first().and_then(|u| chat.email_of(u)).unwrap_or_default();
@@ -800,7 +809,13 @@ fn space_row(ui: &mut egui::Ui, chat: &ChatState, s: &Space, fav: bool, drag: bo
     let tg = one_line(p, &time, FontId::proportional(10.5), if unread { theme::TODAY() } else { theme::TEXT_FAINT() }, 90.0);
     let tw = tg.size().x;
     p.galley(Pos2::new(rect.right() - 8.0 - tw, rect.top() + 8.0), tg, theme::TEXT_FAINT());
-    let name_color = if muted { theme::TEXT_FAINT() } else if unread || active { theme::TEXT() } else { crate::theme::gray(0xC8) };
+    let name_color = if muted {
+        theme::TEXT_FAINT()
+    } else if unread || active {
+        theme::TEXT()
+    } else {
+        crate::theme::gray(0xC8)
+    };
     let ng = one_line(p, &title, theme::editor_font(13.5, unread), name_color, rect.right() - left - tw - 16.0);
     p.galley(Pos2::new(left, rect.top() + 7.0), ng, name_color);
     // Aperçu : dernier message connu, sinon type de conversation.
@@ -865,10 +880,10 @@ fn first_name(n: &str) -> &str {
 /// de groupe sans image, les photos de deux membres superposées ; sinon les initiales.
 fn space_avatar(p: &egui::Painter, chat: &ChatState, c: Pos2, r: f32, s: &Space, title: &str) {
     let square = s.kind == SpaceKind::Space;
-    if let Some(key) = chat.space_image_key(s) {
-        if image_avatar(p, chat, &key, c, r, square) {
-            return;
-        }
+    if let Some(key) = chat.space_image_key(s)
+        && image_avatar(p, chat, &key, c, r, square)
+    {
+        return;
     }
     if s.kind == SpaceKind::Group {
         let others = chat.others(&s.name);
@@ -885,10 +900,10 @@ fn space_avatar(p: &egui::Painter, chat: &ChatState, c: Pos2, r: f32, s: &Space,
 
 /// Photo d'un utilisateur, sinon ses initiales.
 fn user_avatar(p: &egui::Painter, chat: &ChatState, c: Pos2, r: f32, user: &str) {
-    if let Some(key) = chat.photo_key(user) {
-        if image_avatar(p, chat, &key, c, r, false) {
-            return;
-        }
+    if let Some(key) = chat.photo_key(user)
+        && image_avatar(p, chat, &key, c, r, false)
+    {
+        return;
     }
     avatar(p, c, r, &chat.name_of(user), false);
 }
@@ -913,10 +928,8 @@ fn image_avatar(p: &egui::Painter, chat: &ChatState, key: &str, c: Pos2, r: f32,
 
 /// Pastille ronde avec initiales, couleur dérivée du nom (carrée arrondie pour un espace).
 fn avatar(p: &egui::Painter, c: Pos2, r: f32, name: &str, square: bool) {
-    const PALETTE: [[u8; 3]; 8] = [
-        [0x5B, 0x8D, 0xEF], [0xD0, 0x6A, 0x4E], [0x4C, 0xAF, 0x7A], [0xA3, 0x6A, 0xD6],
-        [0xE0, 0xA4, 0x3A], [0x3F, 0xA7, 0xB5], [0xC9, 0x5B, 0x8F], [0x7D, 0x8A, 0x99],
-    ];
+    const PALETTE: [[u8; 3]; 8] =
+        [[0x5B, 0x8D, 0xEF], [0xD0, 0x6A, 0x4E], [0x4C, 0xAF, 0x7A], [0xA3, 0x6A, 0xD6], [0xE0, 0xA4, 0x3A], [0x3F, 0xA7, 0xB5], [0xC9, 0x5B, 0x8F], [0x7D, 0x8A, 0x99]];
     let h = name.bytes().fold(7u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
     let [cr, cg, cb] = PALETTE[(h % PALETTE.len() as u32) as usize];
     let col = Color32::from_rgb(cr, cg, cb);
@@ -925,13 +938,8 @@ fn avatar(p: &egui::Painter, c: Pos2, r: f32, name: &str, square: bool) {
     } else {
         p.circle_filled(c, r, col);
     }
-    let initials: String = name
-        .split(|ch: char| ch.is_whitespace() || ch == ',')
-        .filter(|w| !w.is_empty())
-        .take(2)
-        .filter_map(|w| w.chars().next())
-        .flat_map(|ch| ch.to_uppercase())
-        .collect();
+    let initials: String =
+        name.split(|ch: char| ch.is_whitespace() || ch == ',').filter(|w| !w.is_empty()).take(2).filter_map(|w| w.chars().next()).flat_map(|ch| ch.to_uppercase()).collect();
     p.text(c, Align2::CENTER_CENTER, if initials.is_empty() { "?".into() } else { initials }, theme::editor_font(r * 0.8, true), Color32::WHITE);
 }
 
@@ -957,10 +965,10 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
         ui.vertical(|ui| {
             ui.label(RichText::new(&title).font(theme::title_font(16.0)).color(theme::TEXT()));
             let mut sub = kind_label(&space);
-            if space.kind == SpaceKind::Dm {
-                if let Some(e) = chat.others(&space.name).first().and_then(|u| chat.email_of(u)) {
-                    sub = e;
-                }
+            if space.kind == SpaceKind::Dm
+                && let Some(e) = chat.others(&space.name).first().and_then(|u| chat.email_of(u))
+            {
+                sub = e;
             }
             ui.label(RichText::new(sub).small().color(theme::TEXT_MUTED()));
         });
@@ -968,12 +976,11 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
             if ui.add(egui::Button::new(RichText::new("Ouvrir dans Google Chat ↗").small()).corner_radius(CornerRadius::same(255))).clicked() {
                 let _ = webbrowser::open(&space.web_link());
             }
-            if space.kind == SpaceKind::Dm {
-                if let Some(e) = chat.others(&space.name).first().and_then(|u| chat.email_of(u)) {
-                    if ui.button("Écrire un mail").on_hover_text(format!("Nouveau mail à {e}")).clicked() {
-                        actions.push(Action::MailTo(e));
-                    }
-                }
+            if space.kind == SpaceKind::Dm
+                && let Some(e) = chat.others(&space.name).first().and_then(|u| chat.email_of(u))
+                && ui.button("Écrire un mail").on_hover_text(format!("Nouveau mail à {e}")).clicked()
+            {
+                actions.push(Action::MailTo(e));
             }
             let (r, resp) = ui.allocate_exact_size(vec2(28.0, 26.0), Sense::click());
             let resp = resp.on_hover_text(if muted { "Réactiver les notifications" } else { "Rendre muet" }).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -1007,50 +1014,46 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
     let list_h = (ui.available_height() - comp_h - 8.0).max(120.0);
     let msgs: Vec<ChatMessage> = chat.msgs.get(&space.name).cloned().unwrap_or_default();
     let scroll_bottom = std::mem::take(&mut chat.scroll_bottom);
-    egui::ScrollArea::vertical()
-        .id_salt(("chat_msgs", &space.name))
-        .max_height(list_h)
-        .auto_shrink([false, false])
-        .stick_to_bottom(true)
-        .show(ui, |ui| {
-            ui.set_min_height(list_h);
-            if chat.has_more.get(&space.name).copied().unwrap_or(false) {
-                ui.vertical_centered(|ui| {
-                    if chat.loading_msgs.contains(&space.name) {
-                        ui.add(egui::Spinner::new().size(14.0));
-                    } else if ui.small_button("Afficher les messages plus anciens").clicked() {
-                        actions.push(Action::Older(space.name.clone()));
-                    }
-                });
-                ui.add_space(8.0);
-            }
-            if msgs.is_empty() {
+    egui::ScrollArea::vertical().id_salt(("chat_msgs", &space.name)).max_height(list_h).auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
+        ui.set_min_height(list_h);
+        if chat.has_more.get(&space.name).copied().unwrap_or(false) {
+            ui.vertical_centered(|ui| {
                 if chat.loading_msgs.contains(&space.name) {
-                    for r in [0.6, 0.8, 0.5] {
-                        widgets::ghost_row(ui, r);
-                        ui.add_space(10.0);
-                    }
-                } else {
-                    ui.add_space(30.0);
-                    widgets::empty_state(ui, "Aucun message", "Écris le premier message ci-dessous");
+                    ui.add(egui::Spinner::new().size(14.0));
+                } else if ui.small_button("Afficher les messages plus anciens").clicked() {
+                    actions.push(Action::Older(space.name.clone()));
                 }
-            }
-            let top: Vec<&ChatMessage> = msgs.iter().filter(|m| !(space.threaded && m.thread_reply)).collect();
-            let mut prev: Option<&ChatMessage> = None;
-            for m in &top {
-                let new_day = prev.is_none_or(|p| day_of(p.created) != day_of(m.created));
-                if new_day {
-                    day_separator(ui, m.created);
+            });
+            ui.add_space(8.0);
+        }
+        if msgs.is_empty() {
+            if chat.loading_msgs.contains(&space.name) {
+                for r in [0.6, 0.8, 0.5] {
+                    widgets::ghost_row(ui, r);
+                    ui.add_space(10.0);
                 }
-                let compact = !new_day && prev.is_some_and(|p| p.sender == m.sender && m.created - p.created < 5 * 60_000 && !p.thread_reply);
-                let replies: Vec<&ChatMessage> = if space.threaded { msgs.iter().filter(|r| r.thread_reply && r.thread == m.thread && !m.thread.is_empty()).collect() } else { Vec::new() };
-                message(ui, chat, m, compact, space.threaded, &replies, actions);
-                prev = Some(m);
+            } else {
+                ui.add_space(30.0);
+                widgets::empty_state(ui, "Aucun message", "Écris le premier message ci-dessous");
             }
-            if scroll_bottom {
-                ui.scroll_to_cursor(Some(Align::Max));
+        }
+        let top: Vec<&ChatMessage> = msgs.iter().filter(|m| !(space.threaded && m.thread_reply)).collect();
+        let mut prev: Option<&ChatMessage> = None;
+        for m in &top {
+            let new_day = prev.is_none_or(|p| day_of(p.created) != day_of(m.created));
+            if new_day {
+                day_separator(ui, m.created);
             }
-        });
+            let compact = !new_day && prev.is_some_and(|p| p.sender == m.sender && m.created - p.created < 5 * 60_000 && !p.thread_reply);
+            let replies: Vec<&ChatMessage> =
+                if space.threaded { msgs.iter().filter(|r| r.thread_reply && r.thread == m.thread && !m.thread.is_empty()).collect() } else { Vec::new() };
+            message(ui, chat, m, compact, space.threaded, &replies, actions);
+            prev = Some(m);
+        }
+        if scroll_bottom {
+            ui.scroll_to_cursor(Some(Align::Max));
+        }
+    });
 
     // Compositeur.
     let start = ui.cursor().top();
@@ -1189,7 +1192,13 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
                     let (r, resp) = ui.allocate_exact_size(vec2(36.0 + count.size().x, 24.0), Sense::click());
                     let resp = resp.on_hover_text("Ajouter / retirer ma réaction").on_hover_cursor(egui::CursorIcon::PointingHand);
                     let p = ui.painter();
-                    p.rect(r, CornerRadius::same(12), if resp.hovered() { theme::SURFACE_HI() } else { theme::SURFACE() }, Stroke::new(1.0, theme::BORDER()), egui::StrokeKind::Inside);
+                    p.rect(
+                        r,
+                        CornerRadius::same(12),
+                        if resp.hovered() { theme::SURFACE_HI() } else { theme::SURFACE() },
+                        Stroke::new(1.0, theme::BORDER()),
+                        egui::StrokeKind::Inside,
+                    );
                     crate::emoji_img::paint(p, Rect::from_center_size(Pos2::new(r.left() + 16.0, r.center().y), vec2(17.0, 17.0)), e, theme::TEXT());
                     p.galley(Pos2::new(r.left() + 28.0, r.center().y - count.size().y / 2.0), count, theme::TEXT());
                     if resp.clicked() {
@@ -1231,7 +1240,14 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
             });
         }
     });
-    let min_bottom = top + if tight { 16.0 } else if compact { 20.0 } else { 40.0 };
+    let min_bottom = top
+        + if tight {
+            16.0
+        } else if compact {
+            20.0
+        } else {
+            40.0
+        };
     if ui.cursor().top() < min_bottom {
         ui.add_space(min_bottom - ui.cursor().top());
     }
@@ -1418,12 +1434,9 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
     }
 
     let mut send = false;
-    egui::Frame::new()
-        .fill(theme::BG())
-        .stroke(Stroke::new(1.0, theme::BORDER()))
-        .corner_radius(CornerRadius::same(12))
-        .inner_margin(egui::Margin::symmetric(10, 8))
-        .show(ui, |ui| {
+    egui::Frame::new().fill(theme::BG()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(12)).inner_margin(egui::Margin::symmetric(10, 8)).show(
+        ui,
+        |ui| {
             // Barre d'outils : mise en forme Google Chat (*gras*, _italique_, ~barré~, `code`, lien).
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
@@ -1459,14 +1472,7 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
             ui.horizontal(|ui| {
                 let send_w = 84.0;
                 let hint = if in_thread { "Répondre dans le fil".to_string() } else { format!("Message à {title}") };
-                ui.add(
-                    egui::TextEdit::multiline(&mut text)
-                        .id(id)
-                        .hint_text(hint)
-                        .desired_rows(1)
-                        .frame(egui::Frame::NONE)
-                        .desired_width(ui.available_width() - send_w),
-                );
+                ui.add(egui::TextEdit::multiline(&mut text).id(id).hint_text(hint).desired_rows(1).frame(egui::Frame::NONE).desired_width(ui.available_width() - send_w));
                 let can = (!text.trim().is_empty() || (!in_thread && !chat.files.is_empty())) && !chat.sending;
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if chat.sending {
@@ -1476,7 +1482,8 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
                     }
                 });
             });
-        });
+        },
+    );
     // Sélecteur d'émojis du champ (reste ouvert pour changer de catégorie).
     if let Some((k, pos)) = chat.composer_picker.clone().filter(|(k, _)| *k == key) {
         let recent = chat.recent_emojis.clone();
@@ -1494,7 +1501,9 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
             });
         chat.emoji_query = q;
         chat.emoji_group = g;
-        let outside = ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p) && !Rect::from_min_size(pos, vec2(30.0, 30.0)).contains(p)));
+        let outside = ui.input(|i| {
+            i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p) && !Rect::from_min_size(pos, vec2(30.0, 30.0)).contains(p))
+        });
         if let Some(e) = picked {
             insert_at_cursor(ui.ctx(), id, &mut text, &e);
             remember_emoji(chat, &e);
@@ -1504,11 +1513,11 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
         }
     }
     // « :nom: » complet → émoji, comme dans Google Chat.
-    if text != before {
-        if let Some(t) = emoji::replace_codes(&text) {
-            text = t;
-            set_cursor_end(ui.ctx(), id, &text);
-        }
+    if text != before
+        && let Some(t) = emoji::replace_codes(&text)
+    {
+        text = t;
+        set_cursor_end(ui.ctx(), id, &text);
     }
     chat.drafts.insert(key, text);
     if send {
@@ -1662,19 +1671,16 @@ fn toast(ui: &mut egui::Ui, chat: &mut ChatState) {
         chat.notice = None;
         return;
     }
-    egui::Area::new(egui::Id::unique("wt_chat_toast"))
-        .order(egui::Order::Foreground)
-        .anchor(Align2::RIGHT_BOTTOM, vec2(-24.0, -24.0))
-        .show(ui.ctx(), |ui| {
-            egui::Frame::new()
-                .fill(if error { Color32::from_rgb(0x5A, 0x22, 0x22) } else { theme::SURFACE_HI() })
-                .corner_radius(CornerRadius::same(10))
-                .inner_margin(egui::Margin::symmetric(14, 8))
-                .show(ui, |ui| {
-                    ui.set_max_width(360.0);
-                    ui.label(RichText::new(text).color(theme::TEXT()));
-                });
-        });
+    egui::Area::new(egui::Id::unique("wt_chat_toast")).order(egui::Order::Foreground).anchor(Align2::RIGHT_BOTTOM, vec2(-24.0, -24.0)).show(ui.ctx(), |ui| {
+        egui::Frame::new()
+            .fill(if error { Color32::from_rgb(0x5A, 0x22, 0x22) } else { theme::SURFACE_HI() })
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(egui::Margin::symmetric(14, 8))
+            .show(ui, |ui| {
+                ui.set_max_width(360.0);
+                ui.label(RichText::new(text).color(theme::TEXT()));
+            });
+    });
     ui.ctx().request_repaint_after(Duration::from_millis(300));
 }
 

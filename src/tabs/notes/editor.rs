@@ -9,8 +9,8 @@ use eframe::egui::text_edit::TextEditState;
 use eframe::egui::{self, Color32, CornerRadius, Key, Modifiers, Pos2, Rect, Sense, Stroke, Vec2, vec2};
 
 use super::inline::{self, Base};
-use crate::tabs::messages::emoji;
 use crate::notes_store::{self, Block, Kind, Note};
+use crate::tabs::messages::emoji;
 use crate::theme;
 
 /// État d'édition (non enregistré).
@@ -167,7 +167,10 @@ pub fn body(ui: &mut egui::Ui, note: &mut Note, ed: &mut Ed, edit: bool) -> Opti
                         let sz = size * scale;
                         let (r, resp) = ui.allocate_exact_size(vec2(width, sz.y + 8.0), Sense::click());
                         let img_rect = Rect::from_min_size(Pos2::new(r.left(), r.top() + 4.0), sz);
-                        ui.painter().add(egui::epaint::RectShape::filled(img_rect, CornerRadius::same(6), Color32::WHITE).with_texture(t.id(), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))));
+                        ui.painter().add(
+                            egui::epaint::RectShape::filled(img_rect, CornerRadius::same(6), Color32::WHITE)
+                                .with_texture(t.id(), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))),
+                        );
                         let deleting = edit && (resp.hovered() || ui.rect_contains_pointer(img_rect)) && delete_button(ui, img_rect);
                         if deleting {
                             ops.push(Op::Remove(i));
@@ -224,14 +227,13 @@ pub fn body(ui: &mut egui::Ui, note: &mut Note, ed: &mut Ed, edit: bool) -> Opti
     }
 
     // Suggestions d'émojis (« :nom »).
-    if let Some(e) = emoji_suggestions(ui, ed) {
-        if let Some((bid, at, prefix, _)) = ed.emoji.take() {
-            if let Some(b) = note.blocks.iter_mut().find(|b| b.id == bid) {
-                let c = insert_emoji_code(&mut b.text, at, prefix.chars().count(), &e);
-                ed.focus = Some((bid, c, c));
-                changed = true;
-            }
-        }
+    if let Some(e) = emoji_suggestions(ui, ed)
+        && let Some((bid, at, prefix, _)) = ed.emoji.take()
+        && let Some(b) = note.blocks.iter_mut().find(|b| b.id == bid)
+    {
+        let c = insert_emoji_code(&mut b.text, at, prefix.chars().count(), &e);
+        ed.focus = Some((bid, c, c));
+        changed = true;
     }
     // Sélecteur d'émojis de la barre d'outils.
     if let Some(e) = emoji_picker(ui, ed) {
@@ -239,10 +241,10 @@ pub fn body(ui: &mut egui::Ui, note: &mut Note, ed: &mut Ed, edit: bool) -> Opti
     }
 
     // Menu « / ».
-    if let Some(cmd) = slash_menu(ui, note, ed) {
-        if let Some(i) = ed.slash.as_ref().and_then(|s| note.blocks.iter().position(|b| b.id == s.block)) {
-            ops.push(Op::Slash(i, cmd));
-        }
+    if let Some(cmd) = slash_menu(ui, note, ed)
+        && let Some(i) = ed.slash.as_ref().and_then(|s| note.blocks.iter().position(|b| b.id == s.block))
+    {
+        ops.push(Op::Slash(i, cmd));
     }
 
     if !ops.is_empty() || changed {
@@ -335,24 +337,25 @@ fn text_block(
     let focused = ctx.memory(|m| m.has_focus(id));
     let slash_here = ed.slash.as_ref().is_some_and(|s| s.block == bid);
     // Suggestion d'émoji : Tab insère la première.
-    if focused {
-        if let Some((_, at, prefix, _)) = ed.emoji.clone().filter(|e| e.0 == bid) {
-            if let Some(e) = emoji::suggestions(ctx, &prefix, 1).first() {
-                if ui.input_mut(|inp| inp.consume_key(Modifiers::NONE, Key::Tab)) {
-                    let c = insert_emoji_code(&mut note.blocks[i].text, at, prefix.chars().count(), e.as_str());
-                    ed.focus = Some((bid, c, c));
-                    ed.emoji = None;
-                    *changed = true;
-                }
-            }
-        }
+    if focused
+        && let Some((_, at, prefix, _)) = ed.emoji.clone().filter(|e| e.0 == bid)
+        && let Some(e) = emoji::suggestions(ctx, &prefix, 1).first()
+        && ui.input_mut(|inp| inp.consume_key(Modifiers::NONE, Key::Tab))
+    {
+        let c = insert_emoji_code(&mut note.blocks[i].text, at, prefix.chars().count(), e.as_str());
+        ed.focus = Some((bid, c, c));
+        ed.emoji = None;
+        *changed = true;
     }
     // Touches gérées avant le champ.
     if focused && !slash_here {
         let cur = TextEditState::load(ctx, id).and_then(|s| s.cursor.char_range()).map(|r| (r.primary.index.0, r.secondary.index.0));
         if let Some((a, b)) = cur {
             let (lo, hi) = (a.min(b), a.max(b));
-            let enter = ui.input_mut(|inp| !inp.modifiers.command && !inp.modifiers.alt && inp.consume_key(Modifiers::NONE, Key::Enter) || (inp.modifiers.shift && inp.consume_key(Modifiers::SHIFT, Key::Enter)));
+            let enter = ui.input_mut(|inp| {
+                !inp.modifiers.command && !inp.modifiers.alt && inp.consume_key(Modifiers::NONE, Key::Enter)
+                    || (inp.modifiers.shift && inp.consume_key(Modifiers::SHIFT, Key::Enter))
+            });
             let ctrl_enter = ui.input_mut(|inp| inp.consume_key(Modifiers::COMMAND, Key::Enter));
             if kind == Kind::Code {
                 if ctrl_enter || (enter && lo == len && note.blocks[i].text.ends_with('\n')) {
@@ -475,19 +478,20 @@ fn text_block(
     }
 
     let resp = &output.response;
-    if resp.has_focus() {
-        if let Some(r) = output.cursor_range {
-            ed.cursor = Some((bid, r.primary.index.0, r.secondary.index.0));
-        }
+    if resp.has_focus()
+        && let Some(r) = output.cursor_range
+    {
+        ed.cursor = Some((bid, r.primary.index.0, r.secondary.index.0));
     }
     // Ctrl + clic sur un lien : ouverture.
-    if resp.clicked() && ui.input(|inp| inp.modifiers.command) {
-        if let Some(p) = resp.interact_pointer_pos() {
-            let idx = output.galley.cursor_from_pos(p - output.galley_pos).index.0;
-            let (_, links) = inline::job(&note.blocks[i].text, base, true, f32::INFINITY);
-            if let Some((_, url)) = links.iter().find(|(r, _)| r.contains(&idx)) {
-                *clicked_link = Some(url.clone());
-            }
+    if resp.clicked()
+        && ui.input(|inp| inp.modifiers.command)
+        && let Some(p) = resp.interact_pointer_pos()
+    {
+        let idx = output.galley.cursor_from_pos(p - output.galley_pos).index.0;
+        let (_, links) = inline::job(&note.blocks[i].text, base, true, f32::INFINITY);
+        if let Some((_, url)) = links.iter().find(|(r, _)| r.contains(&idx)) {
+            *clicked_link = Some(url.clone());
         }
     }
     // « :nom » en cours de frappe : suggestions sous le curseur.
@@ -644,21 +648,16 @@ fn slash_menu(ui: &mut egui::Ui, note: &Note, ed: &mut Ed) -> Option<Cmd> {
     let up = below < 220.0 && above > below;
     let max_h = (if up { above } else { below } - 20.0).clamp(120.0, 300.0);
     let (pivot, at) = if up { (egui::Align2::LEFT_BOTTOM, s.pos - vec2(0.0, 26.0)) } else { (egui::Align2::LEFT_TOP, s.pos + vec2(0.0, 4.0)) };
-    let area = egui::Area::new(egui::Id::unique("wt_note_slash"))
-        .order(egui::Order::Foreground)
-        .pivot(pivot)
-        .fixed_pos(at)
-        .constrain(true)
-        .show(ui.ctx(), |ui| {
-            egui::Frame::new()
-                .fill(theme::SURFACE_HI())
-                .stroke(Stroke::new(1.0, theme::BORDER()))
-                .corner_radius(CornerRadius::same(10))
-                .inner_margin(egui::Margin::same(6))
-                .shadow(egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: Color32::from_black_alpha(120) })
-                .show(ui, |ui| {
-                    ui.set_width(240.0);
-                    egui::ScrollArea::vertical().max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
+    let area = egui::Area::new(egui::Id::unique("wt_note_slash")).order(egui::Order::Foreground).pivot(pivot).fixed_pos(at).constrain(true).show(ui.ctx(), |ui| {
+        egui::Frame::new()
+            .fill(theme::SURFACE_HI())
+            .stroke(Stroke::new(1.0, theme::BORDER()))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(egui::Margin::same(6))
+            .shadow(egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: Color32::from_black_alpha(120) })
+            .show(ui, |ui| {
+                ui.set_width(240.0);
+                egui::ScrollArea::vertical().max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
                     ui.set_width(232.0);
                     ui.spacing_mut().item_spacing.y = 1.0;
                     for (row, &k) in list.iter().enumerate() {
@@ -684,9 +683,9 @@ fn slash_menu(ui: &mut egui::Ui, note: &Note, ed: &mut Ed) -> Option<Cmd> {
                             pick = Some(cmd);
                         }
                     }
-                    });
                 });
-        });
+            });
+    });
     s.rect = area.response.rect;
     // Un clic sur la souris dans le menu fait perdre le focus au champ : on garde la commande.
     chosen.or(pick)
@@ -851,14 +850,9 @@ fn apply(note: &mut Note, ed: &mut Ed, ops: Vec<Op>) {
                 note.blocks[i].text = t;
                 let mut tmp = Note::new();
                 tmp.set_markdown(&rest);
-                let mut at = i + 1;
-                let mut last = note.blocks[i].id;
-                for b in tmp.blocks {
-                    let nb = note.block(b.kind, &b.text);
-                    last = nb.id;
-                    note.blocks.insert(at, nb);
-                    at += 1;
-                }
+                let new: Vec<_> = tmp.blocks.into_iter().map(|b| note.block(b.kind, &b.text)).collect();
+                let last = new.last().map_or(note.blocks[i].id, |b| b.id);
+                note.blocks.splice(i + 1..i + 1, new);
                 let n = note.blocks.iter().find(|b| b.id == last).map(|b| chars(&b.text)).unwrap_or(0);
                 ed.focus = Some((last, n, n));
             }
@@ -909,13 +903,13 @@ fn apply(note: &mut Note, ed: &mut Ed, ops: Vec<Op>) {
                 }
             }
             Op::Insert(i, list) => {
-                let mut at = (i + 1).min(note.blocks.len());
-                for (k, t) in list {
-                    let nb = note.block(k, &t);
-                    ed.focus = Some((nb.id, chars(&t), chars(&t)));
-                    note.blocks.insert(at, nb);
-                    at += 1;
+                let at = (i + 1).min(note.blocks.len());
+                let new: Vec<_> = list.into_iter().map(|(k, t)| note.block(k, &t)).collect();
+                if let Some(b) = new.last() {
+                    let n = chars(&b.text);
+                    ed.focus = Some((b.id, n, n));
                 }
+                note.blocks.splice(at..at, new);
             }
         }
     }
@@ -978,9 +972,7 @@ pub fn set_kind(note: &mut Note, ed: &mut Ed, k: Kind) {
 
 /// Index du bloc qui a (ou avait) le curseur.
 pub fn current(note: &Note, ed: &Ed) -> usize {
-    ed.cursor
-        .and_then(|(id, ..)| note.blocks.iter().position(|b| b.id == id))
-        .unwrap_or(note.blocks.len().saturating_sub(1))
+    ed.cursor.and_then(|(id, ..)| note.blocks.iter().position(|b| b.id == id)).unwrap_or(note.blocks.len().saturating_sub(1))
 }
 
 /// Mise en forme depuis la barre d'outils.
@@ -1108,7 +1100,10 @@ fn emoji_picker(ui: &mut egui::Ui, ed: &mut Ed) -> Option<String> {
     });
     ed.emoji_query = q;
     ed.emoji_group = g;
-    let outside = ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p) && !Rect::from_center_size(pos - vec2(0.0, 20.0), vec2(40.0, 40.0)).contains(p)));
+    let outside = ui.input(|i| {
+        i.pointer.any_pressed()
+            && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p) && !Rect::from_center_size(pos - vec2(0.0, 20.0), vec2(40.0, 40.0)).contains(p))
+    });
     if picked.is_some() || outside || ui.input(|i| i.key_pressed(Key::Escape)) {
         ed.picker = None;
     }

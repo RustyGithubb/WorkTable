@@ -10,16 +10,13 @@ use std::sync::Arc;
 
 use eframe::egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat};
 use eframe::egui::text_edit::TextEditState;
-use eframe::egui::{
-    self, Align as EAlign, Color32, CornerRadius, Key, Layout, Modifiers, Rect, RichText, Sense,
-    Stroke, TextureHandle, vec2,
-};
+use eframe::egui::{self, Align as EAlign, Color32, CornerRadius, Key, Layout, Modifiers, Rect, RichText, Sense, Stroke, TextureHandle, vec2};
 
 use super::attachments::human_size;
 use super::contacts::Contacts;
-use crate::google::gmail::Signature;
 use super::{inline, recipients};
 use crate::google::compose::{self, Align, Block, Draft, FileData, Mode, Size};
+use crate::google::gmail::Signature;
 use crate::{theme, widgets};
 
 #[derive(Default)]
@@ -112,27 +109,18 @@ pub fn show(
     // Zone de texte.
     let bottom = 44.0;
     let height = (ui.available_height() - bottom).max(140.0);
-    egui::Frame::new()
-        .fill(theme::BG())
-        .stroke(Stroke::new(1.0, theme::BORDER()))
-        .corner_radius(CornerRadius::same(8))
-        .inner_margin(egui::Margin::same(12))
-        .show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("compose_body")
-                .max_height(height - 26.0)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    // Signature : rendu fidèle, non modifiable ici (elle vient de Gmail).
-                    body(ui, d, ed, &mut |ui, d| {
-                        if d.signature.is_some() {
-                            ui.add_space(10.0);
-                            ui.label(RichText::new("--").color(theme::TEXT_FAINT()));
-                            signature_preview(ui);
-                        }
-                    });
-                });
+    egui::Frame::new().fill(theme::BG()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("compose_body").max_height(height - 26.0).auto_shrink([false, false]).show(ui, |ui| {
+            // Signature : rendu fidèle, non modifiable ici (elle vient de Gmail).
+            body(ui, d, ed, &mut |ui, d| {
+                if d.signature.is_some() {
+                    ui.add_space(10.0);
+                    ui.label(RichText::new("--").color(theme::TEXT_FAINT()));
+                    signature_preview(ui);
+                }
+            });
         });
+    });
 
     ui.add_space(8.0);
     ui.horizontal(|ui| {
@@ -187,15 +175,13 @@ fn toolbar(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, signatures: &[Sign
             .on_hover_text("Taille du texte (paragraphe)");
 
         // Gras
-        let b = ui
-            .add(egui::Button::new(RichText::new("B").font(theme::editor_font(14.0, true))).min_size(vec2(28.0, 24.0)))
-            .on_hover_text("Gras (sélectionne du texte)");
-        if b.clicked() {
-            if let Some(Block::Para(p)) = d.blocks.get_mut(focus) {
-                let (a, z) = ed.sel;
-                let sel = compose::toggle_bold(&mut p.text, a, z);
-                ed.pending = Some((focus, sel.0, sel.1));
-            }
+        let b = ui.add(egui::Button::new(RichText::new("B").font(theme::editor_font(14.0, true))).min_size(vec2(28.0, 24.0))).on_hover_text("Gras (sélectionne du texte)");
+        if b.clicked()
+            && let Some(Block::Para(p)) = d.blocks.get_mut(focus)
+        {
+            let (a, z) = ed.sel;
+            let sel = compose::toggle_bold(&mut p.text, a, z);
+            ed.pending = Some((focus, sel.0, sel.1));
         }
 
         // Émojis (même sélecteur que Google Chat ; « :nom: » marche aussi en tapant).
@@ -219,24 +205,21 @@ fn toolbar(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, signatures: &[Sign
 
         ui.add_space(6.0);
         signature_menu(ui, d, signatures);
-        if ui.button("Image").on_hover_text("Insérer une image à l'emplacement du curseur").clicked() {
-            if let Some(paths) = rfd::FileDialog::new()
-                .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
-                .pick_files()
-            {
-                for path in paths {
-                    if let Err(e) = insert_image_file(d, ed, &path) {
-                        error = Some(e);
-                    }
+        if ui.button("Image").on_hover_text("Insérer une image à l'emplacement du curseur").clicked()
+            && let Some(paths) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]).pick_files()
+        {
+            for path in paths {
+                if let Err(e) = insert_image_file(d, ed, &path) {
+                    error = Some(e);
                 }
             }
         }
-        if ui.button("Pièce jointe").clicked() {
-            if let Some(paths) = rfd::FileDialog::new().pick_files() {
-                for path in paths {
-                    if let Err(e) = attach_file(d, &path) {
-                        error = Some(e);
-                    }
+        if ui.button("Pièce jointe").clicked()
+            && let Some(paths) = rfd::FileDialog::new().pick_files()
+        {
+            for path in paths {
+                if let Err(e) = attach_file(d, &path) {
+                    error = Some(e);
                 }
             }
         }
@@ -259,11 +242,7 @@ fn signature_menu(ui: &mut egui::Ui, d: &mut Draft, signatures: &[Signature]) {
         .show_ui(ui, |ui| {
             ui.set_min_width(260.0);
             if signatures.is_empty() {
-                ui.label(
-                    RichText::new("Aucune signature trouvée (réglages Gmail ou mails envoyés)")
-                        .small()
-                        .color(theme::TEXT_MUTED()),
-                );
+                ui.label(RichText::new("Aucune signature trouvée (réglages Gmail ou mails envoyés)").small().color(theme::TEXT_MUTED()));
             }
             for s in signatures {
                 if ui.selectable_label(d.signature.as_ref() == Some(&s.html), &s.label).clicked() {
@@ -367,11 +346,7 @@ fn dropped_files(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor) -> Option<St
 
 fn nearest_para(d: &Draft, i: usize) -> usize {
     let i = i.min(d.blocks.len().saturating_sub(1));
-    (0..=i)
-        .rev()
-        .chain(i..d.blocks.len())
-        .find(|&j| matches!(d.blocks[j], Block::Para(_)))
-        .unwrap_or(0)
+    (0..=i).rev().chain(i..d.blocks.len()).find(|&j| matches!(d.blocks[j], Block::Para(_))).unwrap_or(0)
 }
 
 fn para_id(id: u64) -> egui::Id {
@@ -403,9 +378,7 @@ fn body(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, after: &mut dyn FnMut
 
                 // Raccourcis gérés avant le champ (il ne doit pas les recevoir).
                 if ctx.memory(|m| m.has_focus(id)) {
-                    let cur = TextEditState::load(&ctx, id)
-                        .and_then(|s| s.cursor.char_range())
-                        .map(|r| (r.primary.index.0, r.secondary.index.0));
+                    let cur = TextEditState::load(&ctx, id).and_then(|s| s.cursor.char_range()).map(|r| (r.primary.index.0, r.secondary.index.0));
                     if let Some((a, b)) = cur {
                         if ui.input_mut(|inp| inp.consume_key(Modifiers::NONE, Key::Enter)) {
                             ops.push(Op::Split(i, a.min(b)));
@@ -416,9 +389,7 @@ fn body(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, after: &mut dyn FnMut
                 }
 
                 let (size, align) = (p.size, p.align);
-                let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| {
-                    ui.painter().layout_job(layout(buf.as_str(), size, align, wrap))
-                };
+                let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap: f32| ui.painter().layout_job(layout(buf.as_str(), size, align, wrap));
                 let hint = if single { "Écris ton message…" } else { "" };
                 let output = egui::TextEdit::multiline(&mut p.text)
                     .id(id)
@@ -445,12 +416,10 @@ fn body(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, after: &mut dyn FnMut
                 }
             }
             Block::Image(img) => {
-                let tex = img.preview.as_ref().map(|pv| {
-                    ed.textures
-                        .entry(img.id)
-                        .or_insert_with(|| ctx.load_texture(format!("compose_{}", img.id), pv.clone(), egui::TextureOptions::LINEAR))
-                        .clone()
-                });
+                let tex = img
+                    .preview
+                    .as_ref()
+                    .map(|pv| ed.textures.entry(img.id).or_insert_with(|| ctx.load_texture(format!("compose_{}", img.id), pv.clone(), egui::TextureOptions::LINEAR)).clone());
                 let layout = match last_align {
                     Align::Center => Layout::top_down(EAlign::Center),
                     Align::Right => Layout::top_down(EAlign::Max),
@@ -554,11 +523,8 @@ fn layout(text: &str, size: Size, align: Align, wrap: f32) -> LayoutJob {
     let px = size.px();
     let mut job = LayoutJob::default();
     for (seg, bold, marker) in compose::bold_spans(text) {
-        let format = if marker {
-            TextFormat::simple(theme::editor_font(px * 0.75, false), theme::TEXT_FAINT())
-        } else {
-            TextFormat::simple(theme::editor_font(px, bold), theme::TEXT())
-        };
+        let format =
+            if marker { TextFormat::simple(theme::editor_font(px * 0.75, false), theme::TEXT_FAINT()) } else { TextFormat::simple(theme::editor_font(px, bold), theme::TEXT()) };
         job.append(seg, 0.0, format);
     }
     if text.is_empty() {
@@ -584,7 +550,10 @@ fn emoji_picker(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor) {
     });
     ed.emoji_query = q;
     ed.emoji_group = g;
-    let outside = ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p) && !Rect::from_center_size(pos - vec2(0.0, 18.0), vec2(40.0, 36.0)).contains(p)));
+    let outside = ui.input(|i| {
+        i.pointer.any_pressed()
+            && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p) && !Rect::from_center_size(pos - vec2(0.0, 18.0), vec2(40.0, 36.0)).contains(p))
+    });
     if let Some(e) = &picked {
         if let Some(Block::Para(p)) = d.blocks.get_mut(ed.focus) {
             let n = p.text.chars().count();

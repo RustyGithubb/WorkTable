@@ -42,9 +42,7 @@ pub fn group_of<'a>(m: &Summary, groups: &'a [GroupColor]) -> Option<&'a GroupCo
         return None;
     }
     let rcpt = emails(&m.recipients);
-    groups
-        .iter()
-        .find(|g| rcpt.iter().any(|e| e.eq_ignore_ascii_case(&g.address)) || list_id_matches(&m.list_id, &g.address))
+    groups.iter().find(|g| rcpt.iter().any(|e| e.eq_ignore_ascii_case(&g.address)) || list_id_matches(&m.list_id, &g.address))
 }
 
 /// Adresses intermédiaires d'un mail reçu : les destinataires quand je n'y figure pas
@@ -61,12 +59,12 @@ pub fn intermediates(m: &Summary, own: &str) -> Vec<String> {
     }
     // Google Groups : <nom.domaine.tld>
     let id = m.list_id.trim().trim_start_matches(|c| c != '<').trim_matches(['<', '>', ' ']).to_lowercase();
-    if let Some((name, domain)) = id.split_once('.') {
-        if domain.contains('.') {
-            let addr = format!("{name}@{domain}");
-            if !out.contains(&addr) && addr != own {
-                out.push(addr);
-            }
+    if let Some((name, domain)) = id.split_once('.')
+        && domain.contains('.')
+    {
+        let addr = format!("{name}@{domain}");
+        if !out.contains(&addr) && addr != own {
+            out.push(addr);
         }
     }
     out

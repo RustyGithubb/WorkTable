@@ -66,10 +66,7 @@ fn day_of(ms: i64) -> chrono::NaiveDate {
 
 impl Tasks {
     pub fn load() -> Self {
-        let mut t: Tasks = path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let mut t: Tasks = path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
         t.roll_over(now());
         t
     }
@@ -79,20 +76,15 @@ impl Tasks {
             return;
         }
         self.dirty = false;
-        let Some(p) = path() else { return };
-        if let Some(d) = p.parent() {
-            let _ = std::fs::create_dir_all(d);
-        }
-        if let Ok(s) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(p, s);
+        if let Some(p) = path() {
+            crate::paths::save_json(&p, self);
         }
     }
 
     /// Remise à zéro quotidienne du bloc « Archivé » (vers l'historique).
     pub fn roll_over(&mut self, at: i64) {
         let today = day_of(at);
-        let (old, keep): (Vec<Task>, Vec<Task>) =
-            std::mem::take(&mut self.list).into_iter().partition(|t| t.status == Status::Done && day_of(t.since) < today);
+        let (old, keep): (Vec<Task>, Vec<Task>) = std::mem::take(&mut self.list).into_iter().partition(|t| t.status == Status::Done && day_of(t.since) < today);
         self.list = keep;
         if !old.is_empty() {
             let mut old = old;
@@ -117,12 +109,12 @@ impl Tasks {
     }
 
     pub fn set_status(&mut self, id: u64, status: Status) {
-        if let Some(t) = self.list.iter_mut().find(|t| t.id == id) {
-            if t.status != status {
-                t.status = status;
-                t.since = now();
-                self.dirty = true;
-            }
+        if let Some(t) = self.list.iter_mut().find(|t| t.id == id)
+            && t.status != status
+        {
+            t.status = status;
+            t.since = now();
+            self.dirty = true;
         }
     }
 

@@ -6,8 +6,8 @@
 mod app;
 mod emoji_img;
 mod google;
-mod links;
 mod lightbox;
+mod links;
 mod liquid;
 mod notes_store;
 mod notify;
@@ -29,12 +29,7 @@ fn install_crash_log() {
     std::panic::set_hook(Box::new(move |info| {
         if let Some(dir) = Some(crate::paths::config()) {
             let _ = std::fs::create_dir_all(&dir);
-            let text = format!(
-                "{} — {}\n{}\n\n",
-                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-                info,
-                std::backtrace::Backtrace::force_capture()
-            );
+            let text = format!("{} — {}\n{}\n\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), info, std::backtrace::Backtrace::force_capture());
             use std::io::Write;
             if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("crash.log")) {
                 let _ = f.write_all(text.as_bytes());
@@ -64,6 +59,12 @@ fn options(renderer: eframe::Renderer) -> eframe::NativeOptions {
 
 fn app_creator() -> eframe::AppCreator<'static> {
     Box::new(|cc| {
+        // Identifiant Windows de la fenêtre principale (pour la remettre au premier plan).
+        if let Ok(h) = raw_window_handle::HasWindowHandle::window_handle(cc)
+            && let raw_window_handle::RawWindowHandle::Win32(w) = h.as_raw()
+        {
+            notify::set_root_window(w.hwnd.get());
+        }
         theme::apply(&cc.egui_ctx);
         Ok(Box::new(app::WorkTableApp::new(&cc.egui_ctx)))
     })

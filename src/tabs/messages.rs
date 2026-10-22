@@ -133,18 +133,15 @@ impl ChatState {
         if !self.people_loaded {
             self.load_people();
         }
-        if let Some(s) = acc.session() {
-            if self.own_email.is_empty() {
-                self.own_email = s.email.to_lowercase();
-            }
+        if let Some(s) = acc.session()
+            && self.own_email.is_empty()
+        {
+            self.own_email = s.email.to_lowercase();
         }
         if !self.icons_loaded {
             self.load_icons(acc);
             // Émojis les plus utilisés téléchargés d'avance : réactions instantanées.
-            let mut list: Vec<String> = ["👍", "❤️", "😂", "🎉", "👀", "🔥", "🙏", "✅", "👏", "😮", "😢", "🚀", "💯", "🤔", "😍", "😅"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
+            let mut list: Vec<String> = ["👍", "❤️", "😂", "🎉", "👀", "🔥", "🙏", "✅", "👏", "😮", "😢", "🚀", "💯", "🤔", "😍", "😅"].iter().map(|s| s.to_string()).collect();
             list.extend(self.recent_emojis.iter().cloned());
             list.extend(
                 emojis::iter()
@@ -164,10 +161,12 @@ impl ChatState {
         if self.me.is_none() && !self.me_requested {
             self.me_requested = true;
             // Silencieux : à défaut, l'identifiant est déduit des membres des conversations.
-            acc.run(|s| Ok(Event::Chat(match chat::me(s) {
-                Some(id) => ChatEvent::Me(id),
-                None => ChatEvent::ReadStates(Vec::new()),
-            })));
+            acc.run(|s| {
+                Ok(Event::Chat(match chat::me(s) {
+                    Some(id) => ChatEvent::Me(id),
+                    None => ChatEvent::ReadStates(Vec::new()),
+                }))
+            });
         }
         if let Some(email) = self.pending_dm.take() {
             self.open_dm(acc, &email);
@@ -183,12 +182,13 @@ impl ChatState {
             self.last_spaces = Some(Instant::now());
             run(acc, |s| chat::spaces(s).map(ChatEvent::Spaces));
         }
-        if visible {
-            if let Some(sp) = self.open.clone() {
-                if self.msgs.contains_key(&sp) && !self.loading_msgs.contains(&sp) && self.last_full.is_some_and(|t| t.elapsed() >= FULL_REFRESH) {
-                    self.refresh_window(acc, &sp);
-                }
-            }
+        if visible
+            && let Some(sp) = self.open.clone()
+            && self.msgs.contains_key(&sp)
+            && !self.loading_msgs.contains(&sp)
+            && self.last_full.is_some_and(|t| t.elapsed() >= FULL_REFRESH)
+        {
+            self.refresh_window(acc, &sp);
         }
         ctx.request_repaint_after(every);
     }
@@ -200,14 +200,10 @@ impl ChatState {
                 self.spaces_inflight = false;
                 self.loading = false;
                 let before: HashMap<&str, i64> = self.spaces.iter().map(|s| (s.name.as_str(), s.last_active)).collect();
-                let changed_open = self.open.as_ref().is_some_and(|o| {
-                    list.iter().any(|s| s.name == *o && before.get(o.as_str()).is_some_and(|t| s.last_active > *t))
-                });
+                let changed_open = self.open.as_ref().is_some_and(|o| list.iter().any(|s| s.name == *o && before.get(o.as_str()).is_some_and(|t| s.last_active > *t)));
                 self.spaces = list;
-                if changed_open {
-                    if let Some(o) = self.open.clone() {
-                        self.fetch_new(acc, &o);
-                    }
+                if changed_open && let Some(o) = self.open.clone() {
+                    self.fetch_new(acc, &o);
                 }
                 self.request_read_states(acc);
                 self.request_members(acc);
@@ -369,10 +365,8 @@ impl ChatState {
 
     pub fn create_group(&mut self, acc: &Account) {
         let Some(g) = self.new_group.clone() else { return };
-        let emails: Vec<String> = crate::tabs::mail::contacts::split_list(&g.members)
-            .iter()
-            .filter_map(|m| crate::tabs::mail::contacts::parse_mailbox(m).map(|(_, e)| e))
-            .collect();
+        let emails: Vec<String> =
+            crate::tabs::mail::contacts::split_list(&g.members).iter().filter_map(|m| crate::tabs::mail::contacts::parse_mailbox(m).map(|(_, e)| e)).collect();
         if g.space && g.name.trim().is_empty() {
             return self.info("Donne un nom à l'espace");
         }
@@ -492,7 +486,10 @@ impl ChatState {
         };
         self.msgs.entry(space.clone()).or_default().push(preview);
         self.scroll_bottom = true;
-        self.retry_data.insert(local.clone(), (space.clone(), text.clone(), thread.clone(), files.iter().map(|f| PendingFile { name: f.name.clone(), mime: f.mime.clone(), data: f.data.clone() }).collect()));
+        self.retry_data.insert(
+            local.clone(),
+            (space.clone(), text.clone(), thread.clone(), files.iter().map(|f| PendingFile { name: f.name.clone(), mime: f.mime.clone(), data: f.data.clone() }).collect()),
+        );
         self.dispatch(acc, local, space, text, thread, files);
     }
 
@@ -517,7 +514,9 @@ impl ChatState {
         let local = name.replacen("failed/", "local/", 1);
         let Some((space, text, thread, files)) = self.retry_data.get(&local).map(|(a, b, c, d)| {
             (a.clone(), b.clone(), c.clone(), d.iter().map(|f| PendingFile { name: f.name.clone(), mime: f.mime.clone(), data: f.data.clone() }).collect::<Vec<_>>())
-        }) else { return };
+        }) else {
+            return;
+        };
         if let Some(m) = self.msgs.get_mut(&space).and_then(|l| l.iter_mut().find(|m| m.name == name)) {
             m.name = local.clone();
         }
@@ -654,13 +653,7 @@ impl ChatState {
     // --- Noms, membres, état de lecture ----------------------------------------------
 
     fn request_read_states(&mut self, acc: &Account) {
-        let todo: Vec<String> = self
-            .spaces
-            .iter()
-            .take(RECENT)
-            .filter(|s| !self.read_requested.contains(&s.name))
-            .map(|s| s.name.clone())
-            .collect();
+        let todo: Vec<String> = self.spaces.iter().take(RECENT).filter(|s| !self.read_requested.contains(&s.name)).map(|s| s.name.clone()).collect();
         if todo.is_empty() {
             return;
         }
@@ -698,9 +691,7 @@ impl ChatState {
         let ids = todo.clone();
         acc.run(move |s| {
             // L'annuaire peut être inaccessible : on garde les identifiants sans nom.
-            let list = chat::people(s, &ids).unwrap_or_else(|_| {
-                ids.iter().map(|id| Person { id: id.clone(), name: String::new(), email: String::new(), photo: None }).collect()
-            });
+            let list = chat::people(s, &ids).unwrap_or_else(|_| ids.iter().map(|id| Person { id: id.clone(), name: String::new(), email: String::new(), photo: None }).collect());
             Ok(Event::Chat(ChatEvent::People(list)))
         });
     }
@@ -722,10 +713,7 @@ impl ChatState {
 
     /// Autres membres d'une conversation (sans soi-même).
     pub fn others(&self, space: &str) -> Vec<String> {
-        self.members
-            .get(space)
-            .map(|m| m.iter().filter(|u| Some(u.as_str()) != self.me.as_deref()).cloned().collect())
-            .unwrap_or_default()
+        self.members.get(space).map(|m| m.iter().filter(|u| Some(u.as_str()) != self.me.as_deref()).cloned().collect()).unwrap_or_default()
     }
 
     pub fn title(&self, sp: &Space) -> String {
@@ -754,19 +742,13 @@ impl ChatState {
         if self.me.is_some() {
             return;
         }
-        if !self.own_email.is_empty() {
-            if let Some(p) = self.people.values().find(|p| p.email.eq_ignore_ascii_case(&self.own_email)) {
-                self.me = Some(p.id.clone());
-                return;
-            }
+        if !self.own_email.is_empty()
+            && let Some(p) = self.people.values().find(|p| p.email.eq_ignore_ascii_case(&self.own_email))
+        {
+            self.me = Some(p.id.clone());
+            return;
         }
-        let dms: Vec<&Vec<String>> = self
-            .spaces
-            .iter()
-            .filter(|s| s.kind == SpaceKind::Dm)
-            .filter_map(|s| self.members.get(&s.name))
-            .filter(|m| m.len() == 2)
-            .collect();
+        let dms: Vec<&Vec<String>> = self.spaces.iter().filter(|s| s.kind == SpaceKind::Dm).filter_map(|s| self.members.get(&s.name)).filter(|m| m.len() == 2).collect();
         if dms.len() >= 2 {
             let common: Vec<&String> = dms[0].iter().filter(|u| dms.iter().all(|m| m.contains(u))).collect();
             if common.len() == 1 {
@@ -895,10 +877,8 @@ impl ChatState {
 
     fn load_people(&mut self) {
         self.people_loaded = true;
-        let list: Vec<(String, String, String, Option<String>)> = people_path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let list: Vec<(String, String, String, Option<String>)> =
+            people_path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
         for (id, name, email, photo) in list {
             self.people.insert(id.clone(), Person { id, name, email, photo });
         }
@@ -906,13 +886,9 @@ impl ChatState {
 
     fn save_people(&self) {
         let Some(p) = people_path() else { return };
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let list: Vec<(&str, &str, &str, Option<&str>)> =
-            self.people.values().map(|p| (p.id.as_str(), p.name.as_str(), p.email.as_str(), p.photo.as_deref())).collect();
+        let list: Vec<(&str, &str, &str, Option<&str>)> = self.people.values().map(|p| (p.id.as_str(), p.name.as_str(), p.email.as_str(), p.photo.as_deref())).collect();
         if let Ok(s) = serde_json::to_string(&list) {
-            let _ = std::fs::write(p, s);
+            let _ = crate::paths::write_atomic(&p, s.as_bytes());
         }
     }
 }

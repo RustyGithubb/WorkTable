@@ -56,11 +56,14 @@ pub fn parse(text: &str) -> Inline {
         if r.is_empty() {
             return;
         }
-        if let Some(last) = spans.last_mut() {
-            if last.range.end == r.start && last.style == style && last.marker == marker && last.link == link {
-                last.range.end = r.end;
-                return;
-            }
+        if let Some(last) = spans.last_mut()
+            && last.range.end == r.start
+            && last.style == style
+            && last.marker == marker
+            && last.link == link
+        {
+            last.range.end = r.end;
+            return;
         }
         spans.push(Span { range: r, style, marker, link });
     };
@@ -142,25 +145,26 @@ pub fn parse(text: &str) -> Inline {
             }
         }
         // Lien [texte](url).
-        if c == '[' {
-            if let Some(close) = rest.find("](") {
-                let label = &rest[1..close];
-                let after = &rest[close + 2..];
-                if !label.is_empty() && !label.contains(']') {
-                    if let Some(end) = after.find(')') {
-                        let url = &after[..end];
-                        if !url.is_empty() && !url.contains(char::is_whitespace) {
-                            let idx = links.len();
-                            links.push(url.to_string());
-                            push(&mut spans, i..i + 1, st, true, Some(idx));
-                            let ls = i + 1;
-                            push(&mut spans, ls..ls + label.len(), st, false, Some(idx));
-                            let ms = ls + label.len();
-                            push(&mut spans, ms..ms + 2 + url.len() + 1, st, true, Some(idx));
-                            i = ms + 2 + url.len() + 1;
-                            continue;
-                        }
-                    }
+        if c == '['
+            && let Some(close) = rest.find("](")
+        {
+            let label = &rest[1..close];
+            let after = &rest[close + 2..];
+            if !label.is_empty()
+                && !label.contains(']')
+                && let Some(end) = after.find(')')
+            {
+                let url = &after[..end];
+                if !url.is_empty() && !url.contains(char::is_whitespace) {
+                    let idx = links.len();
+                    links.push(url.to_string());
+                    push(&mut spans, i..i + 1, st, true, Some(idx));
+                    let ls = i + 1;
+                    push(&mut spans, ls..ls + label.len(), st, false, Some(idx));
+                    let ms = ls + label.len();
+                    push(&mut spans, ms..ms + 2 + url.len() + 1, st, true, Some(idx));
+                    i = ms + 2 + url.len() + 1;
+                    continue;
                 }
             }
         }
@@ -212,13 +216,8 @@ pub fn job(text: &str, base: Base, show_markers: bool, wrap: f32) -> (LayoutJob,
             color = if mention { theme::TEXT() } else { theme::LINK() };
         }
         let size = if st.code { base.size * 0.88 } else { base.size };
-        let mut f = TextFormat {
-            font_id: font(size, base.bold || st.bold, st.code),
-            color,
-            italics: base.italic || st.italic,
-            line_height: Some(base.size * 1.5),
-            ..Default::default()
-        };
+        let mut f =
+            TextFormat { font_id: font(size, base.bold || st.bold, st.code), color, italics: base.italic || st.italic, line_height: Some(base.size * 1.5), ..Default::default() };
         if st.strike || base.strike {
             f.strikethrough = Stroke::new(1.0, color);
         }

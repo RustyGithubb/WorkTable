@@ -131,12 +131,7 @@ pub fn section_title(text: &str) -> RichText {
 }
 
 /// Carte de contenu avec bordure fine.
-pub fn card<R>(
-    ui: &mut egui::Ui,
-    title: &str,
-    min_height: f32,
-    body: impl FnOnce(&mut egui::Ui) -> R,
-) -> R {
+pub fn card<R>(ui: &mut egui::Ui, title: &str, min_height: f32, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::new()
         .fill(theme::SURFACE())
         .stroke(Stroke::new(1.0, theme::BORDER()))
@@ -194,10 +189,7 @@ pub fn pane_columns(ui: &mut egui::Ui, fixed: &[f32], mut body: impl FnMut(usize
     for i in 0..=fixed.len() {
         let w = fixed.get(i).copied().unwrap_or(full.right() - x);
         let rect = egui::Rect::from_min_size(egui::pos2(x, full.top()), egui::vec2(w, full.height()));
-        ui.scope_builder(
-            egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::top_down(egui::Align::Min)),
-            |ui| pane(ui, |ui| body(i, ui)),
-        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::top_down(egui::Align::Min)), |ui| pane(ui, |ui| body(i, ui)));
         x += w + gap;
     }
     ui.allocate_rect(full, egui::Sense::hover());
@@ -215,12 +207,9 @@ pub fn field(ui: &mut egui::Ui, label: &str, label_w: f32, edit: egui::TextEdit)
 /// Sélecteur segmenté : la pastille de sélection glisse (animation liquide) d'une option à l'autre.
 pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, salt: &str, options: &[(T, &str)], value: &mut T) -> bool {
     let mut changed = false;
-    egui::Frame::new()
-        .fill(theme::BG())
-        .stroke(egui::Stroke::new(1.0, theme::BORDER()))
-        .corner_radius(CornerRadius::same(255))
-        .inner_margin(egui::Margin::same(3))
-        .show(ui, |ui| {
+    egui::Frame::new().fill(theme::BG()).stroke(egui::Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(255)).inner_margin(egui::Margin::same(3)).show(
+        ui,
+        |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 let mut hl = crate::liquid::Liquid::begin(ui, ("segmented", salt));
@@ -243,6 +232,7 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, salt: &str, options: &[
                 }
                 hl.end(ui, theme::TEXT(), 13.0);
             });
-        });
+        },
+    );
     changed
 }

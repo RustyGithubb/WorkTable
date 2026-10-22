@@ -236,6 +236,7 @@ impl Notifier {
         // l'afficher ; l'animation ne démarre qu'ensuite.
         a.frames = a.frames.saturating_add(1);
         let ready = a.frames > WARMUP_FRAMES;
+        let fresh = a.frames <= WARMUP_FRAMES + 3;
         let t = if ready {
             let start = *a.start.get_or_insert_with(|| {
                 // Apparition du bandeau : petit son (différent pour un mail et un message).
@@ -344,6 +345,7 @@ impl Notifier {
             if !self.border_done {
                 self.border_done = strip_border(ACH_TITLE);
             }
+            no_activate(ACH_TITLE);
             // La fenêtre est découpée à la forme exacte de la capsule : rien autour ne peut
             // apparaître, même si Windows n'applique pas la transparence.
             if CLIP_SHAPE.load(std::sync::atomic::Ordering::Relaxed) {
@@ -351,7 +353,10 @@ impl Notifier {
                     self.shape = Some(shape);
                 }
             } else {
-                clear_backdrop(ACH_TITLE);
+                // Seulement quand la fenêtre vient d'être créée ou change de taille (pas à chaque image).
+                if fresh || self.shape != Some(outer) {
+                    clear_backdrop(ACH_TITLE);
+                }
                 if self.shape != Some(outer) && shape_window(ACH_TITLE, outer, outer_d) {
                     self.shape = Some(outer);
                 }
@@ -360,8 +365,10 @@ impl Notifier {
         };
         if clicked {
             // Ramène l'app au premier plan.
-            ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Minimized(false));
-            ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
+            if !bring_root_to_front() {
+                ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
+            }
             let target = a.target.clone();
             // Clic : on passe directement à la disparition.
             a.start = Some(Instant::now() - Duration::from_secs_f32(out_t));
@@ -376,6 +383,42 @@ static CLIP_SHAPE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool
 
 pub fn set_clip_shape(on: bool) {
     CLIP_SHAPE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Fenêtre principale de l'app (identifiant Windows), enregistrée au démarrage.
+static ROOT_WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+pub fn set_root_window(hwnd: isize) {
+    ROOT_WINDOW.store(hwnd, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Remet la fenêtre principale au premier plan (renvoie `false` si c'est impossible ici).
+///
+/// La commande `Focus` d'egui simule un appui sur Alt pour forcer le passage au premier plan :
+/// Windows ouvre alors le « mode menu » de la fenêtre et y dessine un instant sa barre de titre
+/// (cachée). Le clic sur le bandeau vient d'être reçu par l'app, Windows l'autorise donc à
+/// passer au premier plan directement, sans cette simulation.
+#[cfg(windows)]
+fn bring_root_to_front() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, SW_RESTORE, SetForegroundWindow, ShowWindow};
+    let hwnd = ROOT_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
+    if hwnd == 0 {
+        return false;
+    }
+    let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
+    // SAFETY : fenêtre principale de ce processus, qui existe tant que l'app tourne.
+    unsafe {
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        SetForegroundWindow(hwnd);
+    }
+    true
+}
+
+#[cfg(not(windows))]
+fn bring_root_to_front() -> bool {
+    false
 }
 
 /// Titre (invisible) de la fenêtre du bandeau, qui sert à la retrouver sous Windows.
@@ -407,6 +450,78 @@ fn strip_border(title: &str) -> bool {
 fn strip_border(_title: &str) -> bool {
     true
 }
+
+/// Le bandeau ne devient jamais la fenêtre active : sinon, au clic sur « Ouvrir », Windows
+/// dessinait sa barre de titre (cachée mais toujours présente, winit la garde aux fenêtres sans
+/// cadre) dans la marge transparente au-dessus du bandeau. L'apparence n'est pas modifiée.
+#[cfg(windows)]
+fn no_activate(title: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW;
+    let wide: Vec<u16> = title.encode_utf16().chain(Some(0)).collect();
+    // SAFETY : fenêtre de ce processus, pointeurs valides le temps des appels.
+    unsafe {
+        let hwnd = FindWindowW(std::ptr::null(), wide.as_ptr());
+        if !hwnd.is_null() {
+            hook_window(hwnd);
+        }
+    }
+}
+
+/// Procédure d'origine des fenêtres winit, et fenêtre du bandeau déjà interceptée.
+#[cfg(all(windows, target_pointer_width = "64"))]
+static OLD_PROC: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+#[cfg(all(windows, target_pointer_width = "64"))]
+static HOOKED: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+/// Intercepte le message qui rendrait la fenêtre du bandeau active au clic (le clic lui-même
+/// est bien reçu) ; tout le reste va à winit.
+#[cfg(all(windows, target_pointer_width = "64"))]
+unsafe fn hook_window(hwnd: windows_sys::Win32::Foundation::HWND) {
+    use std::sync::atomic::Ordering::SeqCst;
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CallWindowProcW, DefWindowProcW, GWLP_WNDPROC, GetWindowLongPtrW, MA_NOACTIVATE, SetWindowLongPtrW, WM_MOUSEACTIVATE, WM_NCACTIVATE, WNDPROC,
+    };
+
+    unsafe extern "system" fn banner_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+        // SAFETY : `OLD_PROC` est la procédure d'origine de la fenêtre (même taille qu'un pointeur
+        // de fonction, 0 = aucune).
+        unsafe {
+            let old: WNDPROC = std::mem::transmute::<isize, WNDPROC>(OLD_PROC.load(SeqCst));
+            if old.is_none() {
+                return DefWindowProcW(hwnd, msg, wp, lp);
+            }
+            match msg {
+                // Un clic ne rend pas le bandeau actif.
+                WM_MOUSEACTIVATE => MA_NOACTIVATE as LRESULT,
+                // Par sécurité, si la fenêtre change d'état malgré tout : sans redessiner le cadre.
+                WM_NCACTIVATE => CallWindowProcW(old, hwnd, msg, wp, -1),
+                _ => CallWindowProcW(old, hwnd, msg, wp, lp),
+            }
+        }
+    }
+
+    if HOOKED.load(SeqCst) == hwnd as isize {
+        return;
+    }
+    let f: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT = banner_proc;
+    let ours = f as usize as isize;
+    // SAFETY : fenêtre de ce processus ; la procédure d'origine est gardée avant le changement.
+    unsafe {
+        let current = GetWindowLongPtrW(hwnd, GWLP_WNDPROC);
+        if current != ours {
+            OLD_PROC.store(current, SeqCst);
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, ours);
+        }
+    }
+    HOOKED.store(hwnd as isize, SeqCst);
+}
+
+#[cfg(all(windows, not(target_pointer_width = "64")))]
+unsafe fn hook_window(_hwnd: windows_sys::Win32::Foundation::HWND) {}
+
+#[cfg(not(windows))]
+fn no_activate(_title: &str) {}
 
 /// Découpe la fenêtre du bandeau en capsule (rectangle aux bouts arrondis), en pixels.
 #[cfg(windows)]
@@ -616,14 +731,10 @@ fn body_job(text: &str, full: f32, color: Color32) -> egui::text::LayoutJob {
 fn scaled<R>(ui: &mut egui::Ui, an: &Anim, f: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let center = ui.max_rect().center();
     let ctx = ui.ctx().clone();
-    let inner = egui::Area::new(egui::Id::unique("wt_achievement_layer"))
-        .order(egui::Order::Foreground)
-        .fixed_pos(ui.max_rect().min)
-        .constrain(false)
-        .show(&ctx, |ui| {
-            ui.set_min_size(ui.max_rect().size());
-            f(ui)
-        });
+    let inner = egui::Area::new(egui::Id::unique("wt_achievement_layer")).order(egui::Order::Foreground).fixed_pos(ui.max_rect().min).constrain(false).show(&ctx, |ui| {
+        ui.set_min_size(ui.max_rect().size());
+        f(ui)
+    });
     let k = an.scale.max(0.001);
     let t = egui::emath::TSTransform::from_translation(center.to_vec2() * (1.0 - k)) * egui::emath::TSTransform::from_scaling(k);
     ctx.set_transform_layer(inner.response.layer_id, t);
@@ -645,4 +756,3 @@ fn ease_out_elastic(x: f32) -> f32 {
 fn ease_in(x: f32) -> f32 {
     x * x
 }
-

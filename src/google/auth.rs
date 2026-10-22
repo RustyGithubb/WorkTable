@@ -67,8 +67,7 @@ pub fn stored_refresh_token() -> Option<String> {
 }
 
 fn store_refresh_token(token: &str) -> Result<(), String> {
-    std::fs::create_dir_all(crate::paths::secrets()).map_err(|e| e.to_string())?;
-    std::fs::write(token_path(), token).map_err(|e| e.to_string())
+    crate::paths::write_atomic(&token_path(), token.as_bytes()).map_err(|e| e.to_string())
 }
 
 pub fn forget_refresh_token() {
@@ -122,16 +121,10 @@ pub fn login(agent: &ureq::Agent, cfg: &Config) -> Result<Tokens, String> {
         .into_json()
         .map_err(|e| e.to_string())?;
 
-    let refresh = resp
-        .refresh_token
-        .ok_or("Google n'a pas renvoyé de jeton de rafraîchissement")?;
+    let refresh = resp.refresh_token.ok_or("Google n'a pas renvoyé de jeton de rafraîchissement")?;
     store_refresh_token(&refresh)?;
 
-    Ok(Tokens {
-        access: resp.access_token,
-        expires_at: Instant::now() + Duration::from_secs(resp.expires_in.saturating_sub(60)),
-        refresh,
-    })
+    Ok(Tokens { access: resp.access_token, expires_at: Instant::now() + Duration::from_secs(resp.expires_in.saturating_sub(60)), refresh })
 }
 
 /// Attend (5 min max) la redirection du navigateur et renvoie le code d'autorisation.
@@ -167,32 +160,20 @@ fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String, String> 
         let (ok, result) = if let Some(err) = param("error") {
             (false, Err(format!("Connexion refusée : {err}")))
         } else if let Some(code) = param("code") {
-            if param("state").as_deref() == Some(state) {
-                (true, Ok(code))
-            } else {
-                (false, Err("Réponse OAuth invalide (state)".to_string()))
-            }
+            if param("state").as_deref() == Some(state) { (true, Ok(code)) } else { (false, Err("Réponse OAuth invalide (state)".to_string())) }
         } else {
             // Requête parasite (favicon…) : on ignore.
             let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\n\r\n");
             continue;
         };
 
-        let msg = if ok {
-            "Connexion réussie. Tu peux fermer cet onglet et revenir sur WorkTable."
-        } else {
-            "La connexion a échoué. Reviens sur WorkTable pour réessayer."
-        };
+        let msg = if ok { "Connexion réussie. Tu peux fermer cet onglet et revenir sur WorkTable." } else { "La connexion a échoué. Reviens sur WorkTable pour réessayer." };
         let body = format!(
             "<!doctype html><meta charset=utf-8><title>WorkTable</title>\
              <body style=\"background:#0e0e0e;color:#ededed;font-family:sans-serif;\
              display:grid;place-items:center;height:100vh;margin:0\"><p>{msg}</p></body>"
         );
-        let _ = write!(
-            stream,
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
+        let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
         return result;
     }
     Err("Délai de connexion dépassé".into())
@@ -202,12 +183,7 @@ fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String, String> 
 pub fn refresh(agent: &ureq::Agent, cfg: &Config, refresh: &str) -> Result<Tokens, String> {
     let resp: TokenResponse = agent
         .post(TOKEN_URL)
-        .send_form(&[
-            ("refresh_token", refresh),
-            ("client_id", cfg.client_id.trim()),
-            ("client_secret", cfg.client_secret.trim()),
-            ("grant_type", "refresh_token"),
-        ])
+        .send_form(&[("refresh_token", refresh), ("client_id", cfg.client_id.trim()), ("client_secret", cfg.client_secret.trim()), ("grant_type", "refresh_token")])
         .map_err(super::http_err)?
         .into_json()
         .map_err(|e| e.to_string())?;

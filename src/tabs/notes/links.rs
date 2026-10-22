@@ -12,8 +12,8 @@ use crate::notes_store::NoteLink;
 use crate::tabs::calendar::{CalendarState, date_of, hhmm};
 use crate::tabs::mail::MailState;
 use crate::tabs::messages::ChatState;
-use crate::tasks::Tasks;
 use crate::tabs::{month_fr, weekday_fr};
+use crate::tasks::Tasks;
 use crate::{theme, widgets};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -78,9 +78,7 @@ impl Picker {
 }
 
 pub fn date_label(iso: &str) -> String {
-    NaiveDate::parse_from_str(iso, "%Y-%m-%d")
-        .map(|d| format!("{} {} {} {}", weekday_fr(d.weekday()), d.day(), month_fr(d.month()), d.year()))
-        .unwrap_or_else(|_| iso.to_string())
+    NaiveDate::parse_from_str(iso, "%Y-%m-%d").map(|d| format!("{} {} {} {}", weekday_fr(d.weekday()), d.day(), month_fr(d.month()), d.year())).unwrap_or_else(|_| iso.to_string())
 }
 
 fn row(ui: &mut egui::Ui, icon: &str, color: Option<Color32>, title: &str, sub: &str) -> bool {
@@ -145,7 +143,12 @@ pub fn show(ctx: &egui::Context, p: &mut Picker, cal: &CalendarState, mail: &Mai
         });
         ui.add_space(6.0);
         let before = p.tab;
-        widgets::segmented(ui, "note_links", &[(Tab::Event, "Événement"), (Tab::Date, "Date"), (Tab::Mail, "Mail"), (Tab::Chat, "Message"), (Tab::Task, "Tâche"), (Tab::Drive, "Drive")], &mut p.tab);
+        widgets::segmented(
+            ui,
+            "note_links",
+            &[(Tab::Event, "Événement"), (Tab::Date, "Date"), (Tab::Mail, "Mail"), (Tab::Chat, "Message"), (Tab::Task, "Tâche"), (Tab::Drive, "Drive")],
+            &mut p.tab,
+        );
         if p.tab != before {
             p.query.clear();
             p.focus = true;

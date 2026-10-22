@@ -118,11 +118,7 @@ pub fn monday(d: NaiveDate) -> NaiveDate {
 
 /// Minuit local du jour `d`, en ms.
 pub fn day_start(d: NaiveDate) -> i64 {
-    Local
-        .from_local_datetime(&d.and_hms_opt(0, 0, 0).unwrap())
-        .earliest()
-        .map(|t| t.timestamp_millis())
-        .unwrap_or(0)
+    Local.from_local_datetime(&d.and_hms_opt(0, 0, 0).unwrap()).earliest().map(|t| t.timestamp_millis()).unwrap_or(0)
 }
 
 /// Instant `minutes` après minuit le jour `d`.
@@ -185,13 +181,7 @@ impl CalendarState {
 
     /// Événements visibles qui touchent l'intervalle [from, to).
     pub fn events_between(&self, prefs: &Prefs, from: i64, to: i64) -> Vec<&CalEvent> {
-        let mut out: Vec<&CalEvent> = self
-            .visible_calendars(prefs)
-            .into_iter()
-            .filter_map(|c| self.events.get(&c.id))
-            .flatten()
-            .filter(|e| e.start < to && e.end > from)
-            .collect();
+        let mut out: Vec<&CalEvent> = self.visible_calendars(prefs).into_iter().filter_map(|c| self.events.get(&c.id)).flatten().filter(|e| e.start < to && e.end > from).collect();
         out.sort_by_key(|e| (e.start, -(e.end - e.start)));
         out
     }
@@ -253,10 +243,12 @@ impl CalendarState {
     fn load_calendars(&mut self, acc: &Account) {
         self.loading_calendars = true;
         self.last_calendar_attempt = Some(Instant::now());
-        acc.run(|s| Ok(match calendar::calendars(s) {
-            Ok(c) => Event::Calendars(c),
-            Err(e) => Event::CalError(e),
-        }));
+        acc.run(|s| {
+            Ok(match calendar::calendars(s) {
+                Ok(c) => Event::Calendars(c),
+                Err(e) => Event::CalError(e),
+            })
+        });
     }
 
     /// À appeler à chaque frame (même hors de l'onglet) : agendas et événements à jour,
@@ -295,10 +287,12 @@ impl CalendarState {
             if covered || !self.pending.insert((id.clone(), f)) {
                 continue;
             }
-            acc.run(move |s| Ok(match calendar::events(s, &id, f, t) {
-                Ok(events) => Event::CalEvents { calendar: id, from: f, to: t, events },
-                Err(e) => Event::CalError(e),
-            }));
+            acc.run(move |s| {
+                Ok(match calendar::events(s, &id, f, t) {
+                    Ok(events) => Event::CalEvents { calendar: id, from: f, to: t, events },
+                    Err(e) => Event::CalError(e),
+                })
+            });
         }
     }
 
@@ -318,19 +312,19 @@ impl CalendarState {
                 self.loaded.entry(calendar).or_default().push((from, to));
             }
             Event::CalSaved { event, previous } => {
-                if let Some((cal, id)) = previous {
-                    if let Some(l) = self.events.get_mut(&cal) {
-                        l.retain(|e| e.id != id);
-                    }
+                if let Some((cal, id)) = previous
+                    && let Some(l) = self.events.get_mut(&cal)
+                {
+                    l.retain(|e| e.id != id);
                 }
                 let l = self.events.entry(event.calendar.clone()).or_default();
                 l.retain(|e| e.id != event.id);
                 self.selected = Some((event.calendar.clone(), event.id.clone()));
                 l.push(event);
-                if let Some(ed) = &mut self.editor {
-                    if ed.saving {
-                        self.editor = None;
-                    }
+                if let Some(ed) = &mut self.editor
+                    && ed.saving
+                {
+                    self.editor = None;
                 }
                 self.info("Événement enregistré");
             }
@@ -372,11 +366,7 @@ impl CalendarState {
 
     pub fn default_calendar(&self, prefs: &Prefs) -> Option<&CalendarInfo> {
         let vis = self.visible_calendars(prefs);
-        vis.iter()
-            .find(|c| c.primary && c.writable)
-            .or_else(|| vis.iter().find(|c| c.writable))
-            .copied()
-            .or_else(|| self.calendars.iter().find(|c| c.primary))
+        vis.iter().find(|c| c.primary && c.writable).or_else(|| vis.iter().find(|c| c.writable)).copied().or_else(|| self.calendars.iter().find(|c| c.primary))
     }
 
     /// Ouvre le panneau sur un nouvel événement [start, end).
@@ -416,21 +406,23 @@ impl CalendarState {
     /// immédiate à l'écran, puis envoi à Google Agenda.
     pub fn commit_drag(&mut self, acc: &Account, mut e: CalEvent) {
         let original_cal = e.calendar.clone();
-        if let Some(l) = self.events.get_mut(&e.calendar) {
-            if let Some(x) = l.iter_mut().find(|x| x.id == e.id) {
-                *x = e.clone();
-            }
+        if let Some(l) = self.events.get_mut(&e.calendar)
+            && let Some(x) = l.iter_mut().find(|x| x.id == e.id)
+        {
+            *x = e.clone();
         }
-        if let Some(ed) = &mut self.editor {
-            if ed.original.as_ref().is_some_and(|o| o.id == e.id) {
-                *ed = Editor::new(e.clone(), Some(e.clone()));
-            }
+        if let Some(ed) = &mut self.editor
+            && ed.original.as_ref().is_some_and(|o| o.id == e.id)
+        {
+            *ed = Editor::new(e.clone(), Some(e.clone()));
         }
         e.attendees.retain(|a| !a.is_empty());
-        acc.run(move |s| Ok(match calendar::update(s, &e, &original_cal, false) {
-            Ok(event) => Event::CalSaved { event, previous: None },
-            Err(err) => Event::CalError(err),
-        }));
+        acc.run(move |s| {
+            Ok(match calendar::update(s, &e, &original_cal, false) {
+                Ok(event) => Event::CalSaved { event, previous: None },
+                Err(err) => Event::CalError(err),
+            })
+        });
     }
 
     pub fn save_editor(&mut self, acc: &Account) {
@@ -446,17 +438,21 @@ impl CalendarState {
         ed.error = None;
         let meet = ed.add_meet;
         match ed.original.clone() {
-            None => acc.run(move |s| Ok(match calendar::create(s, &ev, meet) {
-                Ok(event) => Event::CalSaved { event, previous: None },
-                Err(e) => Event::CalError(e),
-            })),
-            Some(orig) => acc.run(move |s| Ok(match calendar::update(s, &ev, &orig.calendar, meet) {
-                Ok(event) => {
-                    let previous = (orig.calendar != event.calendar).then(|| (orig.calendar.clone(), orig.id.clone()));
-                    Event::CalSaved { event, previous }
-                }
-                Err(e) => Event::CalError(e),
-            })),
+            None => acc.run(move |s| {
+                Ok(match calendar::create(s, &ev, meet) {
+                    Ok(event) => Event::CalSaved { event, previous: None },
+                    Err(e) => Event::CalError(e),
+                })
+            }),
+            Some(orig) => acc.run(move |s| {
+                Ok(match calendar::update(s, &ev, &orig.calendar, meet) {
+                    Ok(event) => {
+                        let previous = (orig.calendar != event.calendar).then(|| (orig.calendar.clone(), orig.id.clone()));
+                        Event::CalSaved { event, previous }
+                    }
+                    Err(e) => Event::CalError(e),
+                })
+            }),
         }
     }
 
@@ -468,10 +464,12 @@ impl CalendarState {
         };
         ed.saving = true;
         let notify = !orig.attendees.is_empty();
-        acc.run(move |s| Ok(match calendar::delete(s, &orig.calendar, &orig.id, notify) {
-            Ok(()) => Event::CalDeleted { calendar: orig.calendar, id: orig.id },
-            Err(e) => Event::CalError(e),
-        }));
+        acc.run(move |s| {
+            Ok(match calendar::delete(s, &orig.calendar, &orig.id, notify) {
+                Ok(()) => Event::CalDeleted { calendar: orig.calendar, id: orig.id },
+                Err(e) => Event::CalError(e),
+            })
+        });
     }
 }
 
@@ -519,10 +517,7 @@ impl Editor {
                 return Err("La fin doit être après le début".into());
             }
         }
-        e.attendees = crate::tabs::mail::contacts::split_list(&self.attendees)
-            .iter()
-            .filter_map(|m| crate::tabs::mail::contacts::parse_mailbox(m).map(|(_, a)| a))
-            .collect();
+        e.attendees = crate::tabs::mail::contacts::split_list(&self.attendees).iter().filter_map(|m| crate::tabs::mail::contacts::parse_mailbox(m).map(|(_, a)| a)).collect();
         if e.title.trim().is_empty() {
             e.title = "(Sans titre)".into();
         }
@@ -581,12 +576,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &mut Account, prefs
     // Colonne de gauche masquable : l'agenda prend alors toute la largeur.
     // Ouverture / fermeture rapide avec un léger rebond élastique.
     const SIDE_W: f32 = 250.0;
-    let k = ui.ctx().animate_bool_with_time_and_easing(
-        egui::Id::unique("wt_cal_side"),
-        !prefs.calendar_side_hidden,
-        0.28,
-        |t| crate::prefs::Curve::Elastic.apply(t),
-    );
+    let k = ui.ctx().animate_bool_with_time_and_easing(egui::Id::unique("wt_cal_side"), !prefs.calendar_side_hidden, 0.28, |t| crate::prefs::Curve::Elastic.apply(t));
     let side_w = if SIDE_W * k < 24.0 { 0.0 } else { SIDE_W * k };
     let gaps = if side_w > 0.0 { 8.0 } else { 0.0 };
     let panel_w = if cal.editor.is_some() { 360.0 } else { 0.0 };
@@ -831,20 +821,17 @@ fn toast(ui: &mut egui::Ui, cal: &mut CalendarState) {
     }
     ui.ctx().request_repaint_after(Duration::from_millis(250));
     let (text, error) = (text.clone(), *error);
-    egui::Area::new(egui::Id::unique("cal_toast"))
-        .order(egui::Order::Foreground)
-        .anchor(egui::Align2::RIGHT_BOTTOM, vec2(-24.0, -24.0))
-        .show(ui.ctx(), |ui| {
-            ui.set_max_width(420.0);
-            egui::Frame::new()
-                .fill(if error { theme::TEXT() } else { theme::SURFACE_HI() })
-                .stroke(egui::Stroke::new(1.0, theme::BORDER()))
-                .corner_radius(egui::CornerRadius::same(10))
-                .inner_margin(egui::Margin::symmetric(14, 10))
-                .show(ui, |ui| {
-                    ui.add(egui::Label::new(RichText::new(text).color(if error { theme::BG() } else { theme::TEXT() })).wrap());
-                });
-        });
+    egui::Area::new(egui::Id::unique("cal_toast")).order(egui::Order::Foreground).anchor(egui::Align2::RIGHT_BOTTOM, vec2(-24.0, -24.0)).show(ui.ctx(), |ui| {
+        ui.set_max_width(420.0);
+        egui::Frame::new()
+            .fill(if error { theme::TEXT() } else { theme::SURFACE_HI() })
+            .stroke(egui::Stroke::new(1.0, theme::BORDER()))
+            .corner_radius(egui::CornerRadius::same(10))
+            .inner_margin(egui::Margin::symmetric(14, 10))
+            .show(ui, |ui| {
+                ui.add(egui::Label::new(RichText::new(text).color(if error { theme::BG() } else { theme::TEXT() })).wrap());
+            });
+    });
 }
 
 /// Rendu lisible d'une couleur d'agenda sur le fond sombre.

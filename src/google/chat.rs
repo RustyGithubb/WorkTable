@@ -120,22 +120,44 @@ pub enum ChatEvent {
     Spaces(Vec<Space>),
     /// Messages d'un espace. `replace_from` : remplace tout ce qui est plus récent que cette date
     /// (rafraîchissement complet de la fenêtre récente) ; `None` = ajout / mise à jour.
-    Messages { space: String, list: Vec<ChatMessage>, replace_from: Option<i64>, older: bool, more: bool },
+    Messages {
+        space: String,
+        list: Vec<ChatMessage>,
+        replace_from: Option<i64>,
+        older: bool,
+        more: bool,
+    },
     ReadStates(Vec<(String, i64)>),
     Members(Vec<(String, Vec<String>)>),
     People(Vec<Person>),
     /// Message envoyé : remplace l'aperçu local `local`.
-    Sent { space: String, msg: ChatMessage, local: String },
-    SendFailed { space: String, local: String, error: String },
+    Sent {
+        space: String,
+        msg: ChatMessage,
+        local: String,
+    },
+    SendFailed {
+        space: String,
+        local: String,
+        error: String,
+    },
     /// Rien à faire (action confirmée par Google).
     Noop,
     Updated(ChatMessage),
-    Deleted { space: String, name: String },
+    Deleted {
+        space: String,
+        name: String,
+    },
     /// Réaction modifiée : le message est rechargé.
     Reacted(ChatMessage),
-    Image { key: String, image: Result<std::sync::Arc<eframe::egui::ColorImage>, String> },
+    Image {
+        key: String,
+        image: Result<std::sync::Arc<eframe::egui::ColorImage>, String>,
+    },
     /// Fichier téléchargé, prêt à ouvrir avec l'application par défaut.
-    File { path: std::path::PathBuf },
+    File {
+        path: std::path::PathBuf,
+    },
     /// Conversation privée trouvée ou créée.
     Dm(Space),
     /// Sections de l'utilisateur (`Err` : indisponibles, ex. autorisation à accorder).
@@ -175,13 +197,7 @@ fn parse_space(v: &Value) -> Space {
 pub fn parse_message(v: &Value) -> ChatMessage {
     let name = v["name"].as_str().unwrap_or_default().to_string();
     let space = name.split("/messages/").next().unwrap_or_default().to_string();
-    let text = v["text"]
-        .as_str()
-        .filter(|t| !t.is_empty())
-        .or(v["argumentText"].as_str().filter(|t| !t.is_empty()))
-        .or(v["fallbackText"].as_str())
-        .unwrap_or_default()
-        .to_string();
+    let text = v["text"].as_str().filter(|t| !t.is_empty()).or(v["argumentText"].as_str().filter(|t| !t.is_empty())).or(v["fallbackText"].as_str()).unwrap_or_default().to_string();
     let attachments = v["attachment"]
         .as_array()
         .map(|a| {
@@ -293,12 +309,7 @@ pub fn read_states(s: &Session, spaces: &[String]) -> Result<Vec<(String, i64)>,
 
 pub fn mark_read(s: &Session, space: &str, at: i64) -> Result<(), String> {
     let id = space.trim_start_matches("spaces/");
-    s.send(
-        "PATCH",
-        &format!("{API}/users/me/spaces/{id}/spaceReadState"),
-        &[("updateMask", "lastReadTime")],
-        Some(json!({ "lastReadTime": rfc3339(at) })),
-    )?;
+    s.send("PATCH", &format!("{API}/users/me/spaces/{id}/spaceReadState"), &[("updateMask", "lastReadTime")], Some(json!({ "lastReadTime": rfc3339(at) })))?;
     Ok(())
 }
 
@@ -307,12 +318,7 @@ pub fn members(s: &Session, spaces: &[String]) -> Result<Vec<(String, Vec<String
     let mut out = Vec::new();
     for sp in spaces {
         let Ok(v) = s.get(&format!("{API}/{sp}/members"), &[("pageSize", "100")]) else { continue };
-        let users = v["memberships"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|m| m["member"]["name"].as_str().map(str::to_string))
-            .collect();
+        let users = v["memberships"].as_array().into_iter().flatten().filter_map(|m| m["member"]["name"].as_str().map(str::to_string)).collect();
         out.push((sp.clone(), users));
     }
     Ok(out)
@@ -334,11 +340,7 @@ pub fn people(s: &Session, ids: &[String]) -> Result<Vec<Person>, String> {
             let p = &r["person"];
             let name = p["names"][0]["displayName"].as_str().unwrap_or_default().to_string();
             let email = p["emailAddresses"][0]["value"].as_str().unwrap_or_default().to_string();
-            let photo = p["photos"]
-                .as_array()
-                .and_then(|a| a.iter().find(|x| !x["default"].as_bool().unwrap_or(false)))
-                .and_then(|x| x["url"].as_str())
-                .map(|u| photo_size(u, 96));
+            let photo = p["photos"].as_array().and_then(|a| a.iter().find(|x| !x["default"].as_bool().unwrap_or(false))).and_then(|x| x["url"].as_str()).map(|u| photo_size(u, 96));
             // Introuvable : on le note quand même pour ne pas redemander à chaque fois.
             out.push(Person { id, name, email, photo });
         }
@@ -355,11 +357,7 @@ pub fn send(s: &Session, space: &str, text: &str, thread: Option<&str>, attachme
         body["attachment"] = Value::Array(attachments);
     }
     let url = format!("{API}/{space}/messages");
-    let v = if thread.is_some() {
-        s.send("POST", &url, &[("messageReplyOption", "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD")], Some(body))?
-    } else {
-        s.post(&url, body)?
-    };
+    let v = if thread.is_some() { s.send("POST", &url, &[("messageReplyOption", "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD")], Some(body))? } else { s.post(&url, body)? };
     Ok(parse_message(&v))
 }
 
@@ -372,11 +370,7 @@ pub fn upload(s: &Session, space: &str, filename: &str, mime: &str, data: &[u8])
     body.extend_from_slice(format!("\r\n--{boundary}\r\nContent-Type: {mime}\r\n\r\n").as_bytes());
     body.extend_from_slice(data);
     body.extend_from_slice(format!("\r\n--{boundary}--").as_bytes());
-    let v = s.post_bytes(
-        &format!("{UPLOAD}/{space}/attachments:upload?uploadType=multipart"),
-        &format!("multipart/related; boundary={boundary}"),
-        &body,
-    )?;
+    let v = s.post_bytes(&format!("{UPLOAD}/{space}/attachments:upload?uploadType=multipart"), &format!("multipart/related; boundary={boundary}"), &body)?;
     Ok(json!({ "attachmentDataRef": v["attachmentDataRef"].clone() }))
 }
 
@@ -393,7 +387,6 @@ pub fn delete(s: &Session, name: &str) -> Result<(), String> {
 pub fn get_message(s: &Session, name: &str) -> Result<ChatMessage, String> {
     Ok(parse_message(&s.get(&format!("{API}/{name}"), &[])?))
 }
-
 
 /// Ajoute (`add`) ou retire une réaction en un minimum d'appels.
 /// Renvoie `true` si la réaction est finalement présente.
@@ -509,15 +502,8 @@ pub fn move_to_section(s: &Session, space: &str, item: Option<&str>, target: &st
 
 /// Crée un espace nommé, ou une discussion de groupe si `name` est vide (2 membres minimum).
 pub fn create_space(s: &Session, name: &str, emails: &[String]) -> Result<Space, String> {
-    let members: Vec<Value> = emails
-        .iter()
-        .map(|e| json!({ "member": { "name": format!("users/{e}"), "type": "HUMAN" } }))
-        .collect();
-    let space = if name.trim().is_empty() {
-        json!({ "spaceType": "GROUP_CHAT" })
-    } else {
-        json!({ "spaceType": "SPACE", "displayName": name.trim() })
-    };
+    let members: Vec<Value> = emails.iter().map(|e| json!({ "member": { "name": format!("users/{e}"), "type": "HUMAN" } })).collect();
+    let space = if name.trim().is_empty() { json!({ "spaceType": "GROUP_CHAT" }) } else { json!({ "spaceType": "SPACE", "displayName": name.trim() }) };
     Ok(parse_space(&s.post(&format!("{API}/spaces:setup"), json!({ "space": space, "memberships": members }))?))
 }
 

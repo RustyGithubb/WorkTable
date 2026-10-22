@@ -59,15 +59,7 @@ fn move_cursor_to_end(ctx: &egui::Context, id: egui::Id, text: &str) {
     ctx.memory_mut(|m| m.request_focus(id));
 }
 
-pub fn field(
-    ui: &mut egui::Ui,
-    label: &str,
-    text: &mut String,
-    salt: &str,
-    hint: &str,
-    book: &Contacts,
-    st: &mut Suggest,
-) {
+pub fn field(ui: &mut egui::Ui, label: &str, text: &mut String, salt: &str, hint: &str, book: &Contacts, st: &mut Suggest) {
     let ctx = ui.ctx().clone();
     let id = egui::Id::unique(("wt_recipients", salt));
     if st.refocus == Some(id) {
@@ -76,10 +68,7 @@ pub fn field(
     }
 
     let focused = ctx.memory(|m| m.has_focus(id));
-    let over_popup = st
-        .popup
-        .filter(|(pid, _)| *pid == id)
-        .is_some_and(|(_, r)| ctx.pointer_hover_pos().is_some_and(|p| r.contains(p)));
+    let over_popup = st.popup.filter(|(pid, _)| *pid == id).is_some_and(|(_, r)| ctx.pointer_hover_pos().is_some_and(|p| r.contains(p)));
     let (_, token) = split_token(text);
     let refocus = &mut st.refocus;
     let shared_popup = &mut st.popup;
@@ -90,21 +79,9 @@ pub fn field(
         st.dismissed = None;
     }
 
-    let already: HashSet<String> = contacts::split_list(text)
-        .iter()
-        .filter_map(|m| contacts::parse_mailbox(m).map(|(_, e)| e))
-        .collect();
+    let already: HashSet<String> = contacts::split_list(text).iter().filter_map(|m| contacts::parse_mailbox(m).map(|(_, e)| e)).collect();
     let active = (focused || over_popup) && !token.trim().is_empty() && st.dismissed.as_deref() != Some(token.as_str());
-    let suggestions: Vec<Contact> = if active {
-        book.search(&token, 12)
-            .into_iter()
-            .filter(|c| !already.contains(&c.email))
-            .take(6)
-            .cloned()
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let suggestions: Vec<Contact> = if active { book.search(&token, 12).into_iter().filter(|c| !already.contains(&c.email)).take(6).cloned().collect() } else { Vec::new() };
     if !suggestions.is_empty() {
         st.index = st.index.min(suggestions.len() - 1);
     }
@@ -143,28 +120,25 @@ pub fn field(
 
     let show_popup = !suggestions.is_empty() && st.dismissed.as_deref() != Some(token.as_str()) && chosen.is_none();
     if show_popup {
-        let area = egui::Area::new(id.with("suggestions"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(resp.rect.left_bottom() + vec2(0.0, 4.0))
-            .show(&ctx, |ui| {
-                egui::Frame::new()
-                    .fill(theme::SURFACE())
-                    .stroke(Stroke::new(1.0, crate::theme::gray(0x3A)))
-                    .corner_radius(CornerRadius::same(10))
-                    .shadow(egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: Color32::from_black_alpha(150) })
-                    .inner_margin(egui::Margin::same(4))
-                    .show(ui, |ui| {
-                        ui.set_width(resp.rect.width().max(260.0) - 8.0);
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        for (i, c) in suggestions.iter().enumerate() {
-                            if suggestion_row(ui, c, i == st.index).clicked() {
-                                chosen = Some(i);
-                            }
+        let area = egui::Area::new(id.with("suggestions")).order(egui::Order::Foreground).fixed_pos(resp.rect.left_bottom() + vec2(0.0, 4.0)).show(&ctx, |ui| {
+            egui::Frame::new()
+                .fill(theme::SURFACE())
+                .stroke(Stroke::new(1.0, crate::theme::gray(0x3A)))
+                .corner_radius(CornerRadius::same(10))
+                .shadow(egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: Color32::from_black_alpha(150) })
+                .inner_margin(egui::Margin::same(4))
+                .show(ui, |ui| {
+                    ui.set_width(resp.rect.width().max(260.0) - 8.0);
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for (i, c) in suggestions.iter().enumerate() {
+                        if suggestion_row(ui, c, i == st.index).clicked() {
+                            chosen = Some(i);
                         }
-                        ui.add_space(4.0);
-                        ui.label(RichText::new("  Tab ou Entrée pour ajouter · ↑ ↓ pour choisir · Échap").small().color(theme::TEXT_FAINT()));
-                    });
-            });
+                    }
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("  Tab ou Entrée pour ajouter · ↑ ↓ pour choisir · Échap").small().color(theme::TEXT_FAINT()));
+                });
+        });
         *shared_popup = Some((id, area.response.rect));
     } else if shared_popup.is_some_and(|(pid, _)| pid == id) {
         *shared_popup = None;
@@ -194,13 +168,7 @@ fn suggestion_row(ui: &mut egui::Ui, c: &Contact, highlighted: bool) -> egui::Re
     let name_font = theme::editor_font(13.5, c.favorite);
     p.text(rect.left_top() + vec2(x - rect.left(), 5.0), egui::Align2::LEFT_TOP, c.display_name(), name_font, theme::TEXT());
     if !c.name.is_empty() {
-        p.text(
-            rect.left_top() + vec2(x - rect.left(), 22.0),
-            egui::Align2::LEFT_TOP,
-            &c.email,
-            egui::FontId::proportional(11.5),
-            theme::TEXT_MUTED(),
-        );
+        p.text(rect.left_top() + vec2(x - rect.left(), 22.0), egui::Align2::LEFT_TOP, &c.email, egui::FontId::proportional(11.5), theme::TEXT_MUTED());
     }
     resp
 }

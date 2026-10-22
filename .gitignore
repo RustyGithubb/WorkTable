@@ -3,3 +3,6 @@
 /data/secrets/
 # Journal de plantage local.
 /data/config/crash.log
+# Installeur généré et identifiants livrés avec lui.
+/installer/Output/
+/installer/google.json

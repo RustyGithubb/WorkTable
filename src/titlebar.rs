@@ -2,8 +2,8 @@
 //! haut pour déplacer la fenêtre (double-clic : agrandir / restaurer), boutons réduire,
 //! agrandir et fermer en haut à droite, bords pour redimensionner.
 
-use eframe::egui::{self, Color32, CornerRadius, Pos2, Rect, Sense, Stroke, ViewportCommand, vec2};
 use eframe::egui::viewport::ResizeDirection;
+use eframe::egui::{self, Color32, CornerRadius, Pos2, Rect, Sense, Stroke, ViewportCommand, vec2};
 
 use crate::theme;
 
@@ -83,8 +83,16 @@ pub fn show(ctx: &egui::Context, window: Rect) {
             let w = window;
             let edges = [
                 (Rect::from_min_max(w.min, Pos2::new(w.min.x + EDGE * 2.0, w.min.y + EDGE * 2.0)), ResizeDirection::NorthWest, egui::CursorIcon::ResizeNorthWest),
-                (Rect::from_min_max(Pos2::new(w.max.x - EDGE * 2.0, w.min.y), Pos2::new(w.max.x, w.min.y + EDGE * 2.0)), ResizeDirection::NorthEast, egui::CursorIcon::ResizeNorthEast),
-                (Rect::from_min_max(Pos2::new(w.min.x, w.max.y - EDGE * 2.0), Pos2::new(w.min.x + EDGE * 2.0, w.max.y)), ResizeDirection::SouthWest, egui::CursorIcon::ResizeSouthWest),
+                (
+                    Rect::from_min_max(Pos2::new(w.max.x - EDGE * 2.0, w.min.y), Pos2::new(w.max.x, w.min.y + EDGE * 2.0)),
+                    ResizeDirection::NorthEast,
+                    egui::CursorIcon::ResizeNorthEast,
+                ),
+                (
+                    Rect::from_min_max(Pos2::new(w.min.x, w.max.y - EDGE * 2.0), Pos2::new(w.min.x + EDGE * 2.0, w.max.y)),
+                    ResizeDirection::SouthWest,
+                    egui::CursorIcon::ResizeSouthWest,
+                ),
                 (Rect::from_min_max(w.max - vec2(EDGE * 2.0, EDGE * 2.0), w.max), ResizeDirection::SouthEast, egui::CursorIcon::ResizeSouthEast),
                 (Rect::from_min_max(w.min, Pos2::new(w.max.x, w.min.y + EDGE)), ResizeDirection::North, egui::CursorIcon::ResizeNorth),
                 (Rect::from_min_max(Pos2::new(w.min.x, w.max.y - EDGE), w.max), ResizeDirection::South, egui::CursorIcon::ResizeSouth),

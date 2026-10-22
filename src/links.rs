@@ -85,10 +85,7 @@ impl Links {
 
     pub fn save(&self) {
         if let Some(d) = config_dir() {
-            let _ = std::fs::create_dir_all(&d);
-            if let Ok(t) = serde_json::to_string_pretty(self) {
-                let _ = std::fs::write(d.join("links.json"), t);
-            }
+            crate::paths::save_json(&d.join("links.json"), self);
         }
     }
 
@@ -147,11 +144,7 @@ fn remove_image(name: Option<&str>) {
 /// Ajoute « https:// » si l'adresse n'a pas de protocole.
 pub fn normalize_url(u: &str) -> String {
     let u = u.trim();
-    if u.is_empty() || u.contains("://") || u.starts_with("mailto:") {
-        u.to_string()
-    } else {
-        format!("https://{u}")
-    }
+    if u.is_empty() || u.contains("://") || u.starts_with("mailto:") { u.to_string() } else { format!("https://{u}") }
 }
 
 pub fn host_of(url: &str) -> String {

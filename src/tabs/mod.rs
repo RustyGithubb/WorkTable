@@ -21,10 +21,7 @@ pub fn weekday_fr(d: Weekday) -> &'static str {
 }
 
 pub fn month_fr(m: u32) -> &'static str {
-    [
-        "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre",
-        "octobre", "novembre", "décembre",
-    ][(m as usize).saturating_sub(1) % 12]
+    ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"][(m as usize).saturating_sub(1) % 12]
 }
 
 pub fn today_long() -> String {

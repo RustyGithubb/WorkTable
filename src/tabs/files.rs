@@ -113,11 +113,11 @@ impl DriveState {
         self.source = Some(s.clone());
         self.selected = None;
         self.ensure(acc, &s, false);
-        if let Source::Folder(id) = &s {
-            if !self.paths.contains_key(id) {
-                let id = id.clone();
-                run(acc, move |sess| Ok(DriveEvent::Path { path: drive::path_of(sess, &id)?, folder: id }));
-            }
+        if let Source::Folder(id) = &s
+            && !self.paths.contains_key(id)
+        {
+            let id = id.clone();
+            run(acc, move |sess| Ok(DriveEvent::Path { path: drive::path_of(sess, &id)?, folder: id }));
         }
     }
 
@@ -267,10 +267,10 @@ fn sanitize(name: &str) -> String {
 
 pub fn show(ui: &mut egui::Ui, st: &mut DriveState, acc: &mut Account, prefs: &mut Prefs) {
     // Visionneuse : la version nette remplace l'aperçu dès qu'elle est chargée.
-    if let Some(k) = crate::lightbox::current().filter(|k| k.starts_with("drive-hd:")) {
-        if let Some(ImgState::Ready { texture: Some(t), .. }) = st.thumbs.get(ui.ctx(), &k) {
-            crate::lightbox::upgrade(&k, t.clone());
-        }
+    if let Some(k) = crate::lightbox::current().filter(|k| k.starts_with("drive-hd:"))
+        && let Some(ImgState::Ready { texture: Some(t), .. }) = st.thumbs.get(ui.ctx(), &k)
+    {
+        crate::lightbox::upgrade(&k, t.clone());
     }
     crate::widgets::page_header(ui, "Fichiers", "Google Drive");
 
@@ -377,12 +377,10 @@ fn shortcuts(ui: &mut egui::Ui, st: &mut DriveState, acc: &Account) {
     if esc {
         st.selected = None;
     }
-    if back {
-        if let Some(s) = st.back.pop() {
-            st.source = Some(s.clone());
-            st.selected = None;
-            st.ensure(acc, &s, false);
-        }
+    if back && let Some(s) = st.back.pop() {
+        st.source = Some(s.clone());
+        st.selected = None;
+        st.ensure(acc, &s, false);
     }
 }
 
@@ -390,12 +388,9 @@ fn side(ui: &mut egui::Ui, st: &mut DriveState, acc: &Account) {
     let cur = st.current();
     let mut hl = Liquid::begin(ui, "drive_nav");
     let mut go = None;
-    for (label, src, icon) in [
-        ("Mon Drive", Source::MyDrive, "🗂️"),
-        ("Partagés avec moi", Source::Shared, "👥"),
-        ("Récents", Source::Recent, "🕘"),
-        ("Suivis", Source::Starred, "⭐"),
-    ] {
+    for (label, src, icon) in
+        [("Mon Drive", Source::MyDrive, "🗂️"), ("Partagés avec moi", Source::Shared, "👥"), ("Récents", Source::Recent, "🕘"), ("Suivis", Source::Starred, "⭐")]
+    {
         let active = cur == src || (src == Source::MyDrive && matches!(cur, Source::Folder(_)));
         if nav_row(ui, icon, label, active, &mut hl).clicked() {
             go = Some(src);
@@ -455,18 +450,15 @@ fn center(ui: &mut egui::Ui, st: &mut DriveState, acc: &Account, side_hidden: bo
         if ui.button(if side_hidden { "»" } else { "«" }).on_hover_text("Afficher / masquer la navigation").clicked() {
             *toggle_side = true;
         }
-        if ui.add_enabled(!st.back.is_empty(), egui::Button::new("‹")).on_hover_text("Retour (Retour arrière)").clicked() {
-            if let Some(s) = st.back.pop() {
-                st.source = Some(s.clone());
-                st.selected = None;
-                st.ensure(acc, &s, false);
-            }
+        if ui.add_enabled(!st.back.is_empty(), egui::Button::new("‹")).on_hover_text("Retour (Retour arrière)").clicked()
+            && let Some(s) = st.back.pop()
+        {
+            st.source = Some(s.clone());
+            st.selected = None;
+            st.ensure(acc, &s, false);
         }
-        let search = ui.add(
-            egui::TextEdit::singleline(&mut st.query)
-                .hint_text("Rechercher dans Drive (nom ou contenu) — Entrée")
-                .desired_width((ui.available_width() - 44.0).max(120.0)),
-        );
+        let search =
+            ui.add(egui::TextEdit::singleline(&mut st.query).hint_text("Rechercher dans Drive (nom ou contenu) — Entrée").desired_width((ui.available_width() - 44.0).max(120.0)));
         if search.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !st.query.trim().is_empty() {
             let q = st.query.trim().to_string();
             st.go(acc, Source::Search(q));
@@ -529,13 +521,9 @@ fn center(ui: &mut egui::Ui, st: &mut DriveState, acc: &Account, side_hidden: bo
     // Tri : dossiers d'abord, puis nom ou date (les vues Récents / Partagés gardent l'ordre de Drive).
     if !matches!(cur, Source::Recent | Source::Shared | Source::Search(_)) || st.by_date {
         files.sort_by(|a, b| {
-            b.is_folder().cmp(&a.is_folder()).then_with(|| {
-                if st.by_date {
-                    b.modified.cmp(&a.modified)
-                } else {
-                    crate::tabs::mail::contacts::fold(&a.name).cmp(&crate::tabs::mail::contacts::fold(&b.name))
-                }
-            })
+            b.is_folder()
+                .cmp(&a.is_folder())
+                .then_with(|| if st.by_date { b.modified.cmp(&a.modified) } else { crate::tabs::mail::contacts::fold(&a.name).cmp(&crate::tabs::mail::contacts::fold(&b.name)) })
         });
     }
     if files.is_empty() {
@@ -628,7 +616,13 @@ fn handle(r: &egui::Response, f: &DriveFile, open: &mut Option<DriveFile>, selec
     }
     r.context_menu(|ui| {
         ui.set_min_width(220.0);
-        let label = if f.is_folder() { "Ouvrir le dossier" } else if f.is_google() { "Ouvrir dans le navigateur" } else { "Ouvrir" };
+        let label = if f.is_folder() {
+            "Ouvrir le dossier"
+        } else if f.is_google() {
+            "Ouvrir dans le navigateur"
+        } else {
+            "Ouvrir"
+        };
         if ui.button(label).clicked() {
             *menu = Some((f.clone(), 0));
             ui.close();
@@ -712,7 +706,13 @@ fn grid_tile(ui: &mut egui::Ui, st: &DriveState, f: &DriveFile, size: egui::Vec2
     p.rect(
         rect,
         CornerRadius::same(10),
-        if active { crate::theme::gray(0x2A) } else if resp.hovered() { theme::SURFACE_HI() } else { theme::SURFACE() },
+        if active {
+            crate::theme::gray(0x2A)
+        } else if resp.hovered() {
+            theme::SURFACE_HI()
+        } else {
+            theme::SURFACE()
+        },
         Stroke::new(1.0, theme::BORDER()),
         egui::StrokeKind::Inside,
     );
@@ -858,35 +858,38 @@ fn detail(ui: &mut egui::Ui, st: &mut DriveState, acc: &Account) {
             if ui.add_sized([w, 30.0], egui::Button::new("Ouvrir dans le navigateur")).clicked() {
                 st.open(acc, &f);
             }
-            if drive::export_format(&f.mime).is_some() && ui.add_sized([w, 30.0], egui::Button::new("Ouvrir avec une application du PC")).on_hover_text("Exporte en Office (docx, xlsx, pptx) puis ouvre").clicked() {
+            if drive::export_format(&f.mime).is_some()
+                && ui.add_sized([w, 30.0], egui::Button::new("Ouvrir avec une application du PC")).on_hover_text("Exporte en Office (docx, xlsx, pptx) puis ouvre").clicked()
+            {
                 st.open_local(acc, &f);
             }
         } else {
             if ui.add_sized([w, 30.0], egui::Button::new("Ouvrir")).on_hover_text("Télécharge puis ouvre avec l'application par défaut").clicked() {
                 st.open(acc, &f);
             }
-            if ui.add_sized([w, 30.0], egui::Button::new("Ouvrir dans le navigateur")).clicked() {
-                if let Some(u) = &f.web_link {
-                    let _ = webbrowser::open(u);
-                }
+            if ui.add_sized([w, 30.0], egui::Button::new("Ouvrir dans le navigateur")).clicked()
+                && let Some(u) = &f.web_link
+            {
+                let _ = webbrowser::open(u);
             }
         }
         if (!f.is_google() || drive::export_format(&f.mime).is_some()) && ui.add_sized([w, 30.0], egui::Button::new("Télécharger…")).clicked() {
             st.download(acc, &f, false);
         }
     }
-    if let Some(u) = &f.web_link {
-        if ui.add_sized([w, 30.0], egui::Button::new("Copier le lien")).clicked() {
-            ui.ctx().copy_text(u.clone());
-            st.info("Lien copié");
-        }
+    if let Some(u) = &f.web_link
+        && ui.add_sized([w, 30.0], egui::Button::new("Copier le lien")).clicked()
+    {
+        ui.ctx().copy_text(u.clone());
+        st.info("Lien copié");
     }
-    if let Some(p) = f.parents.first() {
-        if !matches!(st.current(), Source::Folder(ref id) if id == p) && ui.add_sized([w, 30.0], egui::Button::new("Afficher l'emplacement")).clicked() {
-            let p = p.clone();
-            st.go(acc, Source::Folder(p));
-            st.selected = Some(f.clone());
-        }
+    if let Some(p) = f.parents.first()
+        && !matches!(st.current(), Source::Folder(ref id) if id == p)
+        && ui.add_sized([w, 30.0], egui::Button::new("Afficher l'emplacement")).clicked()
+    {
+        let p = p.clone();
+        st.go(acc, Source::Folder(p));
+        st.selected = Some(f.clone());
     }
 }
 
@@ -896,19 +899,16 @@ fn toast(ui: &mut egui::Ui, st: &mut DriveState) {
         st.notice = None;
         return;
     }
-    egui::Area::new(egui::Id::unique("wt_drive_toast"))
-        .order(egui::Order::Foreground)
-        .anchor(Align2::RIGHT_BOTTOM, vec2(-24.0, -24.0))
-        .show(ui.ctx(), |ui| {
-            egui::Frame::new()
-                .fill(if error { Color32::from_rgb(0x5A, 0x22, 0x22) } else { theme::SURFACE_HI() })
-                .corner_radius(CornerRadius::same(10))
-                .inner_margin(egui::Margin::symmetric(14, 8))
-                .show(ui, |ui| {
-                    ui.set_max_width(380.0);
-                    ui.label(RichText::new(text).color(theme::TEXT()));
-                });
-        });
+    egui::Area::new(egui::Id::unique("wt_drive_toast")).order(egui::Order::Foreground).anchor(Align2::RIGHT_BOTTOM, vec2(-24.0, -24.0)).show(ui.ctx(), |ui| {
+        egui::Frame::new()
+            .fill(if error { Color32::from_rgb(0x5A, 0x22, 0x22) } else { theme::SURFACE_HI() })
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(egui::Margin::symmetric(14, 8))
+            .show(ui, |ui| {
+                ui.set_max_width(380.0);
+                ui.label(RichText::new(text).color(theme::TEXT()));
+            });
+    });
     ui.ctx().request_repaint_after(Duration::from_millis(300));
 }
 

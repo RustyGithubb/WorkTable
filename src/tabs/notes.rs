@@ -121,13 +121,13 @@ impl NotesState {
             return;
         }
         // La note protégée qu'on quitte est reverrouillée.
-        if let Some(prev) = self.selected.take() {
-            if let Some(n) = self.notes.iter_mut().find(|n| n.id == prev) {
-                if n.dirty && !n.locked() {
-                    let _ = n.save();
-                }
-                n.relock();
+        if let Some(prev) = self.selected.take()
+            && let Some(n) = self.notes.iter_mut().find(|n| n.id == prev)
+        {
+            if n.dirty && !n.locked() {
+                let _ = n.save();
             }
+            n.relock();
         }
         self.selected = Some(id.to_string());
         self.ed = editor::Ed::default();
@@ -218,15 +218,15 @@ pub fn show(ui: &mut egui::Ui, st: &mut NotesState, cal: &CalendarState, mail: &
 
     dialogs(ui.ctx(), st, cal, mail, chat, tasks, acc);
     // La fenêtre modale bloque le focus encore une image ou deux après sa fermeture.
-    if st.picker.is_none() {
-        if let Some((f, n)) = st.refocus.take() {
-            if n == 0 {
-                st.ed.focus = Some(f);
-            } else {
-                st.refocus = Some((f, n - 1));
-            }
-            ui.ctx().request_repaint();
+    if st.picker.is_none()
+        && let Some((f, n)) = st.refocus.take()
+    {
+        if n == 0 {
+            st.ed.focus = Some(f);
+        } else {
+            st.refocus = Some((f, n - 1));
         }
+        ui.ctx().request_repaint();
     }
     if let Some((text, at)) = &st.notice {
         if at.elapsed() > Duration::from_secs(4) {
@@ -234,9 +234,14 @@ pub fn show(ui: &mut egui::Ui, st: &mut NotesState, cal: &CalendarState, mail: &
         } else {
             let text = text.clone();
             egui::Area::new(egui::Id::unique("wt_notes_toast")).order(egui::Order::Foreground).anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -28.0)).show(ui.ctx(), |ui| {
-                egui::Frame::new().fill(theme::SURFACE_HI()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(10)).inner_margin(Margin::symmetric(14, 9)).show(ui, |ui| {
-                    ui.label(text);
-                });
+                egui::Frame::new()
+                    .fill(theme::SURFACE_HI())
+                    .stroke(Stroke::new(1.0, theme::BORDER()))
+                    .corner_radius(CornerRadius::same(10))
+                    .inner_margin(Margin::symmetric(14, 9))
+                    .show(ui, |ui| {
+                        ui.label(text);
+                    });
             });
         }
     }
@@ -318,11 +323,23 @@ fn note_row(ui: &mut egui::Ui, n: &Note, selected: bool, salt: &str, clicked: &m
     let date = ago(n.updated);
     let dg = p.layout_no_wrap(date, egui::FontId::proportional(11.0), theme::TEXT_FAINT());
     let right = if over || n.favorite { star_r.left() - 4.0 } else { r.right() - 10.0 - dg.size().x - 6.0 };
-    let title = crate::tabs::mail::view::one_line(p, &n.display_title(), egui::FontId::proportional(13.5), if selected { theme::TEXT() } else { crate::theme::gray(0xCC) }, right - r.left() - 34.0);
+    let title = crate::tabs::mail::view::one_line(
+        p,
+        &n.display_title(),
+        egui::FontId::proportional(13.5),
+        if selected { theme::TEXT() } else { crate::theme::gray(0xCC) },
+        right - r.left() - 34.0,
+    );
     p.galley(Pos2::new(r.left() + 32.0, r.center().y - title.size().y / 2.0), title, theme::TEXT());
     if over || n.favorite {
         let s = ui.interact(star_r, id.with("star"), Sense::click()).on_hover_text(if n.favorite { "Retirer des favoris" } else { "Ajouter aux favoris" });
-        let c = if n.favorite { theme::TODAY() } else if s.hovered() { theme::TEXT() } else { theme::TEXT_FAINT() };
+        let c = if n.favorite {
+            theme::TODAY()
+        } else if s.hovered() {
+            theme::TEXT()
+        } else {
+            theme::TEXT_FAINT()
+        };
         crate::tabs::mail::view::draw_star(ui.painter(), star_r.center(), 6.5, n.favorite, c);
         if s.clicked() {
             *act = Some((n.id.clone(), "favorite"));
@@ -406,11 +423,11 @@ fn main(ui: &mut egui::Ui, st: &mut NotesState, cal: &CalendarState, mail: &Mail
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             ui.menu_button(RichText::new("⋯").size(18.0), |ui| {
-                if ui.button("📂  Ouvrir le dossier des notes").clicked() {
-                    if let Some(d) = notes_store::dir() {
-                        let _ = std::fs::create_dir_all(&d);
-                        let _ = open::that(d);
-                    }
+                if ui.button("📂  Ouvrir le dossier des notes").clicked()
+                    && let Some(d) = notes_store::dir()
+                {
+                    let _ = std::fs::create_dir_all(&d);
+                    let _ = open::that(d);
                 }
                 if ui.button("🗑  Supprimer la note").clicked() {
                     bar_act = Some("delete");
@@ -432,7 +449,9 @@ fn main(ui: &mut egui::Ui, st: &mut NotesState, cal: &CalendarState, mail: &Mail
                 } else if ui.add(egui::Button::new("🔒").frame_when_inactive(false)).on_hover_text("Protéger par mot de passe").clicked() {
                     bar_act = Some("protect");
                 }
-                if !note.readonly && ui.add(egui::Button::new("🔗 Rattacher").frame_when_inactive(false)).on_hover_text("Lier un événement, une date, un mail ou un fichier Drive").clicked() {
+                if !note.readonly
+                    && ui.add(egui::Button::new("🔗 Rattacher").frame_when_inactive(false)).on_hover_text("Lier un événement, une date, un mail ou un fichier Drive").clicked()
+                {
                     bar_act = Some("link");
                 }
                 // Bloquer / débloquer l'éditeur.
@@ -490,7 +509,13 @@ fn main(ui: &mut egui::Ui, st: &mut NotesState, cal: &CalendarState, mail: &Mail
         let area = ui.available_rect_before_wrap();
         if hovering {
             ui.painter().rect_stroke(area.shrink(4.0), CornerRadius::same(12), Stroke::new(1.5, theme::TEXT_MUTED()), egui::StrokeKind::Inside);
-            ui.painter().text(area.center_top() + vec2(0.0, 30.0), egui::Align2::CENTER_CENTER, "Dépose pour insérer dans la note", egui::FontId::proportional(14.0), theme::TEXT());
+            ui.painter().text(
+                area.center_top() + vec2(0.0, 30.0),
+                egui::Align2::CENTER_CENTER,
+                "Dépose pour insérer dans la note",
+                egui::FontId::proportional(14.0),
+                theme::TEXT(),
+            );
         }
         if !dropped.is_empty() {
             let note = &mut st.notes[idx];
@@ -543,10 +568,11 @@ fn page(ui: &mut egui::Ui, st: &mut NotesState, idx: usize, edit: bool, locked: 
             note.title = note.title.replace('\n', " ");
             note.touch();
         }
-        if r.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter) || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
-            if let Some(b) = note.blocks.iter().find(|b| !matches!(b.kind, Kind::Divider | Kind::Image)) {
-                st.ed.focus = Some((b.id, 0, 0));
-            }
+        if r.has_focus()
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter) || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown))
+            && let Some(b) = note.blocks.iter().find(|b| !matches!(b.kind, Kind::Divider | Kind::Image))
+        {
+            st.ed.focus = Some((b.id, 0, 0));
         }
     } else {
         ui.label(RichText::new(note.display_title()).font(theme::title_font(34.0)).color(if note.title.is_empty() { theme::TEXT_FAINT() } else { theme::TEXT() }));
@@ -625,7 +651,9 @@ fn link_action(l: &NoteLink) -> NotesAction {
         }
         NoteLink::Date { date } => NotesAction::Date(NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap_or_else(|_| Local::now().date_naive())),
         NoteLink::Mail { id, .. } => NotesAction::Mail(id.clone()),
-        NoteLink::Drive { id, name, mime, url } => NotesAction::Drive(DriveFile { id: id.clone(), name: name.clone(), mime: mime.clone(), web_link: url.clone(), ..Default::default() }),
+        NoteLink::Drive { id, name, mime, url } => {
+            NotesAction::Drive(DriveFile { id: id.clone(), name: name.clone(), mime: mime.clone(), web_link: url.clone(), ..Default::default() })
+        }
     }
 }
 
@@ -660,7 +688,10 @@ fn chip(ui: &mut egui::Ui, l: &NoteLink, edit: bool) -> (bool, bool) {
     // Croix « Détacher » : interagie en dernier pour passer devant la pastille.
     let mut del = false;
     if let Some(x) = cross {
-        let xr = ui.interact(x, egui::Id::unique(("wt_note_chip_x", format!("{l:?}"))), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Détacher de la note");
+        let xr = ui
+            .interact(x, egui::Id::unique(("wt_note_chip_x", format!("{l:?}"))), Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .on_hover_text("Détacher de la note");
         let p = ui.painter();
         if xr.hovered() {
             p.circle_filled(x.center(), 9.0, theme::SURFACE_HI());
@@ -748,7 +779,14 @@ fn toolbar(ui: &mut egui::Ui, note: &mut Note, ed: &mut editor::Ed) {
         ed.picker = if ed.picker.is_some() { None } else { Some(er.rect.left_bottom() + vec2(0.0, 4.0)) };
     }
     sep(ui);
-    for (icon, tip, k) in [("•", "Liste à puces", Kind::Bullet), ("1.", "Liste numérotée", Kind::Numbered), ("☑", "Case à cocher", Kind::Todo(false)), ("❝", "Citation", Kind::Quote), ("{ }", "Bloc de code", Kind::Code), ("—", "Séparateur", Kind::Divider)] {
+    for (icon, tip, k) in [
+        ("•", "Liste à puces", Kind::Bullet),
+        ("1.", "Liste numérotée", Kind::Numbered),
+        ("☑", "Case à cocher", Kind::Todo(false)),
+        ("❝", "Citation", Kind::Quote),
+        ("{ }", "Bloc de code", Kind::Code),
+        ("—", "Séparateur", Kind::Divider),
+    ] {
         if tb(ui, RichText::new(icon), tip) {
             editor::set_kind(note, ed, k);
         }
@@ -915,7 +953,11 @@ fn dialogs(ctx: &egui::Context, st: &mut NotesState, cal: &CalendarState, mail: 
             ui.set_width(360.0);
             ui.label(RichText::new("Protéger la note par mot de passe").size(16.0).strong());
             ui.add_space(4.0);
-            ui.label(RichText::new("Le contenu, les liens et les images sont chiffrés (AES-256). Sans le mot de passe, la note reste illisible : il est impossible de le récupérer.").small().color(theme::TEXT_MUTED()));
+            ui.label(
+                RichText::new("Le contenu, les liens et les images sont chiffrés (AES-256). Sans le mot de passe, la note reste illisible : il est impossible de le récupérer.")
+                    .small()
+                    .color(theme::TEXT_MUTED()),
+            );
             ui.add_space(10.0);
             let a = ui.add(egui::TextEdit::singleline(&mut pw.a).password(true).hint_text("Mot de passe").desired_width(f32::INFINITY));
             if pw.a.is_empty() && pw.b.is_empty() && pw.error.is_none() && !a.has_focus() {

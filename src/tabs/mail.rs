@@ -5,9 +5,9 @@ pub mod composer;
 pub mod contacts;
 pub mod directory;
 pub mod groups;
-pub mod recipients;
 pub mod inline;
 pub mod pinned;
+pub mod recipients;
 pub(crate) mod view;
 
 use std::collections::{HashMap, HashSet};
@@ -195,11 +195,11 @@ impl MailState {
             Event::Labels(l) => self.labels = l,
             Event::Messages { label, list } => {
                 self.ingest(acc, &list);
-                if let Some(addr) = label.strip_prefix("from:") {
-                    if self.dir_loading.as_deref() == Some(addr) || self.dir_selected.as_deref() == Some(addr) {
-                        self.dir_loading = None;
-                        self.dir_mails = Some((addr.to_string(), list.clone()));
-                    }
+                if let Some(addr) = label.strip_prefix("from:")
+                    && (self.dir_loading.as_deref() == Some(addr) || self.dir_selected.as_deref() == Some(addr))
+                {
+                    self.dir_loading = None;
+                    self.dir_mails = Some((addr.to_string(), list.clone()));
                 }
                 if label == self.folder {
                     self.messages = list;
@@ -306,13 +306,7 @@ impl MailState {
             Event::InlineImage { key, image } => self.inline.on_loaded(key, image),
             Event::Signatures(list) => self.signatures = list,
             // Événements de l'onglet Calendrier : traités ailleurs.
-            Event::Calendars(_)
-            | Event::CalEvents { .. }
-            | Event::CalSaved { .. }
-            | Event::CalDeleted { .. }
-            | Event::CalError(_)
-            | Event::Chat(_)
-            | Event::Connected(_) => {}
+            Event::Calendars(_) | Event::CalEvents { .. } | Event::CalSaved { .. } | Event::CalDeleted { .. } | Event::CalError(_) | Event::Chat(_) | Event::Connected(_) => {}
             Event::SharedFiles(list) => self.shared_files = list,
             Event::MailSearch { .. } | Event::Drive(_) => {}
         }
@@ -504,8 +498,7 @@ impl MailState {
     /// Range un message dans une catégorie (le retire de la boîte de réception
     /// ou de la catégorie courante).
     pub fn move_to(&mut self, acc: &Account, id: &str, target: &Label) {
-        let current_is_folder = self.folder == INBOX
-            || self.labels.iter().any(|l| l.user && l.id == self.folder);
+        let current_is_folder = self.folder == INBOX || self.labels.iter().any(|l| l.user && l.id == self.folder);
         let mut remove: Vec<&str> = Vec::new();
         if current_is_folder && self.folder != target.id {
             remove.push(&self.folder);
@@ -535,7 +528,8 @@ impl MailState {
     /// Met un mail à la corbeille (ou l'en sort depuis le dossier Corbeille).
     pub fn trash(&mut self, acc: &Account, id: &str, trash: bool) {
         // Toute la conversation (une ligne de la liste = une conversation), comme dans Gmail.
-        let thread = self.messages.iter().chain(self.starred.iter()).chain(self.open.iter().map(|m| &m.summary)).find(|m| m.id == id).map(|m| m.thread_id.clone()).filter(|t| !t.is_empty());
+        let thread =
+            self.messages.iter().chain(self.starred.iter()).chain(self.open.iter().map(|m| &m.summary)).find(|m| m.id == id).map(|m| m.thread_id.clone()).filter(|t| !t.is_empty());
         let mut ids: Vec<String> = vec![id.to_string()];
         if let Some(t) = &thread {
             for m in self.messages.iter().chain(self.starred.iter()).chain(self.pinned.list.iter()) {
@@ -630,31 +624,16 @@ impl MailState {
             self.apply_labels(id, &labels);
         }
 
-        let (id, add, remove) = (
-            id.to_string(),
-            add.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-            remove.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-        );
+        let (id, add, remove) = (id.to_string(), add.iter().map(|s| s.to_string()).collect::<Vec<_>>(), remove.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         acc.run(move |s| Ok(Event::Modified { labels: gmail::modify(s, &id, &add, &remove)?, id }));
     }
 
     fn labels_of(&self, id: &str) -> Option<Vec<String>> {
-        self.messages
-            .iter()
-            .chain(self.starred.iter())
-            .chain(self.open.iter().map(|m| &m.summary))
-            .find(|m| m.id == id)
-            .map(|m| m.labels.clone())
+        self.messages.iter().chain(self.starred.iter()).chain(self.open.iter().map(|m| &m.summary)).find(|m| m.id == id).map(|m| m.labels.clone())
     }
 
     fn apply_labels(&mut self, id: &str, labels: &[String]) {
-        let source = self
-            .messages
-            .iter()
-            .chain(self.starred.iter())
-            .chain(self.open.iter().map(|m| &m.summary))
-            .find(|m| m.id == id)
-            .cloned();
+        let source = self.messages.iter().chain(self.starred.iter()).chain(self.open.iter().map(|m| &m.summary)).find(|m| m.id == id).cloned();
 
         for m in self.messages.iter_mut().filter(|m| m.id == id) {
             m.labels = labels.to_vec();
@@ -674,11 +653,9 @@ impl MailState {
         self.starred.retain(|m| m.id != id || starred);
         if let Some(m) = self.starred.iter_mut().find(|m| m.id == id) {
             m.labels = labels.to_vec();
-        } else if starred {
-            if let Some(mut m) = source {
-                m.labels = labels.to_vec();
-                self.starred.insert(0, m);
-            }
+        } else if starred && let Some(mut m) = source {
+            m.labels = labels.to_vec();
+            self.starred.insert(0, m);
         }
     }
 
@@ -779,12 +756,7 @@ impl MailState {
                 let name = self.contacts.get(addr).map(|c| c.display_name().to_string());
                 format!("De : {}", name.unwrap_or_else(|| addr.to_string()))
             }
-            other => self
-                .labels
-                .iter()
-                .find(|l| l.id == other)
-                .map(|l| l.name.clone())
-                .unwrap_or_else(|| other.to_string()),
+            other => self.labels.iter().find(|l| l.id == other).map(|l| l.name.clone()).unwrap_or_else(|| other.to_string()),
         }
     }
 }

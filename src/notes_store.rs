@@ -64,13 +64,37 @@ pub struct Block {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum NoteLink {
-    Event { calendar: String, id: String, title: String, start: i64 },
-    Date { date: String },
-    Mail { id: String, subject: String, from: String },
-    Drive { id: String, name: String, mime: String, url: Option<String> },
+    Event {
+        calendar: String,
+        id: String,
+        title: String,
+        start: i64,
+    },
+    Date {
+        date: String,
+    },
+    Mail {
+        id: String,
+        subject: String,
+        from: String,
+    },
+    Drive {
+        id: String,
+        name: String,
+        mime: String,
+        url: Option<String>,
+    },
     /// Conversation Google Chat (et éventuellement un message précis).
-    Chat { space: String, message: Option<String>, title: String, text: String },
-    Task { id: u64, title: String },
+    Chat {
+        space: String,
+        message: Option<String>,
+        title: String,
+        text: String,
+    },
+    Task {
+        id: u64,
+        title: String,
+    },
 }
 
 impl NoteLink {
@@ -93,7 +117,11 @@ impl NoteLink {
             NoteLink::Mail { subject, .. } => format!("✉ {subject}"),
             NoteLink::Drive { name, .. } => format!("📄 {name}"),
             NoteLink::Chat { title, text, .. } => {
-                if text.is_empty() { format!("💬 {title}") } else { format!("💬 {title} : {}", text.chars().take(40).collect::<String>()) }
+                if text.is_empty() {
+                    format!("💬 {title}")
+                } else {
+                    format!("💬 {title} : {}", text.chars().take(40).collect::<String>())
+                }
             }
             NoteLink::Task { title, .. } => format!("✅ {title}"),
         }
@@ -292,11 +320,7 @@ impl Note {
             let header = self.header();
             let (data, nonce, salt) = match (&self.key, &self.sealed) {
                 (Some((key, salt)), _) => {
-                    let secret = Secret {
-                        body: self.to_markdown(),
-                        links: self.links.clone(),
-                        images: self.images.iter().map(|(k, v)| (k.clone(), B64.encode(v))).collect(),
-                    };
+                    let secret = Secret { body: self.to_markdown(), links: self.links.clone(), images: self.images.iter().map(|(k, v)| (k.clone(), B64.encode(v))).collect() };
                     let plain = serde_json::to_vec(&secret).map_err(|e| e.to_string())?;
                     let (nonce, ct) = encrypt(key, &plain)?;
                     (B64.encode(ct), B64.encode(nonce), B64.encode(salt))
@@ -340,20 +364,20 @@ impl Note {
         let text = text.trim_start_matches('\u{feff}').replace("\r\n", "\n");
         let text = text.as_str();
         let mut body = text;
-        if let Some(rest) = text.strip_prefix("---\n") {
-            if let Some(end) = rest.find("\n---\n") {
-                let head = &rest[..end];
-                body = &rest[end + 5..];
-                if let Some(json) = head.lines().find_map(|l| l.strip_prefix("worktable: ")) {
-                    if let Ok(h) = serde_json::from_str::<Header>(json) {
-                        note.title = h.title;
-                        note.created = h.created;
-                        note.updated = h.updated;
-                        note.favorite = h.favorite;
-                        note.readonly = h.readonly;
-                        note.links = h.links;
-                    }
-                }
+        if let Some(rest) = text.strip_prefix("---\n")
+            && let Some(end) = rest.find("\n---\n")
+        {
+            let head = &rest[..end];
+            body = &rest[end + 5..];
+            if let Some(json) = head.lines().find_map(|l| l.strip_prefix("worktable: "))
+                && let Ok(h) = serde_json::from_str::<Header>(json)
+            {
+                note.title = h.title;
+                note.created = h.created;
+                note.updated = h.updated;
+                note.favorite = h.favorite;
+                note.readonly = h.readonly;
+                note.links = h.links;
             }
         }
         if note.title.is_empty() {
@@ -431,8 +455,7 @@ impl Note {
 
     pub fn unlock(&mut self, password: &str) -> Result<(), String> {
         let d = dir().ok_or("dossier introuvable")?;
-        let f: LockedFile = serde_json::from_str(&std::fs::read_to_string(d.join(format!("{}.locked.json", self.id))).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        let f: LockedFile = serde_json::from_str(&std::fs::read_to_string(d.join(format!("{}.locked.json", self.id))).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         let salt = B64.decode(&f.salt).map_err(|e| e.to_string())?;
         let key = derive(password, &salt)?;
         let nonce = B64.decode(&f.nonce).map_err(|e| e.to_string())?;
@@ -539,10 +562,12 @@ pub fn parse_line(line: &str) -> (Kind, String) {
     if let Some(r) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) {
         return (Kind::Bullet, r.into());
     }
-    if let Some((n, r)) = t.split_once(". ") {
-        if !n.is_empty() && n.len() <= 3 && n.chars().all(|c| c.is_ascii_digit()) {
-            return (Kind::Numbered, r.into());
-        }
+    if let Some((n, r)) = t.split_once(". ")
+        && !n.is_empty()
+        && n.len() <= 3
+        && n.chars().all(|c| c.is_ascii_digit())
+    {
+        return (Kind::Numbered, r.into());
     }
     if let Some(r) = t.strip_prefix("> ") {
         return (Kind::Quote, r.into());
@@ -550,12 +575,11 @@ pub fn parse_line(line: &str) -> (Kind, String) {
     if t.trim() == "---" || t.trim() == "***" {
         return (Kind::Divider, String::new());
     }
-    if let Some(r) = t.strip_prefix("![") {
-        if let Some((_, rest)) = r.split_once("](") {
-            if let Some(path) = rest.strip_suffix(')') {
-                return (Kind::Image, path.replace("%20", " "));
-            }
-        }
+    if let Some(r) = t.strip_prefix("![")
+        && let Some((_, rest)) = r.split_once("](")
+        && let Some(path) = rest.strip_suffix(')')
+    {
+        return (Kind::Image, path.replace("%20", " "));
     }
     (Kind::Text, t.into())
 }
@@ -583,9 +607,7 @@ fn decrypt(key: &[u8; 32], nonce: &[u8], data: &[u8]) -> Result<Vec<u8>, String>
 }
 
 fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    crate::paths::write_atomic(path, bytes).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -597,10 +619,7 @@ mod tests {
         let mut n = Note::new();
         n.set_markdown("# Titre\nTexte **gras**\n- puce\n1. un\n2. deux\n- [x] fait\n> cite\n---\n```\nlet a = 1;\nlet b = 2;\n```\n![](attachments/x/img.png)\n");
         let kinds: Vec<Kind> = n.blocks.iter().map(|b| b.kind).collect();
-        assert_eq!(
-            kinds,
-            [Kind::H1, Kind::Text, Kind::Bullet, Kind::Numbered, Kind::Numbered, Kind::Todo(true), Kind::Quote, Kind::Divider, Kind::Code, Kind::Image]
-        );
+        assert_eq!(kinds, [Kind::H1, Kind::Text, Kind::Bullet, Kind::Numbered, Kind::Numbered, Kind::Todo(true), Kind::Quote, Kind::Divider, Kind::Code, Kind::Image]);
         assert_eq!(n.blocks[8].text, "let a = 1;\nlet b = 2;");
         let md = n.to_markdown();
         let mut m = Note::new();
@@ -620,7 +639,8 @@ mod tests {
 
     #[test]
     fn crlf_front_matter() {
-        let text = "\u{feff}---\r\nworktable: {\"title\":\"Transfert\",\"created\":1,\"updated\":2,\"favorite\":true,\"readonly\":false,\"links\":[]}\r\n---\r\n# Titre\r\nligne\r\n";
+        let text =
+            "\u{feff}---\r\nworktable: {\"title\":\"Transfert\",\"created\":1,\"updated\":2,\"favorite\":true,\"readonly\":false,\"links\":[]}\r\n---\r\n# Titre\r\nligne\r\n";
         let n = Note::load_md("x", text);
         assert_eq!(n.title, "Transfert");
         assert!(n.favorite);

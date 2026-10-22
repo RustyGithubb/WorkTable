@@ -1,5 +1,6 @@
 //! Identifiants OAuth de l'application (client « Application de bureau » Google Cloud).
-//! Stockés en JSON dans `data\secrets\google.json` (voir `paths`).
+//! Stockés en JSON dans `secrets\google.json` du dossier des données (voir `paths`). Un
+//! `google.json` livré à côté de l'exécutable (par l'installeur) sert de valeur par défaut.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -20,18 +21,13 @@ impl Config {
     }
 
     pub fn load() -> Self {
-        Self::path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        let read = |p: PathBuf| std::fs::read_to_string(p).ok().and_then(|s| serde_json::from_str::<Config>(&s).ok());
+        Self::path().and_then(read).filter(Config::is_complete).or_else(|| read(crate::paths::install_dir().join("google.json"))).unwrap_or_default()
     }
 
     pub fn save(&self) -> Result<(), String> {
         let p = Self::path().ok_or("Dossier de configuration introuvable")?;
-        if let Some(dir) = p.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(p, json).map_err(|e| e.to_string())
+        crate::paths::write_atomic(&p, json.as_bytes()).map_err(|e| e.to_string())
     }
 }

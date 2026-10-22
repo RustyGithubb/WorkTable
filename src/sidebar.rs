@@ -1,8 +1,6 @@
 //! Barre de navigation verticale en forme de pilule, flottante à gauche.
 
-use eframe::egui::{
-    self, Color32, CornerRadius, Margin, Order, Painter, Pos2, Rect, Sense, Shadow, Stroke, vec2,
-};
+use eframe::egui::{self, Color32, CornerRadius, Margin, Order, Painter, Pos2, Rect, Sense, Shadow, Stroke, vec2};
 
 use std::sync::Mutex;
 
@@ -33,7 +31,7 @@ pub struct PeekItem {
 /// Résultat d'un clic dans la barre.
 pub enum Nav {
     Tab(Tab),
-    Go(Target),
+    Go(Box<Target>),
 }
 
 #[derive(Default)]
@@ -65,62 +63,52 @@ pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usi
     let pill_h = inner_h + 16.0;
     // Centrée, mais sans jamais chevaucher le bouton Réglages en bas.
     let max_y = window.bottom() - 2.0 * SCREEN_MARGIN - (BUTTON + 16.0) - pill_h;
-    let y = (window.center().y - pill_h / 2.0)
-        .min(max_y)
-        .max(window.top() + SCREEN_MARGIN);
+    let y = (window.center().y - pill_h / 2.0).min(max_y).max(window.top() + SCREEN_MARGIN);
     let pos = Pos2::new(window.left() + SCREEN_MARGIN, y);
 
     let mut clicked = None;
     let mut hovered: Option<(Tab, Rect)> = None;
 
-    egui::Area::new(egui::Id::unique("worktable_sidebar"))
-        .order(Order::Foreground)
-        .fixed_pos(pos)
-        .show(ctx, |ui| {
-            pill_frame()
-                .show(ui, |ui| {
-                    ui.set_width(BUTTON);
-                    ui.spacing_mut().item_spacing.y = 8.0;
+    egui::Area::new(egui::Id::unique("worktable_sidebar")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
+        pill_frame().show(ui, |ui| {
+            ui.set_width(BUTTON);
+            ui.spacing_mut().item_spacing.y = 8.0;
 
-                    // Logo
-                    let (logo, logo_resp) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click());
-                    spinning_logo(ui, logo, logo_resp.clicked());
+            // Logo
+            let (logo, logo_resp) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click());
+            spinning_logo(ui, logo, logo_resp.clicked());
 
-                    // Séparateur
-                    let (sep, _) = ui.allocate_exact_size(vec2(BUTTON, 1.0), Sense::hover());
-                    ui.painter().hline(
-                        sep.x_range().shrink(8.0),
-                        sep.center().y,
-                        Stroke::new(1.0, theme::BORDER()),
-                    );
+            // Séparateur
+            let (sep, _) = ui.allocate_exact_size(vec2(BUTTON, 1.0), Sense::hover());
+            ui.painter().hline(sep.x_range().shrink(8.0), sep.center().y, Stroke::new(1.0, theme::BORDER()));
 
-                    // La pastille blanche de sélection s'écoule d'un onglet à l'autre.
-                    let mut hl = Liquid::begin(ui, "sidebar_nav");
-                    let mut dots = Vec::new();
-                    let peek_open = PEEK.lock().unwrap().as_ref().and_then(|p| p.open.map(|o| o.0));
-                    for tab in Tab::ALL {
-                        let r = nav_button(ui, tab, tab == current, &mut hl, peek_open != Some(tab));
-                        if r.clicked() {
-                            clicked = Some(tab);
-                        }
-                        if r.hovered() {
-                            hovered = Some((tab, r.rect));
-                        }
-                        if let Some((_, n)) = badges.iter().find(|(t, n)| *t == tab && *n > 0) {
-                            dots.push((r.rect, *n));
-                        }
-                    }
-                    hl.end(ui, theme::TEXT(), BUTTON / 2.0);
-                    // Pastilles « non lus » (dessinées au-dessus de la sélection).
-                    for (rect, n) in dots {
-                        badge(ui.painter(), rect, n);
-                    }
-                });
+            // La pastille blanche de sélection s'écoule d'un onglet à l'autre.
+            let mut hl = Liquid::begin(ui, "sidebar_nav");
+            let mut dots = Vec::new();
+            let peek_open = PEEK.lock().unwrap().as_ref().and_then(|p| p.open.map(|o| o.0));
+            for tab in Tab::ALL {
+                let r = nav_button(ui, tab, tab == current, &mut hl, peek_open != Some(tab));
+                if r.clicked() {
+                    clicked = Some(tab);
+                }
+                if r.hovered() {
+                    hovered = Some((tab, r.rect));
+                }
+                if let Some((_, n)) = badges.iter().find(|(t, n)| *t == tab && *n > 0) {
+                    dots.push((r.rect, *n));
+                }
+            }
+            hl.end(ui, theme::TEXT(), BUTTON / 2.0);
+            // Pastilles « non lus » (dessinées au-dessus de la sélection).
+            for (rect, n) in dots {
+                badge(ui.painter(), rect, n);
+            }
         });
+    });
 
     let go = peek(ctx, pos.x + PILL_WIDTH + 10.0, hovered, clicked, peeks);
     match (go, clicked) {
-        (Some(t), _) => Some(Nav::Go(t)),
+        (Some(t), _) => Some(Nav::Go(Box::new(t))),
         (None, Some(t)) => Some(Nav::Tab(t)),
         _ => None,
     }
@@ -181,15 +169,15 @@ fn peek(ctx: &egui::Context, x: f32, hovered: Option<(Tab, Rect)>, clicked: Opti
     }
 
     let mut go = None;
-    if let Some((tab, anchor)) = st.open.filter(|_| !close) {
-        if let Some(list) = items(tab) {
-            let t = (now - st.opened_at) as f32 * PEEK_SPEED;
-            let (panel, clicked_item) = draw_peek(ctx, x, anchor, tab, list, st.panel, Grow::Open(t));
-            st.panel = Some(panel);
-            go = clicked_item;
-            if t < 1.0 {
-                ctx.request_repaint();
-            }
+    if let Some((tab, anchor)) = st.open.filter(|_| !close)
+        && let Some(list) = items(tab)
+    {
+        let t = (now - st.opened_at) as f32 * PEEK_SPEED;
+        let (panel, clicked_item) = draw_peek(ctx, x, anchor, tab, list, st.panel, Grow::Open(t));
+        st.panel = Some(panel);
+        go = clicked_item;
+        if t < 1.0 {
+            ctx.request_repaint();
         }
     }
     if close || go.is_some() {
@@ -232,12 +220,7 @@ fn draw_peek(ctx: &egui::Context, x: f32, anchor: Rect, tab: Tab, list: &[PeekIt
     let full = Rect::from_min_size(Pos2::new(x, top), last.map_or(est, |r| r.size()));
 
     let (kw, kh, neck, content) = match grow {
-        Grow::Open(t) => (
-            spring(t, 17.0, 0.42),
-            spring(t - 0.05, 15.0, 0.38),
-            1.0 - ((t - 0.12) / 0.4).clamp(0.0, 1.0),
-            ((t - 0.16) / 0.18).clamp(0.0, 1.0),
-        ),
+        Grow::Open(t) => (spring(t, 17.0, 0.42), spring(t - 0.05, 15.0, 0.38), 1.0 - ((t - 0.12) / 0.4).clamp(0.0, 1.0), ((t - 0.16) / 0.18).clamp(0.0, 1.0)),
         Grow::Close(t) => {
             let k = 1.0 - t * t;
             (k, k * k, 0.0, (1.0 - t * 2.5).max(0.0))
@@ -320,7 +303,13 @@ fn draw_peek(ctx: &egui::Context, x: f32, anchor: Rect, tab: Tab, list: &[PeekIt
             if resp.hovered() {
                 ui.painter().rect_filled(r, CornerRadius::same(10), theme::SURFACE_HI());
             }
-            ui.painter().text(r.left_center() + vec2(10.0, 0.0), egui::Align2::LEFT_CENTER, format!("Ouvrir {} →", tab.label()), egui::FontId::proportional(13.0), if resp.hovered() { theme::TEXT() } else { theme::TEXT_MUTED() });
+            ui.painter().text(
+                r.left_center() + vec2(10.0, 0.0),
+                egui::Align2::LEFT_CENTER,
+                format!("Ouvrir {} →", tab.label()),
+                egui::FontId::proportional(13.0),
+                if resp.hovered() { theme::TEXT() } else { theme::TEXT_MUTED() },
+            );
             if resp.clicked() && content > 0.5 {
                 go = Some(Target::Tab(tab));
             }
@@ -390,7 +379,7 @@ fn spinning_logo(ui: &mut egui::Ui, cell: Rect, clicked: bool) {
         s.scale_vel += 3.0;
     }
     // Freinage doux, puis retour à l'endroit (tour complet le plus proche) quand il ralentit.
-    s.vel *= (-1.0 * dt).exp();
+    s.vel *= (-dt).exp();
     let target = (s.angle / TAU).round() * TAU;
     if s.vel.abs() < 3.0 {
         s.vel += (25.0 * (target - s.angle) - 7.0 * s.vel) * dt;
@@ -518,31 +507,23 @@ fn magnify(ui: &egui::Ui, key: &str, rect: Rect) -> f32 {
 /// Renvoie `true` s'il a été cliqué.
 pub fn settings_button(ctx: &egui::Context, window: Rect, active: bool) -> bool {
     let size = BUTTON + 16.0; // même diamètre que la pilule
-    let pos = Pos2::new(
-        window.left() + SCREEN_MARGIN,
-        window.bottom() - SCREEN_MARGIN - size,
-    );
+    let pos = Pos2::new(window.left() + SCREEN_MARGIN, window.bottom() - SCREEN_MARGIN - size);
     let mut clicked = false;
-    egui::Area::new(egui::Id::unique("worktable_settings"))
-        .order(Order::Foreground)
-        .fixed_pos(pos)
-        .show(ctx, |ui| {
-            pill_frame().show(ui, |ui| {
-                let (rect, resp) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click());
-                let resp = resp
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text(Tab::Settings.label());
-                let mut hl = Liquid::begin(ui, "sidebar_settings");
-                if active {
-                    hl.target(rect, "settings");
-                }
-                let phase = click_phase(ui, "settings", resp.clicked());
-                let zoom = magnify(ui, "settings", rect);
-                paint_button(ui, rect, &resp, hl.coverage(rect), zoom, phase, draw_gear);
-                hl.end(ui, theme::TEXT(), BUTTON / 2.0);
-                clicked = resp.clicked();
-            });
+    egui::Area::new(egui::Id::unique("worktable_settings")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
+        pill_frame().show(ui, |ui| {
+            let (rect, resp) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click());
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(Tab::Settings.label());
+            let mut hl = Liquid::begin(ui, "sidebar_settings");
+            if active {
+                hl.target(rect, "settings");
+            }
+            let phase = click_phase(ui, "settings", resp.clicked());
+            let zoom = magnify(ui, "settings", rect);
+            paint_button(ui, rect, &resp, hl.coverage(rect), zoom, phase, draw_gear);
+            hl.end(ui, theme::TEXT(), BUTTON / 2.0);
+            clicked = resp.clicked();
         });
+    });
     clicked
 }
 
@@ -552,23 +533,10 @@ fn pill_frame() -> egui::Frame {
         .stroke(Stroke::new(1.0, theme::BORDER()))
         .corner_radius(CornerRadius::same((PILL_WIDTH / 2.0) as u8))
         .inner_margin(Margin::same(8))
-        .shadow(Shadow {
-            offset: [0, 6],
-            blur: 24,
-            spread: 0,
-            color: Color32::from_black_alpha(140),
-        })
+        .shadow(Shadow { offset: [0, 6], blur: 24, spread: 0, color: Color32::from_black_alpha(140) })
 }
 
-fn paint_button(
-    ui: &egui::Ui,
-    rect: Rect,
-    resp: &egui::Response,
-    coverage: f32,
-    zoom: f32,
-    phase: f32,
-    icon: impl FnOnce(&Painter, Rect, Color32, f32),
-) {
+fn paint_button(ui: &egui::Ui, rect: Rect, resp: &egui::Response, coverage: f32, zoom: f32, phase: f32, icon: impl FnOnce(&Painter, Rect, Color32, f32)) {
     // `coverage` : part du bouton recouverte par la pastille liquide (l'icône s'inverse).
     let base = if resp.hovered() { theme::TEXT() } else { theme::TEXT_MUTED() };
     let fg = lerp_color(base, theme::BG(), coverage);
@@ -650,13 +618,7 @@ pub(crate) fn draw_icon(p: &Painter, r: Rect, tab: Tab, c: Color32, phase: f32) 
             let alpha = 1.0 - 0.6 * bump(phase);
             let day = chrono::Datelike::day(&chrono::Local::now()).to_string();
             let body_c = Pos2::new(page.center().x, band.bottom() + (page.bottom() - band.bottom()) / 2.0 + 0.2 * w);
-            p.text(
-                body_c,
-                egui::Align2::CENTER_CENTER,
-                day,
-                theme::editor_font(page.height() * 0.48, true),
-                c.gamma_multiply(alpha),
-            );
+            p.text(body_c, egui::Align2::CENTER_CENTER, day, theme::editor_font(page.height() * 0.48, true), c.gamma_multiply(alpha));
         }
         Tab::Mail => {
             // « M » encadré : cadre arrondi, M centré ; au clic, le creux du M s'enfonce un peu.
@@ -665,16 +627,7 @@ pub(crate) fn draw_icon(p: &Painter, r: Rect, tab: Tab, c: Color32, phase: f32) 
             let m = frame.shrink2(vec2(4.2 * w, 4.6 * w));
             let dip = bump(phase) * 1.2 * w;
             let thick = Stroke::new(2.0 * w.sqrt(), c);
-            p.add(egui::Shape::line(
-                vec![
-                    m.left_bottom(),
-                    m.left_top(),
-                    Pos2::new(m.center().x, m.center().y + 1.0 * w + dip),
-                    m.right_top(),
-                    m.right_bottom(),
-                ],
-                thick,
-            ));
+            p.add(egui::Shape::line(vec![m.left_bottom(), m.left_top(), Pos2::new(m.center().x, m.center().y + 1.0 * w + dip), m.right_top(), m.right_bottom()], thick));
         }
         Tab::Messages => {
             // Bulle ovale pleine dans un cadre arrondi (à la manière de l'app Messages d'Apple) ;
@@ -687,11 +640,7 @@ pub(crate) fn draw_icon(p: &Painter, r: Rect, tab: Tab, c: Color32, phase: f32) 
             p.add(egui::Shape::ellipse_filled(center, radius, c));
             // Petite queue en bas à gauche.
             let base = center + vec2(-radius.x * 0.55, radius.y * 0.62);
-            p.add(egui::Shape::convex_polygon(
-                vec![base + vec2(-0.6 * w, -1.2 * w), base + vec2(2.4 * w, 0.2 * w), base + vec2(-1.8 * w, 2.0 * w) * pop],
-                c,
-                Stroke::NONE,
-            ));
+            p.add(egui::Shape::convex_polygon(vec![base + vec2(-0.6 * w, -1.2 * w), base + vec2(2.4 * w, 0.2 * w), base + vec2(-1.8 * w, 2.0 * w) * pop], c, Stroke::NONE));
         }
         Tab::Files => {
             // Dossier ; au clic, le rabat avant s'entrouvre.

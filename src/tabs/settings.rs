@@ -10,31 +10,26 @@ use crate::{theme, widgets};
 pub fn show(ui: &mut egui::Ui, acc: &mut Account, prefs: &mut Prefs) {
     widgets::page_header(ui, "Application", "Réglages");
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-
         let width = ui.available_width().min(760.0);
         ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
-            section(ui, "Général", &[
-                ("Langue", "Langue de l'interface", Value::Text("Français")),
-                ("Onglet au démarrage", "Onglet ouvert au lancement", Value::Text("Tableau de bord")),
-            ]);
+            section(
+                ui,
+                "Général",
+                &[("Langue", "Langue de l'interface", Value::Text("Français")), ("Onglet au démarrage", "Onglet ouvert au lancement", Value::Text("Tableau de bord"))],
+            );
+            data_card(ui);
             themes(ui, prefs);
             fonts(ui, prefs);
             animations(ui, prefs);
             group_colors(ui, prefs);
             widgets::card(ui, "Compte Google", 0.0, |ui| {
-                ui.label(
-                    RichText::new("Gmail (Calendar, Docs et Sheets utiliseront ce même compte)")
-                        .small()
-                        .color(theme::TEXT_FAINT()),
-                );
+                ui.label(RichText::new("Gmail (Calendar, Docs et Sheets utiliseront ce même compte)").small().color(theme::TEXT_FAINT()));
                 ui.add_space(10.0);
                 google_account_form(ui, acc);
             });
             ui.add_space(12.0);
             notifications(ui, prefs);
-            section(ui, "À propos", &[
-                ("Version", "WorkTable", Value::Text(env!("CARGO_PKG_VERSION"))),
-            ]);
+            section(ui, "À propos", &[("Version", "WorkTable", Value::Text(env!("CARGO_PKG_VERSION")))]);
         });
     });
 }
@@ -66,37 +61,18 @@ pub fn google_account_form(ui: &mut egui::Ui, acc: &mut Account) {
                 ui.add(egui::Spinner::new().size(14.0));
                 ui.label("Connexion en cours…");
             });
-            ui.label(
-                RichText::new("Termine l'autorisation dans la fenêtre du navigateur qui vient de s'ouvrir.")
-                    .small()
-                    .color(theme::TEXT_MUTED()),
-            );
+            ui.label(RichText::new("Termine l'autorisation dans la fenêtre du navigateur qui vient de s'ouvrir.").small().color(theme::TEXT_MUTED()));
         }
         Status::Disconnected | Status::Failed(_) => {
-            widgets::field(
-                ui,
-                "Client ID",
-                96.0,
-                egui::TextEdit::singleline(&mut acc.config.client_id)
-                    .hint_text("xxxx.apps.googleusercontent.com"),
-            );
-            widgets::field(
-                ui,
-                "Client secret",
-                96.0,
-                egui::TextEdit::singleline(&mut acc.config.client_secret).password(true),
-            );
+            widgets::field(ui, "Client ID", 96.0, egui::TextEdit::singleline(&mut acc.config.client_id).hint_text("xxxx.apps.googleusercontent.com"));
+            widgets::field(ui, "Client secret", 96.0, egui::TextEdit::singleline(&mut acc.config.client_secret).password(true));
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 let ready = acc.config.is_complete();
                 if ui.add_enabled(ready, egui::Button::new("Connecter Gmail")).clicked() {
                     acc.connect();
                 }
-                ui.label(
-                    RichText::new("Identifiants OAuth : voir README › Configurer Google")
-                        .small()
-                        .color(theme::TEXT_FAINT()),
-                );
+                ui.label(RichText::new("Identifiants OAuth : voir README › Configurer Google").small().color(theme::TEXT_FAINT()));
             });
             if let Status::Failed(e) = &acc.status {
                 ui.add_space(6.0);
@@ -129,6 +105,39 @@ fn section(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str, Value)]) {
                 });
             });
         }
+    });
+    ui.add_space(12.0);
+}
+
+/// Où sont enregistrées les données de l'utilisateur (selon le mode de lancement).
+fn data_card(ui: &mut egui::Ui) {
+    use crate::paths::{self, Mode};
+    widgets::card(ui, "Données", 0.0, |ui| {
+        let mode = match paths::mode() {
+            Mode::Installed => "Application installée : données dans votre profil Windows.",
+            Mode::Portable => "Version portable : données dans le dossier « data » à côté du programme.",
+            Mode::Development => "Développement : données dans le dossier « data » du projet.",
+            Mode::Forced => "Dossier choisi par la variable WORKTABLE_DATA.",
+        };
+        ui.label(RichText::new(mode).small().color(theme::TEXT_FAINT()));
+        if let Some(n) = ui.ctx().data(|d| d.get_temp::<usize>(egui::Id::unique("wt_import_result"))) {
+            ui.label(RichText::new(format!("{n} fichier(s) importé(s) — redémarrez l'app pour les prendre en compte.")).small().color(theme::TODAY()));
+        }
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.add(egui::Label::new(RichText::new(paths::root().display().to_string()).monospace().color(theme::TEXT_MUTED())).truncate());
+            if ui.button("Ouvrir le dossier").clicked() {
+                let _ = std::fs::create_dir_all(paths::root());
+                let _ = open::that_detached(paths::root());
+            }
+            if ui.button("Importer…").on_hover_text("Reprendre les données d'un autre dossier « data » (version portable, autre poste…). Redémarrez ensuite l'app.").clicked()
+                && let Some(dir) = rfd::FileDialog::new().set_title("Dossier « data » à importer").pick_folder()
+            {
+                let n = paths::import_from(&dir);
+                let id = egui::Id::unique("wt_import_result");
+                ui.ctx().data_mut(|d| d.insert_temp(id, n));
+            }
+        });
     });
     ui.add_space(12.0);
 }
@@ -188,7 +197,11 @@ fn themes(ui: &mut egui::Ui, prefs: &mut Prefs) {
                     let card = egui::Rect::from_min_size(r.min + egui::vec2(10.0, 10.0), egui::vec2(r.width() - 20.0, 30.0));
                     painter.rect(card, egui::CornerRadius::same(6), rgb(p.surface), egui::Stroke::new(1.0, rgb(p.border)), egui::StrokeKind::Inside);
                     painter.rect_filled(egui::Rect::from_min_size(card.min + egui::vec2(8.0, 8.0), egui::vec2(card.width() * 0.45, 5.0)), egui::CornerRadius::same(3), rgb(p.text));
-                    painter.rect_filled(egui::Rect::from_min_size(card.min + egui::vec2(8.0, 18.0), egui::vec2(card.width() * 0.3, 4.0)), egui::CornerRadius::same(2), rgb(p.muted));
+                    painter.rect_filled(
+                        egui::Rect::from_min_size(card.min + egui::vec2(8.0, 18.0), egui::vec2(card.width() * 0.3, 4.0)),
+                        egui::CornerRadius::same(2),
+                        rgb(p.muted),
+                    );
                     painter.circle_filled(egui::pos2(card.right() - 12.0, card.center().y), 5.0, rgb(p.accent));
                     painter.circle_filled(egui::pos2(card.right() - 26.0, card.center().y), 5.0, rgb(p.link));
                     painter.text(egui::pos2(r.left() + 10.0, r.bottom() - 15.0), egui::Align2::LEFT_CENTER, t.label(), egui::FontId::proportional(12.5), rgb(p.text));
@@ -304,12 +317,9 @@ fn preview(ui: &mut egui::Ui) {
     let period = (anim.duration_ms / 1000.0) as f64 + 0.7;
     let step = (ui.input(|i| i.time) / period) as usize % 4;
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
-    egui::Frame::new()
-        .fill(theme::BG())
-        .stroke(egui::Stroke::new(1.0, theme::BORDER()))
-        .corner_radius(egui::CornerRadius::same(255))
-        .inner_margin(egui::Margin::same(4))
-        .show(ui, |ui| {
+    egui::Frame::new().fill(theme::BG()).stroke(egui::Stroke::new(1.0, theme::BORDER())).corner_radius(egui::CornerRadius::same(255)).inner_margin(egui::Margin::same(4)).show(
+        ui,
+        |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 let mut hl = Liquid::begin(ui, "anim_preview");
@@ -323,7 +333,8 @@ fn preview(ui: &mut egui::Ui) {
                 }
                 hl.end(ui, theme::TEXT(), 13.0);
             });
-        });
+        },
+    );
 }
 
 /// Couleurs des mails reçus via une adresse de groupe (liste de diffusion, alias).

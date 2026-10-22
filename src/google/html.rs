@@ -44,10 +44,7 @@ fn parse_dim(v: &str) -> Option<Dim> {
     if let Some(p) = v.strip_suffix('%') {
         return p.trim().parse::<f32>().ok().filter(|x| *x > 0.0).map(Dim::Percent);
     }
-    css_px(v)
-        .or_else(|| v.parse::<f32>().ok())
-        .filter(|x| *x > 0.0)
-        .map(Dim::Px)
+    css_px(v).or_else(|| v.parse::<f32>().ok()).filter(|x| *x > 0.0).map(Dim::Px)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
@@ -78,18 +75,7 @@ pub struct Run {
 
 impl Default for Run {
     fn default() -> Self {
-        Run {
-            text: String::new(),
-            bold: false,
-            italic: false,
-            underline: false,
-            strike: false,
-            code: false,
-            scale: 1.0,
-            link: None,
-            download: false,
-            color: None,
-        }
+        Run { text: String::new(), bold: false, italic: false, underline: false, strike: false, code: false, scale: 1.0, link: None, download: false, color: None }
     }
 }
 
@@ -129,11 +115,11 @@ impl Para {
         if run.text.is_empty() {
             return;
         }
-        if let Some(last) = self.runs.last_mut() {
-            if last.same_style(&run) {
-                last.text.push_str(&run.text);
-                return;
-            }
+        if let Some(last) = self.runs.last_mut()
+            && last.same_style(&run)
+        {
+            last.text.push_str(&run.text);
+            return;
         }
         self.runs.push(run);
     }
@@ -160,11 +146,7 @@ pub enum BodyBlock {
 
 /// Texte brut d'un HTML (pour citer le message dans une réponse).
 pub fn to_text(html: &str) -> String {
-    html2text::config::plain_no_decorate()
-        .link_footnotes(false)
-        .no_table_borders()
-        .string_from_read(html.as_bytes(), 10_000)
-        .unwrap_or_else(|_| html.to_string())
+    html2text::config::plain_no_decorate().link_footnotes(false).no_table_borders().string_from_read(html.as_bytes(), 10_000).unwrap_or_else(|_| html.to_string())
 }
 
 #[derive(Clone, Default)]
@@ -257,9 +239,34 @@ pub fn from_html(html: &str) -> Vec<BodyBlock> {
 }
 
 const BLOCKS: &[&str] = &[
-    "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "tr", "table", "ul", "ol",
-    "pre", "center", "section", "article", "header", "footer", "hr", "dl", "dt", "dd", "address",
-    "body", "tbody", "thead",
+    "p",
+    "div",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "blockquote",
+    "tr",
+    "table",
+    "ul",
+    "ol",
+    "pre",
+    "center",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "hr",
+    "dl",
+    "dt",
+    "dd",
+    "address",
+    "body",
+    "tbody",
+    "thead",
 ];
 
 fn walk(b: &mut Builder, el: ElementRef, parent: &Ctx) {
@@ -528,15 +535,7 @@ fn image_block(el: ElementRef, ctx: &Ctx) -> Option<BodyBlock> {
         return None;
     }
     let src = parse_src(v.attr("src")?)?;
-    Some(BodyBlock::Image {
-        src,
-        alt: v.attr("alt").unwrap_or_default().to_string(),
-        width,
-        height,
-        max_width,
-        align,
-        link: ctx.style.link.clone(),
-    })
+    Some(BodyBlock::Image { src, alt: v.attr("alt").unwrap_or_default().to_string(), width, height, max_width, align, link: ctx.style.link.clone() })
 }
 
 fn parse_src(src: &str) -> Option<ImageSrc> {
@@ -672,9 +671,7 @@ pub fn linkify(run: Run, out: &mut Vec<Run>) {
         let starts = rest.starts_with("http://") || rest.starts_with("https://") || rest.starts_with("www.");
         let boundary = pos == 0 || !text[..pos].ends_with(|c: char| c.is_alphanumeric() || c == '/' || c == '@');
         if starts && boundary {
-            let len = text[pos..]
-                .find(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '\'' | '«' | '»'))
-                .unwrap_or(text.len() - pos);
+            let len = text[pos..].find(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '\'' | '«' | '»')).unwrap_or(text.len() - pos);
             let mut url = &text[pos..pos + len];
             // Ponctuation finale exclue (« voir https://x.fr. »).
             while let Some(c) = url.chars().last().filter(|c| ".,;:!?)]".contains(*c)) {
@@ -700,18 +697,81 @@ pub fn linkify(run: Run, out: &mut Vec<Run>) {
 
 /// Extensions de fichiers considérées comme « à télécharger ».
 const FILE_EXT: &[&str] = &[
-    "pdf", "zip", "rar", "7z", "tar", "gz", "tgz", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt",
-    "ods", "odp", "rtf", "csv", "txt", "png", "jpg", "jpeg", "gif", "webp", "svg", "psd", "ai", "mp4",
-    "mov", "avi", "mkv", "mp3", "wav", "ogg", "flac", "fbx", "obj", "blend", "uasset", "umap", "unitypackage",
-    "exe", "msi", "dmg", "apk", "iso", "epub", "ics",
+    "pdf",
+    "zip",
+    "rar",
+    "7z",
+    "tar",
+    "gz",
+    "tgz",
+    "doc",
+    "docx",
+    "xls",
+    "xlsx",
+    "ppt",
+    "pptx",
+    "odt",
+    "ods",
+    "odp",
+    "rtf",
+    "csv",
+    "txt",
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "webp",
+    "svg",
+    "psd",
+    "ai",
+    "mp4",
+    "mov",
+    "avi",
+    "mkv",
+    "mp3",
+    "wav",
+    "ogg",
+    "flac",
+    "fbx",
+    "obj",
+    "blend",
+    "uasset",
+    "umap",
+    "unitypackage",
+    "exe",
+    "msi",
+    "dmg",
+    "apk",
+    "iso",
+    "epub",
+    "ics",
 ];
 
 /// Services de partage / liens de téléchargement connus.
 const DOWNLOAD_HINTS: &[&str] = &[
-    "drive.google.com/file", "drive.google.com/uc", "drive.google.com/open", "docs.google.com/uc",
-    "drive.usercontent.google.com", "export=download", "dl=1", "download=", "/download", "wetransfer.com",
-    "we.tl/", "dropbox.com/s/", "dropbox.com/scl/", "dl.dropboxusercontent.com", "1drv.ms/", "onedrive.live.com",
-    "sharepoint.com", "swisstransfer.com", "mega.nz", "smash.gg/", "fromsmash.com", "box.com/s/", "attachment",
+    "drive.google.com/file",
+    "drive.google.com/uc",
+    "drive.google.com/open",
+    "docs.google.com/uc",
+    "drive.usercontent.google.com",
+    "export=download",
+    "dl=1",
+    "download=",
+    "/download",
+    "wetransfer.com",
+    "we.tl/",
+    "dropbox.com/s/",
+    "dropbox.com/scl/",
+    "dl.dropboxusercontent.com",
+    "1drv.ms/",
+    "onedrive.live.com",
+    "sharepoint.com",
+    "swisstransfer.com",
+    "mega.nz",
+    "smash.gg/",
+    "fromsmash.com",
+    "box.com/s/",
+    "attachment",
 ];
 
 /// Le lien mène-t-il à un fichier à télécharger ?
@@ -721,17 +781,9 @@ pub fn is_download(url: &str, text: &str) -> bool {
         return false;
     }
     let path = u.split(['?', '#']).next().unwrap_or("");
-    let ext_ok = path
-        .rsplit('/')
-        .next()
-        .and_then(|seg| seg.rsplit_once('.'))
-        .is_some_and(|(_, ext)| FILE_EXT.contains(&ext));
+    let ext_ok = path.rsplit('/').next().and_then(|seg| seg.rsplit_once('.')).is_some_and(|(_, ext)| FILE_EXT.contains(&ext));
     let t = text.to_lowercase();
-    ext_ok
-        || DOWNLOAD_HINTS.iter().any(|h| u.contains(h))
-        || t.contains("télécharger")
-        || t.contains("telecharger")
-        || t.contains("download")
+    ext_ok || DOWNLOAD_HINTS.iter().any(|h| u.contains(h)) || t.contains("télécharger") || t.contains("telecharger") || t.contains("download")
 }
 
 const DELIMS: &[&str] = &["**", "__", "~~", "`", "*", "_"];
@@ -754,30 +806,28 @@ pub fn inline_md(text: &str, base: &Run, out: &mut Vec<Run>) {
         // Ouverture : suivie d'un caractère visible ; `_`/`*` simples pas au milieu d'un mot.
         let word_inner = matches!(*d, "_" | "__" | "*") && prev.is_some_and(|c| c.is_alphanumeric());
         let opens = next.is_some_and(|c| !c.is_whitespace()) && !word_inner;
-        if opens {
-            if let Some(close) = find_close(text, after, d) {
-                if pos > plain_start {
-                    out.push(Run { text: text[plain_start..pos].to_string(), ..base.clone() });
-                }
-                let inner = &text[after..close];
-                let mut style = base.clone();
-                match *d {
-                    "**" | "__" => style.bold = true,
-                    "~~" => style.strike = true,
-                    "`" => style.code = true,
-                    _ => style.italic = true,
-                }
-                if style.code {
-                    out.push(Run { text: inner.to_string(), ..style });
-                } else {
-                    inline_md(inner, &style, out);
-                }
-                plain_start = close + d.len();
-                while i < chars.len() && chars[i].0 < plain_start {
-                    i += 1;
-                }
-                continue;
+        if opens && let Some(close) = find_close(text, after, d) {
+            if pos > plain_start {
+                out.push(Run { text: text[plain_start..pos].to_string(), ..base.clone() });
             }
+            let inner = &text[after..close];
+            let mut style = base.clone();
+            match *d {
+                "**" | "__" => style.bold = true,
+                "~~" => style.strike = true,
+                "`" => style.code = true,
+                _ => style.italic = true,
+            }
+            if style.code {
+                out.push(Run { text: inner.to_string(), ..style });
+            } else {
+                inline_md(inner, &style, out);
+            }
+            plain_start = close + d.len();
+            while i < chars.len() && chars[i].0 < plain_start {
+                i += 1;
+            }
+            continue;
         }
         // Délimiteur littéral : on saute toute la séquence.
         i += d.chars().count();

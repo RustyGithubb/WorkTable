@@ -188,10 +188,7 @@ impl Draft {
         let s = &m.summary;
         let mut d = Self::empty(Mode::Forward);
         d.subject = prefixed("Fwd:", &s.subject);
-        let fwd = d.paragraph(format!(
-            "---------- Message transféré ----------\nDe : {}\nDate : {}\nObjet : {}\nÀ : {}\n\n{}",
-            s.from, date, s.subject, m.to, m.body
-        ));
+        let fwd = d.paragraph(format!("---------- Message transféré ----------\nDe : {}\nDate : {}\nObjet : {}\nÀ : {}\n\n{}", s.from, date, s.subject, m.to, m.body));
         d.quote_id = Some(fwd.id);
         d.blocks.push(Block::Para(fwd));
         d
@@ -204,24 +201,9 @@ impl Draft {
 
     /// Insère une image à la position `char_pos` du bloc `index` (le paragraphe est coupé en deux).
     /// Renvoie l'index du paragraphe qui suit l'image.
-    pub fn insert_image(
-        &mut self,
-        index: usize,
-        char_pos: usize,
-        name: String,
-        mime: String,
-        data: Vec<u8>,
-        preview: Option<Arc<eframe::egui::ColorImage>>,
-    ) -> usize {
+    pub fn insert_image(&mut self, index: usize, char_pos: usize, name: String, mime: String, data: Vec<u8>, preview: Option<Arc<eframe::egui::ColorImage>>) -> usize {
         self.next_id += 1;
-        let img = InlineImage {
-            id: self.next_id,
-            cid: format!("img{}.{}@worktable", self.next_id, std::process::id()),
-            name,
-            mime,
-            data: Arc::new(data),
-            preview,
-        };
+        let img = InlineImage { id: self.next_id, cid: format!("img{}.{}@worktable", self.next_id, std::process::id()), name, mime, data: Arc::new(data), preview };
         let index = index.min(self.blocks.len().saturating_sub(1));
         match self.blocks.get_mut(index) {
             Some(Block::Para(p)) => {
@@ -245,12 +227,7 @@ impl Draft {
     }
 
     pub fn total_size(&self) -> usize {
-        self.files.iter().map(|f| f.data.len()).sum::<usize>()
-            + self
-                .blocks
-                .iter()
-                .map(|b| if let Block::Image(i) = b { i.data.len() } else { 0 })
-                .sum::<usize>()
+        self.files.iter().map(|f| f.data.len()).sum::<usize>() + self.blocks.iter().map(|b| if let Block::Image(i) = b { i.data.len() } else { 0 }).sum::<usize>()
     }
 
     pub fn plain_text(&self) -> String {
@@ -258,11 +235,12 @@ impl Draft {
         let mut out: Vec<String> = Vec::new();
         let mut sig_done = false;
         for b in &self.blocks {
-            if let (Block::Para(p), Some(sig)) = (b, &sig) {
-                if Some(p.id) == self.quote_id && !sig_done {
-                    out.push(sig.clone());
-                    sig_done = true;
-                }
+            if let (Block::Para(p), Some(sig)) = (b, &sig)
+                && Some(p.id) == self.quote_id
+                && !sig_done
+            {
+                out.push(sig.clone());
+                sig_done = true;
             }
             out.push(match b {
                 Block::Para(p) => strip_bold(&p.text),
@@ -277,11 +255,7 @@ impl Draft {
 
     /// Bloc signature au format Gmail (séparateur « -- » puis `gmail_signature`).
     fn signature_html(&self) -> Option<String> {
-        self.signature.as_ref().map(|sig| {
-            format!(
-                "<br clear=\"all\"><div><br></div><span class=\"gmail_signature_prefix\">-- </span><br>{sig}"
-            )
-        })
+        self.signature.as_ref().map(|sig| format!("<br clear=\"all\"><div><br></div><span class=\"gmail_signature_prefix\">-- </span><br>{sig}"))
     }
 
     pub fn html(&self) -> String {
@@ -302,11 +276,7 @@ impl Draft {
                 Block::Para(p) => {
                     last_align = p.align;
                     let inner = if p.text.is_empty() { "<br>".to_string() } else { para_html(&p.text) };
-                    out.push_str(&format!(
-                        "<p style=\"margin:0 0 10px;text-align:{};font-size:{}px\">{inner}</p>",
-                        p.align.css(),
-                        p.size.px()
-                    ));
+                    out.push_str(&format!("<p style=\"margin:0 0 10px;text-align:{};font-size:{}px\">{inner}</p>", p.align.css(), p.size.px()));
                 }
                 Block::Image(i) => out.push_str(&format!(
                     "<p style=\"margin:0 0 10px;text-align:{}\"><img src=\"cid:{}\" alt=\"{}\" style=\"max-width:100%\"></p>",
@@ -351,17 +321,11 @@ impl Draft {
         // texte + HTML
         let mut body = MultiPart::alternative_plain_html(self.plain_text(), self.html());
         // + images intégrées
-        let images: Vec<&InlineImage> = self
-            .blocks
-            .iter()
-            .filter_map(|b| if let Block::Image(i) = b { Some(i) } else { None })
-            .collect();
+        let images: Vec<&InlineImage> = self.blocks.iter().filter_map(|b| if let Block::Image(i) = b { Some(i) } else { None }).collect();
         if !images.is_empty() {
             let mut related = MultiPart::related().multipart(body);
             for i in images {
-                related = related.singlepart(
-                    MimeAttachment::new_inline(i.cid.clone()).body(i.data.to_vec(), content_type(&i.mime)),
-                );
+                related = related.singlepart(MimeAttachment::new_inline(i.cid.clone()).body(i.data.to_vec(), content_type(&i.mime)));
             }
             body = related;
         }
@@ -487,11 +451,7 @@ fn parse_list(s: &str) -> Result<Mailboxes, String> {
 }
 
 fn prefixed(prefix: &str, subject: &str) -> String {
-    if subject.to_lowercase().starts_with(&prefix.to_lowercase()) {
-        subject.to_string()
-    } else {
-        format!("{prefix} {subject}")
-    }
+    if subject.to_lowercase().starts_with(&prefix.to_lowercase()) { subject.to_string() } else { format!("{prefix} {subject}") }
 }
 
 fn quote(body: &str) -> String {

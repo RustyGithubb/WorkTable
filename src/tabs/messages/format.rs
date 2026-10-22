@@ -126,32 +126,30 @@ fn inline(text: &str, base: &Run, name_of: &dyn Fn(&str) -> String) -> Vec<Run> 
     while i < chars.len() {
         let c = chars[i];
         // <url|texte>, <url>, <users/123>
-        if c == '<' {
-            if let Some(end) = chars[i + 1..].iter().position(|&x| x == '>') {
-                let inner: String = chars[i + 1..i + 1 + end].iter().collect();
-                if let Some(id) = inner.strip_prefix("users/").map(|id| format!("users/{id}")) {
-                    push_text(&mut buf, &mut out);
-                    let name = if id == "users/all" { "tout le monde".to_string() } else { name_of(&id) };
-                    out.push(Run { text: format!("@{name}"), bold: true, color: Some(MENTION), ..base.clone() });
-                    i += end + 2;
-                    continue;
-                }
-                if inner.starts_with("http://") || inner.starts_with("https://") || inner.starts_with("mailto:") {
-                    push_text(&mut buf, &mut out);
-                    let (url, label) = inner.split_once('|').unwrap_or((&inner, &inner));
-                    out.push(Run { text: label.to_string(), link: Some(url.to_string()), ..base.clone() });
-                    i += end + 2;
-                    continue;
-                }
+        if c == '<'
+            && let Some(end) = chars[i + 1..].iter().position(|&x| x == '>')
+        {
+            let inner: String = chars[i + 1..i + 1 + end].iter().collect();
+            if let Some(id) = inner.strip_prefix("users/").map(|id| format!("users/{id}")) {
+                push_text(&mut buf, &mut out);
+                let name = if id == "users/all" { "tout le monde".to_string() } else { name_of(&id) };
+                out.push(Run { text: format!("@{name}"), bold: true, color: Some(MENTION), ..base.clone() });
+                i += end + 2;
+                continue;
+            }
+            if inner.starts_with("http://") || inner.starts_with("https://") || inner.starts_with("mailto:") {
+                push_text(&mut buf, &mut out);
+                let (url, label) = inner.split_once('|').unwrap_or((&inner, &inner));
+                out.push(Run { text: label.to_string(), link: Some(url.to_string()), ..base.clone() });
+                i += end + 2;
+                continue;
             }
         }
         // Marqueurs de style : ouverture en début de mot, fermeture en fin de mot.
         if matches!(c, '*' | '_' | '~' | '`') {
             let opens = i + 1 < chars.len() && !chars[i + 1].is_whitespace() && (i == 0 || !chars[i - 1].is_alphanumeric());
             if opens {
-                let close = (i + 2..chars.len()).find(|&j| {
-                    chars[j] == c && !chars[j - 1].is_whitespace() && (j + 1 == chars.len() || !chars[j + 1].is_alphanumeric())
-                });
+                let close = (i + 2..chars.len()).find(|&j| chars[j] == c && !chars[j - 1].is_whitespace() && (j + 1 == chars.len() || !chars[j + 1].is_alphanumeric()));
                 if let Some(j) = close {
                     push_text(&mut buf, &mut out);
                     let inner: String = chars[i + 1..j].iter().collect();
@@ -181,11 +179,7 @@ fn inline(text: &str, base: &Run, name_of: &dyn Fn(&str) -> String) -> Vec<Run> 
 
 /// Texte brut d'un message (aperçu dans la liste des conversations).
 pub fn preview(text: &str, name_of: &dyn Fn(&str) -> String) -> String {
-    to_paras(text, name_of)
-        .iter()
-        .map(|p| p.runs.iter().map(|r| r.text.as_str()).collect::<String>())
-        .collect::<Vec<_>>()
-        .join(" ")
+    to_paras(text, name_of).iter().map(|p| p.runs.iter().map(|r| r.text.as_str()).collect::<String>()).collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]

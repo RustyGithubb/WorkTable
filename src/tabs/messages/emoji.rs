@@ -23,14 +23,46 @@ const GROUPS: [(emojis::Group, &str, &str); 9] = [
 
 /// Quelques mots français → mots-clés anglais du catalogue.
 const FR: [(&str, &str); 40] = [
-    ("coeur", "heart"), ("cœur", "heart"), ("rire", "laugh"), ("mdr", "joy"), ("sourire", "smil"),
-    ("pouce", "thumbs"), ("ok", "ok"), ("feu", "fire"), ("fete", "party"), ("fête", "party"),
-    ("merci", "folded hands"), ("bravo", "clapping"), ("triste", "sad"), ("pleur", "cry"), ("colere", "angry"),
-    ("colère", "angry"), ("chat", "cat"), ("chien", "dog"), ("soleil", "sun"), ("pluie", "rain"),
-    ("cafe", "coffee"), ("café", "coffee"), ("biere", "beer"), ("bière", "beer"), ("gateau", "cake"),
-    ("gâteau", "cake"), ("fusee", "rocket"), ("fusée", "rocket"), ("yeux", "eyes"), ("etoile", "star"),
-    ("étoile", "star"), ("cadeau", "gift"), ("ordinateur", "computer"), ("telephone", "phone"), ("argent", "money"),
-    ("check", "check"), ("croix", "cross"), ("main", "hand"), ("musique", "music"), ("jeu", "game"),
+    ("coeur", "heart"),
+    ("cœur", "heart"),
+    ("rire", "laugh"),
+    ("mdr", "joy"),
+    ("sourire", "smil"),
+    ("pouce", "thumbs"),
+    ("ok", "ok"),
+    ("feu", "fire"),
+    ("fete", "party"),
+    ("fête", "party"),
+    ("merci", "folded hands"),
+    ("bravo", "clapping"),
+    ("triste", "sad"),
+    ("pleur", "cry"),
+    ("colere", "angry"),
+    ("colère", "angry"),
+    ("chat", "cat"),
+    ("chien", "dog"),
+    ("soleil", "sun"),
+    ("pluie", "rain"),
+    ("cafe", "coffee"),
+    ("café", "coffee"),
+    ("biere", "beer"),
+    ("bière", "beer"),
+    ("gateau", "cake"),
+    ("gâteau", "cake"),
+    ("fusee", "rocket"),
+    ("fusée", "rocket"),
+    ("yeux", "eyes"),
+    ("etoile", "star"),
+    ("étoile", "star"),
+    ("cadeau", "gift"),
+    ("ordinateur", "computer"),
+    ("telephone", "phone"),
+    ("argent", "money"),
+    ("check", "check"),
+    ("croix", "cross"),
+    ("main", "hand"),
+    ("musique", "music"),
+    ("jeu", "game"),
 ];
 
 /// Émojis affichables par la police de l'application (sans séquences composées ni teintes de peau).
@@ -40,8 +72,7 @@ pub fn catalog(ctx: &egui::Context) -> Arc<Vec<&'static emojis::Emoji>> {
         return c;
     }
     // Images couleur (voir `emoji_img`) : tout le catalogue, sans les variantes de teinte de peau.
-    let list: Vec<&'static emojis::Emoji> =
-        emojis::iter().filter(|e| e.skin_tone().is_none_or(|t| t == emojis::SkinTone::Default)).collect();
+    let list: Vec<&'static emojis::Emoji> = emojis::iter().filter(|e| e.skin_tone().is_none_or(|t| t == emojis::SkinTone::Default)).collect();
     let list = Arc::new(list);
     ctx.data_mut(|d| d.insert_temp(id, list.clone()));
     list

@@ -135,19 +135,16 @@ impl Palette {
 
         // Fond : capture floutée + voile sombre ; un clic à côté ferme.
         let mut close = false;
-        egui::Area::new(egui::Id::unique("wt_search_backdrop"))
-            .order(egui::Order::Tooltip)
-            .fixed_pos(screen.min)
-            .show(ctx, |ui| {
-                let (r, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
-                let p = ui.painter();
-                if let Some(t) = &self.backdrop {
-                    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-                    p.image(t.id(), r, uv, crate::theme::overlay((255.0 * k) as u8));
-                }
-                p.rect_filled(r, CornerRadius::ZERO, Color32::from_black_alpha((80.0 * k) as u8));
-                close |= resp.clicked();
-            });
+        egui::Area::new(egui::Id::unique("wt_search_backdrop")).order(egui::Order::Tooltip).fixed_pos(screen.min).show(ctx, |ui| {
+            let (r, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
+            let p = ui.painter();
+            if let Some(t) = &self.backdrop {
+                let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                p.image(t.id(), r, uv, crate::theme::overlay((255.0 * k) as u8));
+            }
+            p.rect_filled(r, CornerRadius::ZERO, Color32::from_black_alpha((80.0 * k) as u8));
+            close |= resp.clicked();
+        });
 
         // Recherche Gmail après une courte pause de frappe.
         let q = self.query.trim().to_string();
@@ -191,83 +188,80 @@ impl Palette {
 
         let w = 640.0_f32.min(screen.width() - 40.0);
         let top = screen.top() + screen.height() * 0.16 - (1.0 - k) * 12.0;
-        egui::Area::new(egui::Id::unique("wt_search_box"))
-            .order(egui::Order::Tooltip)
-            .fixed_pos(Pos2::new(screen.center().x - w / 2.0, top))
-            .show(ctx, |ui| {
-                ui.multiply_opacity(k);
-                egui::Frame::new()
-                    .fill(Color32::from_rgba_premultiplied(0x1C, 0x1C, 0x1C, 0xF4))
-                    .stroke(Stroke::new(1.0, crate::theme::overlay(28)))
-                    .corner_radius(CornerRadius::same(16))
-                    .shadow(egui::Shadow { offset: [0, 18], blur: 48, spread: 0, color: Color32::from_black_alpha(170) })
-                    .inner_margin(egui::Margin::same(14))
-                    .show(ui, |ui| {
-                        ui.set_width(w - 28.0);
-                        ui.horizontal(|ui| {
-                            let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
-                            magnifier(ui.painter(), r.center(), theme::TEXT_MUTED());
-                            let te = ui.add(
-                                egui::TextEdit::singleline(&mut self.query)
-                                    .hint_text("Rechercher un mail, une date, un événement, une personne, une tâche…")
-                                    .font(FontId::proportional(18.0))
-                                    .frame(egui::Frame::NONE)
-                                    .desired_width(f32::INFINITY),
-                            );
-                            te.request_focus();
-                            if te.changed() {
-                                self.selected = 0;
-                                self.edited = Some(Instant::now());
-                            }
-                        });
-                        ui.add_space(8.0);
-                        ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, theme::BORDER()));
-                        ui.add_space(6.0);
-                        if hits.is_empty() {
-                            ui.add_space(14.0);
-                            ui.vertical_centered(|ui| {
-                                ui.label(RichText::new("Aucun résultat").color(theme::TEXT_MUTED()));
-                                ui.label(RichText::new("Essaie un nom, un sujet, « demain », « 25/10 »…").small().color(theme::TEXT_FAINT()));
-                            });
-                            ui.add_space(14.0);
+        egui::Area::new(egui::Id::unique("wt_search_box")).order(egui::Order::Tooltip).fixed_pos(Pos2::new(screen.center().x - w / 2.0, top)).show(ctx, |ui| {
+            ui.multiply_opacity(k);
+            egui::Frame::new()
+                .fill(Color32::from_rgba_premultiplied(0x1C, 0x1C, 0x1C, 0xF4))
+                .stroke(Stroke::new(1.0, crate::theme::overlay(28)))
+                .corner_radius(CornerRadius::same(16))
+                .shadow(egui::Shadow { offset: [0, 18], blur: 48, spread: 0, color: Color32::from_black_alpha(170) })
+                .inner_margin(egui::Margin::same(14))
+                .show(ui, |ui| {
+                    ui.set_width(w - 28.0);
+                    ui.horizontal(|ui| {
+                        let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
+                        magnifier(ui.painter(), r.center(), theme::TEXT_MUTED());
+                        let te = ui.add(
+                            egui::TextEdit::singleline(&mut self.query)
+                                .hint_text("Rechercher un mail, une date, un événement, une personne, une tâche…")
+                                .font(FontId::proportional(18.0))
+                                .frame(egui::Frame::NONE)
+                                .desired_width(f32::INFINITY),
+                        );
+                        te.request_focus();
+                        if te.changed() {
+                            self.selected = 0;
+                            self.edited = Some(Instant::now());
                         }
-                        egui::ScrollArea::vertical().max_height(screen.height() * 0.55).auto_shrink([false, true]).show(ui, |ui| {
-                            let mut group = "";
-                            for (i, h) in hits.iter().enumerate() {
-                                if h.group != group {
-                                    group = h.group;
-                                    ui.add_space(4.0);
-                                    ui.label(RichText::new(group.to_uppercase()).small().strong().color(theme::TEXT_FAINT()));
-                                }
-                                let sel = i == self.selected;
-                                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
-                                let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-                                if resp.hovered() && ui.input(|inp| inp.pointer.delta() != egui::Vec2::ZERO) {
-                                    self.selected = i;
-                                }
-                                let p = ui.painter();
-                                if sel {
-                                    p.rect_filled(r, CornerRadius::same(8), crate::theme::overlay(14));
-                                    ui.scroll_to_rect(r, None);
-                                }
-                                crate::emoji_img::paint(p, Rect::from_center_size(Pos2::new(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), h.icon, theme::TEXT());
-                                let left = r.left() + 40.0;
-                                let g = crate::tabs::mail::view::one_line(p, &h.title, theme::editor_font(14.0, sel), theme::TEXT(), r.right() - left - 70.0);
-                                p.galley(Pos2::new(left, r.top() + 3.0), g, theme::TEXT());
-                                let g = crate::tabs::mail::view::one_line(p, &h.sub, FontId::proportional(11.5), theme::TEXT_MUTED(), r.right() - left - 70.0);
-                                p.galley(Pos2::new(left, r.top() + 22.0), g, theme::TEXT_MUTED());
-                                if sel {
-                                    p.text(Pos2::new(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, "Entrée ↵", FontId::proportional(11.0), theme::TEXT_FAINT());
-                                }
-                                if resp.clicked() {
-                                    go = Some(h.target.clone());
-                                }
-                            }
-                        });
-                        ui.add_space(4.0);
-                        ui.label(RichText::new("↑ ↓ naviguer · Entrée ouvrir · Échap fermer · Ctrl+Espace").small().color(theme::TEXT_FAINT()));
                     });
-            });
+                    ui.add_space(8.0);
+                    ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, theme::BORDER()));
+                    ui.add_space(6.0);
+                    if hits.is_empty() {
+                        ui.add_space(14.0);
+                        ui.vertical_centered(|ui| {
+                            ui.label(RichText::new("Aucun résultat").color(theme::TEXT_MUTED()));
+                            ui.label(RichText::new("Essaie un nom, un sujet, « demain », « 25/10 »…").small().color(theme::TEXT_FAINT()));
+                        });
+                        ui.add_space(14.0);
+                    }
+                    egui::ScrollArea::vertical().max_height(screen.height() * 0.55).auto_shrink([false, true]).show(ui, |ui| {
+                        let mut group = "";
+                        for (i, h) in hits.iter().enumerate() {
+                            if h.group != group {
+                                group = h.group;
+                                ui.add_space(4.0);
+                                ui.label(RichText::new(group.to_uppercase()).small().strong().color(theme::TEXT_FAINT()));
+                            }
+                            let sel = i == self.selected;
+                            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+                            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                            if resp.hovered() && ui.input(|inp| inp.pointer.delta() != egui::Vec2::ZERO) {
+                                self.selected = i;
+                            }
+                            let p = ui.painter();
+                            if sel {
+                                p.rect_filled(r, CornerRadius::same(8), crate::theme::overlay(14));
+                                ui.scroll_to_rect(r, None);
+                            }
+                            crate::emoji_img::paint(p, Rect::from_center_size(Pos2::new(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), h.icon, theme::TEXT());
+                            let left = r.left() + 40.0;
+                            let g = crate::tabs::mail::view::one_line(p, &h.title, theme::editor_font(14.0, sel), theme::TEXT(), r.right() - left - 70.0);
+                            p.galley(Pos2::new(left, r.top() + 3.0), g, theme::TEXT());
+                            let g = crate::tabs::mail::view::one_line(p, &h.sub, FontId::proportional(11.5), theme::TEXT_MUTED(), r.right() - left - 70.0);
+                            p.galley(Pos2::new(left, r.top() + 22.0), g, theme::TEXT_MUTED());
+                            if sel {
+                                p.text(Pos2::new(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, "Entrée ↵", FontId::proportional(11.0), theme::TEXT_FAINT());
+                            }
+                            if resp.clicked() {
+                                go = Some(h.target.clone());
+                            }
+                        }
+                    });
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("↑ ↓ naviguer · Entrée ouvrir · Échap fermer · Ctrl+Espace").small().color(theme::TEXT_FAINT()));
+                });
+        });
         if go.is_some() || close {
             self.close();
         }
@@ -372,12 +366,7 @@ fn event_sub(e: &CalEvent) -> String {
 fn suggestions(cal: &CalendarState, prefs: &Prefs) -> Vec<Hit> {
     let now = Local::now().timestamp_millis();
     let mut out = Vec::new();
-    let mut next: Vec<&CalEvent> = cal
-        .events
-        .values()
-        .flatten()
-        .filter(|e| !prefs.hidden_calendars.contains(&e.calendar) && e.end > now)
-        .collect();
+    let mut next: Vec<&CalEvent> = cal.events.values().flatten().filter(|e| !prefs.hidden_calendars.contains(&e.calendar) && e.end > now).collect();
     next.sort_by_key(|e| e.start);
     next.dedup_by_key(|e| e.id.clone());
     for e in next.into_iter().take(3) {
@@ -404,7 +393,17 @@ fn commands() -> Vec<Hit> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn search(q: &str, mail: &MailState, cal: &CalendarState, chat: &ChatState, tasks: &Tasks, notes: &crate::tabs::notes::NotesState, prefs: &Prefs, remote: &[Summary], drive: &[DriveFile]) -> Vec<Hit> {
+fn search(
+    q: &str,
+    mail: &MailState,
+    cal: &CalendarState,
+    chat: &ChatState,
+    tasks: &Tasks,
+    notes: &crate::tabs::notes::NotesState,
+    prefs: &Prefs,
+    remote: &[Summary],
+    drive: &[DriveFile],
+) -> Vec<Hit> {
     let words: Vec<String> = fold(q).split_whitespace().map(str::to_string).collect();
     let mut out: Vec<Hit> = Vec::new();
     let push = |out: &mut Vec<Hit>, h: Hit| out.push(h);
@@ -433,20 +432,33 @@ fn search(q: &str, mail: &MailState, cal: &CalendarState, chat: &ChatState, task
         let s = score(&words, &[&m.subject, m.sender_name(), &m.from, &m.snippet]).or(from_remote.then_some(1));
         if let Some(s) = s {
             let subject = if m.subject.is_empty() { "(sans objet)".to_string() } else { m.subject.clone() };
-            push(&mut out, Hit {
-                group: "Mails",
-                icon: if m.unread() { "📩" } else { "✉️" },
-                title: subject,
-                sub: format!("{} · {}", m.sender_name(), crate::tabs::mail::view::short_date(m.date)),
-                target: Target::Mail(m.id.clone()),
-                score: s + (m.date / 86_400_000 / 30) as i32 % 3,
-            });
+            push(
+                &mut out,
+                Hit {
+                    group: "Mails",
+                    icon: if m.unread() { "📩" } else { "✉️" },
+                    title: subject,
+                    sub: format!("{} · {}", m.sender_name(), crate::tabs::mail::view::short_date(m.date)),
+                    target: Target::Mail(m.id.clone()),
+                    score: s + (m.date / 86_400_000 / 30) as i32 % 3,
+                },
+            );
         }
     }
 
     // Annuaire.
     for c in mail.contacts.search(q, 6) {
-        push(&mut out, Hit { group: "Contacts", icon: if c.favorite { "⭐" } else { "👤" }, title: c.display_name().to_string(), sub: c.email.clone(), target: Target::Contact(c.email.clone()), score: 30 });
+        push(
+            &mut out,
+            Hit {
+                group: "Contacts",
+                icon: if c.favorite { "⭐" } else { "👤" },
+                title: c.display_name().to_string(),
+                sub: c.email.clone(),
+                target: Target::Contact(c.email.clone()),
+                score: 30,
+            },
+        );
     }
 
     // Événements (agendas affichés).
@@ -458,7 +470,17 @@ fn search(q: &str, mail: &MailState, cal: &CalendarState, chat: &ChatState, task
         if let Some(s) = score(&words, &[&e.title, &e.location, &e.description]) {
             // Les prochains d'abord.
             let bonus = if e.end >= now { 10 } else { 0 };
-            push(&mut out, Hit { group: "Calendrier", icon: "📅", title: if e.title.is_empty() { "(Sans titre)".into() } else { e.title.clone() }, sub: event_sub(e), target: Target::Event(e.clone()), score: s + bonus });
+            push(
+                &mut out,
+                Hit {
+                    group: "Calendrier",
+                    icon: "📅",
+                    title: if e.title.is_empty() { "(Sans titre)".into() } else { e.title.clone() },
+                    sub: event_sub(e),
+                    target: Target::Event(e.clone()),
+                    score: s + bonus,
+                },
+            );
         }
     }
 
@@ -473,14 +495,17 @@ fn search(q: &str, mail: &MailState, cal: &CalendarState, chat: &ChatState, task
         for m in list.iter().rev().take(200) {
             if let Some(s) = score(&words, &[&m.text]) {
                 let sp_title = chat.space(space).map(|x| chat.title(x)).unwrap_or_default();
-                push(&mut out, Hit {
-                    group: "Google Chat",
-                    icon: "💬",
-                    title: m.text.lines().next().unwrap_or_default().chars().take(90).collect(),
-                    sub: format!("{} · {} · {}", chat.name_of(&m.sender), sp_title, crate::tabs::mail::view::short_date(m.created)),
-                    target: Target::Space(space.clone()),
-                    score: s,
-                });
+                push(
+                    &mut out,
+                    Hit {
+                        group: "Google Chat",
+                        icon: "💬",
+                        title: m.text.lines().next().unwrap_or_default().chars().take(90).collect(),
+                        sub: format!("{} · {} · {}", chat.name_of(&m.sender), sp_title, crate::tabs::mail::view::short_date(m.created)),
+                        target: Target::Space(space.clone()),
+                        score: s,
+                    },
+                );
             }
         }
     }
@@ -507,7 +532,17 @@ fn search(q: &str, mail: &MailState, cal: &CalendarState, chat: &ChatState, task
     // Fichiers partagés.
     for (m, f) in &mail.shared_files {
         if let Some(s) = score(&words, &[&f.title, m.sender_name()]) {
-            push(&mut out, Hit { group: "Fichiers", icon: "📄", title: f.title.clone(), sub: format!("{} · {}", m.sender_name(), crate::tabs::mail::view::short_date(m.date)), target: Target::File(f.clone()), score: s });
+            push(
+                &mut out,
+                Hit {
+                    group: "Fichiers",
+                    icon: "📄",
+                    title: f.title.clone(),
+                    sub: format!("{} · {}", m.sender_name(), crate::tabs::mail::view::short_date(m.date)),
+                    target: Target::File(f.clone()),
+                    score: s,
+                },
+            );
         }
     }
 

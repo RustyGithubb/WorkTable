@@ -40,13 +40,7 @@ impl InlineImages {
     }
 
     /// Charge les images d'une suite de blocs (mail, signature…), identifiés par `owner`.
-    pub fn request_blocks(
-        &mut self,
-        acc: &Account,
-        owner: &str,
-        blocks: &[BodyBlock],
-        by_cid: impl Fn(&str) -> Option<crate::google::Attachment>,
-    ) {
+    pub fn request_blocks(&mut self, acc: &Account, owner: &str, blocks: &[BodyBlock], by_cid: impl Fn(&str) -> Option<crate::google::Attachment>) {
         for (i, b) in blocks.iter().enumerate() {
             let BodyBlock::Image { src, .. } = b else { continue };
             let k = key(owner, i, src);
@@ -109,10 +103,10 @@ impl InlineImages {
 
     pub fn get(&mut self, ctx: &egui::Context, key: &str) -> Option<&ImgState> {
         let state = self.map.get_mut(key)?;
-        if let ImgState::Ready { image, texture } = state {
-            if texture.is_none() {
-                *texture = Some(ctx.load_texture(key, image.clone(), egui::TextureOptions::LINEAR));
-            }
+        if let ImgState::Ready { image, texture } = state
+            && texture.is_none()
+        {
+            *texture = Some(ctx.load_texture(key, image.clone(), egui::TextureOptions::LINEAR));
         }
         Some(state)
     }
@@ -121,10 +115,7 @@ impl InlineImages {
 fn fetch(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
     let resp = agent.get(url).call().map_err(|e| e.to_string())?;
     let mut buf = Vec::new();
-    resp.into_reader()
-        .take(MAX_REMOTE)
-        .read_to_end(&mut buf)
-        .map_err(|e| e.to_string())?;
+    resp.into_reader().take(MAX_REMOTE).read_to_end(&mut buf).map_err(|e| e.to_string())?;
     Ok(buf)
 }
 

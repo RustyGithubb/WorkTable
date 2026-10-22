@@ -14,7 +14,7 @@
     "opacity": 0.7,
     "curve": "Elastic"
   },
-  "categories_collapsed": true,
+  "categories_collapsed": false,
   "mail_list_hidden": false,
   "groups_collapsed": false,
   "hidden_calendars": [
@@ -43,7 +43,7 @@
     "e_2_fr#weeknum@group.v.calendar.google.com",
     "sblanchot@artfx.fr"
   ],
-  "calendar_days": 3,
+  "calendar_days": 1,
   "calendar_side_hidden": false,
   "chat_favorites": [
     "spaces/AAAA5LfFxmk"
@@ -95,7 +95,7 @@
       "scale": 1.0
     }
   },
-  "theme": "Monochrome",
+  "theme": "Unreal",
   "notif_no_mail": false,
   "notif_no_chat": false,
   "notif_no_share": false,

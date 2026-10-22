@@ -5286,6 +5286,7 @@ dependencies = [
  "keyring",
  "lettre",
  "open",
+ "raw-window-handle",
  "rfd",
  "scraper",
  "serde",

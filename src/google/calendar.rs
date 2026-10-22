@@ -102,26 +102,14 @@ pub fn parse_event(calendar: &str, v: &Value) -> Option<CalEvent> {
         all_day,
         attendees: v["attendees"]
             .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter(|x| !x["self"].as_bool().unwrap_or(false))
-                    .filter_map(|x| x["email"].as_str().map(str::to_string))
-                    .collect()
-            })
+            .map(|a| a.iter().filter(|x| !x["self"].as_bool().unwrap_or(false)).filter_map(|x| x["email"].as_str().map(str::to_string)).collect())
             .unwrap_or_default(),
-        meet_link: v["hangoutLink"].as_str().map(str::to_string).or_else(|| {
-            v["conferenceData"]["entryPoints"]
-                .as_array()?
-                .iter()
-                .find(|e| e["entryPointType"] == "video")?["uri"]
-                .as_str()
-                .map(str::to_string)
-        }),
-        html_link: v["htmlLink"].as_str().map(str::to_string),
-        color: v["colorId"]
+        meet_link: v["hangoutLink"]
             .as_str()
-            .and_then(|c| c.parse::<usize>().ok())
-            .and_then(|i| EVENT_COLORS.get(i.wrapping_sub(1)).copied()),
+            .map(str::to_string)
+            .or_else(|| v["conferenceData"]["entryPoints"].as_array()?.iter().find(|e| e["entryPointType"] == "video")?["uri"].as_str().map(str::to_string)),
+        html_link: v["htmlLink"].as_str().map(str::to_string),
+        color: v["colorId"].as_str().and_then(|c| c.parse::<usize>().ok()).and_then(|i| EVENT_COLORS.get(i.wrapping_sub(1)).copied()),
     })
 }
 
@@ -152,13 +140,7 @@ pub fn events(s: &Session, calendar: &str, from: i64, to: i64) -> Result<Vec<Cal
     let mut out = Vec::new();
     let mut page: Option<String> = None;
     loop {
-        let mut q = vec![
-            ("timeMin", min.as_str()),
-            ("timeMax", max.as_str()),
-            ("singleEvents", "true"),
-            ("orderBy", "startTime"),
-            ("maxResults", "2500"),
-        ];
+        let mut q = vec![("timeMin", min.as_str()), ("timeMax", max.as_str()), ("singleEvents", "true"), ("orderBy", "startTime"), ("maxResults", "2500")];
         if let Some(p) = &page {
             q.push(("pageToken", p.as_str()));
         }
@@ -175,11 +157,7 @@ pub fn events(s: &Session, calendar: &str, from: i64, to: i64) -> Result<Vec<Cal
 /// Corps JSON d'un événement (création / modification).
 pub fn body(e: &CalEvent, add_meet: bool) -> Value {
     let time = |ms: i64| {
-        if e.all_day {
-            json!({ "date": date_str(ms) })
-        } else {
-            json!({ "dateTime": rfc3339(ms) })
-        }
+        if e.all_day { json!({ "date": date_str(ms) }) } else { json!({ "dateTime": rfc3339(ms) }) }
     };
     let mut b = json!({
         "summary": e.title,

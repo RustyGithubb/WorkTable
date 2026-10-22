@@ -52,12 +52,8 @@ impl WorkTableApp {
     /// Mails non lus de la boîte de réception (aperçu au survol de l'icône Mail).
     fn mail_peek(&self) -> Vec<sidebar::PeekItem> {
         let mut seen = std::collections::HashSet::new();
-        let mut v: Vec<&crate::google::gmail::Summary> = self
-            .mail
-            .messages
-            .iter()
-            .filter(|m| m.unread() && m.labels.iter().any(|l| l == "INBOX") && seen.insert(m.thread_id.clone()))
-            .collect();
+        let mut v: Vec<&crate::google::gmail::Summary> =
+            self.mail.messages.iter().filter(|m| m.unread() && m.labels.iter().any(|l| l == "INBOX") && seen.insert(m.thread_id.clone())).collect();
         v.sort_by_key(|m| -m.date);
         v.into_iter()
             .map(|m| sidebar::PeekItem {
@@ -134,11 +130,9 @@ impl eframe::App for WorkTableApp {
                     self.drive.on_ready();
                     self.mail.handle(Event::Ready, &self.account);
                 }
-                e @ (Event::Calendars(_)
-                | Event::CalEvents { .. }
-                | Event::CalSaved { .. }
-                | Event::CalDeleted { .. }
-                | Event::CalError(_)) => self.calendar.handle(e, &self.account),
+                e @ (Event::Calendars(_) | Event::CalEvents { .. } | Event::CalSaved { .. } | Event::CalDeleted { .. } | Event::CalError(_)) => {
+                    self.calendar.handle(e, &self.account)
+                }
                 Event::Chat(e) => {
                     if let crate::google::chat::ChatEvent::Messages { space, list, .. } = &e {
                         self.notify.on_chat_messages(space, list, &self.chat, &self.prefs);
@@ -188,40 +182,28 @@ impl eframe::App for WorkTableApp {
 
         // 1. L'onglet ouvert occupe toute la fenêtre.
         //    La marge gauche réserve la place de la barre flottante pour garder le contenu lisible.
-        egui::CentralPanel::no_frame()
-            .frame(
-                egui::Frame::new()
-                    .fill(theme::BG())
-                    .inner_margin(Margin {
-                        left: theme::CONTENT_LEFT_INSET,
-                        right: 32,
-                        top: 36,
-                        bottom: 32,
-                    }),
-            )
-            .show(ui, |ui| match self.current {
-                Tab::Dashboard => {
-                    match tabs::dashboard::show(ui, &self.calendar, &mut self.mail, &self.account, &self.prefs, &mut self.tasks, &mut self.links) {
-                        Some(tabs::dashboard::DashAction::OpenMail(id)) => {
-                            self.mail.open_from_elsewhere(&self.account, &id);
-                            self.current = Tab::Mail;
-                        }
-                        Some(tabs::dashboard::DashAction::OpenEvent(e)) => {
-                            self.calendar.show_event(&e);
-                            self.current = Tab::Calendar;
-                        }
-                        None => {}
+        egui::CentralPanel::no_frame().frame(egui::Frame::new().fill(theme::BG()).inner_margin(Margin { left: theme::CONTENT_LEFT_INSET, right: 32, top: 36, bottom: 32 })).show(
+            ui,
+            |ui| match self.current {
+                Tab::Dashboard => match tabs::dashboard::show(ui, &self.calendar, &mut self.mail, &self.account, &self.prefs, &mut self.tasks, &mut self.links) {
+                    Some(tabs::dashboard::DashAction::OpenMail(id)) => {
+                        self.mail.open_from_elsewhere(&self.account, &id);
+                        self.current = Tab::Mail;
                     }
-                }
-                Tab::Calendar => {
-                    tabs::calendar::show(ui, &mut self.calendar, &mut self.account, &mut self.prefs, &self.mail.contacts)
-                }
+                    Some(tabs::dashboard::DashAction::OpenEvent(e)) => {
+                        self.calendar.show_event(&e);
+                        self.current = Tab::Calendar;
+                    }
+                    None => {}
+                },
+                Tab::Calendar => tabs::calendar::show(ui, &mut self.calendar, &mut self.account, &mut self.prefs, &self.mail.contacts),
                 Tab::Mail => tabs::mail::show(ui, &mut self.mail, &mut self.account, &mut self.prefs),
                 Tab::Messages => tabs::messages::show(ui, &mut self.chat, &mut self.account, &mut self.prefs, &self.mail.contacts),
                 Tab::Notes => note_action = tabs::notes::show(ui, &mut self.notes, &self.calendar, &self.mail, &self.chat, &self.tasks, &self.account),
                 Tab::Files => tabs::files::show(ui, &mut self.drive, &mut self.account, &mut self.prefs),
                 Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.prefs),
-            });
+            },
+        );
 
         // Liens d'une note vers le calendrier, un mail ou un fichier Drive.
         match note_action {
@@ -255,7 +237,7 @@ impl eframe::App for WorkTableApp {
         let peeks = [(Tab::Mail, self.mail_peek()), (Tab::Messages, self.chat_peek())];
         match sidebar::show(ui.ctx(), window_rect, self.current, &badges, &peeks) {
             Some(sidebar::Nav::Tab(tab)) => self.current = tab,
-            Some(sidebar::Nav::Go(t)) => self.go_to(t),
+            Some(sidebar::Nav::Go(t)) => self.go_to(*t),
             None => {}
         }
 

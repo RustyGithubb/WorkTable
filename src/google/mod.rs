@@ -3,17 +3,20 @@
 //! L'interface ne bloque jamais : chaque appel réseau part dans un thread, et le résultat
 //! revient sous forme d'`Event` lu à chaque frame par `Account::poll`.
 
+// `ureq::Error` est volumineux mais ne sert qu'à l'intérieur des appels réseau (jamais conservé).
+#![allow(clippy::result_large_err)]
+
 pub mod auth;
 pub mod calendar;
 pub mod chat;
-pub mod drive;
-pub mod config;
 pub mod compose;
+pub mod config;
+pub mod drive;
 pub mod gmail;
 pub mod html;
 
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::collections::HashMap;
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -32,13 +35,7 @@ pub(crate) fn http_err(e: ureq::Error) -> String {
 fn status_msg(code: u16, body: &str) -> String {
     let msg = serde_json::from_str::<serde_json::Value>(body)
         .ok()
-        .and_then(|v| {
-            v["error_description"]
-                .as_str()
-                .or(v["error"]["message"].as_str())
-                .or(v["error"].as_str())
-                .map(str::to_string)
-        })
+        .and_then(|v| v["error_description"].as_str().or(v["error"]["message"].as_str()).or(v["error"].as_str()).map(str::to_string))
         .unwrap_or_else(|| body.to_string());
     format!("Erreur {code} : {msg}")
 }
@@ -119,10 +116,7 @@ impl Session {
 
     /// Envoie une requête en respectant la limite de concurrence, et réessaie
     /// automatiquement (avec attente croissante) si Gmail répond « trop de requêtes ».
-    fn call(
-        &self,
-        send: impl Fn(&str) -> Result<ureq::Response, ureq::Error>,
-    ) -> Result<serde_json::Value, String> {
+    fn call(&self, send: impl Fn(&str) -> Result<ureq::Response, ureq::Error>) -> Result<serde_json::Value, String> {
         let mut attempt = 0;
         loop {
             let result = {
@@ -139,13 +133,9 @@ impl Session {
                     return serde_json::from_str(&body).map_err(|e| e.to_string());
                 }
                 Err(ureq::Error::Status(code, resp)) => {
-                    let retry_after = resp
-                        .header("Retry-After")
-                        .and_then(|v| v.trim().parse::<u64>().ok());
+                    let retry_after = resp.header("Retry-After").and_then(|v| v.trim().parse::<u64>().ok());
                     let body = resp.into_string().unwrap_or_default();
-                    let rate_limited = code == 429
-                        || code >= 500
-                        || (code == 403 && body.to_lowercase().contains("ratelimitexceeded"));
+                    let rate_limited = code == 429 || code >= 500 || (code == 403 && body.to_lowercase().contains("ratelimitexceeded"));
                     if !rate_limited || attempt >= MAX_RETRIES {
                         return Err(status_msg(code, &body));
                     }
@@ -204,23 +194,11 @@ impl Session {
 
     /// Envoi d'un corps brut (téléversement de message volumineux).
     pub(crate) fn post_bytes(&self, url: &str, content_type: &str, body: &[u8]) -> Result<serde_json::Value, String> {
-        self.call(|auth| {
-            self.agent
-                .post(url)
-                .set("Authorization", auth)
-                .set("Content-Type", content_type)
-                .send_bytes(body)
-        })
+        self.call(|auth| self.agent.post(url).set("Authorization", auth).set("Content-Type", content_type).send_bytes(body))
     }
 
     /// Requête JSON avec méthode au choix (PATCH, PUT…), paramètres d'URL inclus.
-    pub(crate) fn send(
-        &self,
-        method: &str,
-        url: &str,
-        query: &[(&str, &str)],
-        body: Option<serde_json::Value>,
-    ) -> Result<serde_json::Value, String> {
+    pub(crate) fn send(&self, method: &str, url: &str, query: &[(&str, &str)], body: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
         self.call(|auth| {
             let mut req = self.agent.request(method, url).set("Authorization", auth);
             for (k, v) in query {
@@ -246,40 +224,72 @@ pub enum Event {
     /// Le compte est prêt : les onglets peuvent charger leurs données.
     Ready,
     Labels(Vec<Label>),
-    Messages { label: String, list: Vec<Summary> },
+    Messages {
+        label: String,
+        list: Vec<Summary>,
+    },
     Starred(Vec<Summary>),
     /// Changements depuis la dernière relève (nouveaux mails, lu/non lu, favoris, catégories…).
-    Delta { changed: Vec<Summary>, deleted: Vec<String> },
+    Delta {
+        changed: Vec<Summary>,
+        deleted: Vec<String>,
+    },
     /// L'historique Gmail est trop ancien : il faut tout recharger.
     Resync,
     Opened(FullMessage),
     /// Conversation complète ; `open_id` = message à afficher en premier plan.
-    Thread { open_id: String, messages: Vec<FullMessage> },
+    Thread {
+        open_id: String,
+        messages: Vec<FullMessage>,
+    },
     /// Nombre de messages par conversation (pastille de la liste).
     ThreadSizes(Vec<(String, usize)>),
     /// Résultats d'une recherche Gmail (barre de recherche globale).
-    MailSearch { query: String, list: Vec<Summary> },
+    MailSearch {
+        query: String,
+        list: Vec<Summary>,
+    },
     /// Derniers fichiers reçus par mail (tableau de bord).
     SharedFiles(Vec<(Summary, gmail::SharedFile)>),
     /// Résultats Google Drive (onglet Fichiers, recherche globale).
     Drive(drive::DriveEvent),
     /// Résultats Google Chat (onglet Messages).
     Chat(chat::ChatEvent),
-    Modified { id: String, labels: Vec<String> },
+    Modified {
+        id: String,
+        labels: Vec<String>,
+    },
     LabelCreated(Label),
     Sent,
     /// Contenu d'une pièce jointe (ou la raison de l'échec), identifiée par `Attachment::key`.
-    AttachmentData { key: String, data: Result<Vec<u8>, String> },
+    AttachmentData {
+        key: String,
+        data: Result<Vec<u8>, String>,
+    },
     /// Image du corps d'un mail, décodée et prête à afficher.
-    InlineImage { key: String, image: Result<std::sync::Arc<eframe::egui::ColorImage>, String> },
+    InlineImage {
+        key: String,
+        image: Result<std::sync::Arc<eframe::egui::ColorImage>, String>,
+    },
     /// Signatures Gmail disponibles (réglages + signature trouvée dans les mails envoyés).
     Signatures(Vec<gmail::Signature>),
     // --- Agenda ---
     Calendars(Vec<calendar::CalendarInfo>),
-    CalEvents { calendar: String, from: i64, to: i64, events: Vec<calendar::CalEvent> },
+    CalEvents {
+        calendar: String,
+        from: i64,
+        to: i64,
+        events: Vec<calendar::CalEvent>,
+    },
     /// Événement créé ou modifié (`previous` : ancien agenda/identifiant si déplacé).
-    CalSaved { event: calendar::CalEvent, previous: Option<(String, String)> },
-    CalDeleted { calendar: String, id: String },
+    CalSaved {
+        event: calendar::CalEvent,
+        previous: Option<(String, String)>,
+    },
+    CalDeleted {
+        calendar: String,
+        id: String,
+    },
     CalError(String),
     Error(String),
 }
@@ -308,25 +318,17 @@ impl Account {
     pub fn new(ctx: egui::Context) -> Self {
         let (tx, rx) = channel();
         let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(30)).build();
-        let mut acc = Account {
-            config: Config::load(),
-            status: Status::Disconnected,
-            session: None,
-            agent,
-            tx,
-            rx,
-            ctx,
-        };
+        let mut acc = Account { config: Config::load(), status: Status::Disconnected, session: None, agent, tx, rx, ctx };
         // Reconnexion silencieuse si un jeton est déjà enregistré.
-        if acc.config.is_complete() {
-            if let Some(refresh) = auth::stored_refresh_token() {
-                acc.status = Status::Connecting;
-                let (agent, cfg) = (acc.agent.clone(), acc.config.clone());
-                acc.spawn_raw(move || {
-                    let tokens = auth::refresh(&agent, &cfg, &refresh)?;
-                    Session::new(agent, cfg, tokens).map(Event::Connected)
-                });
-            }
+        if acc.config.is_complete()
+            && let Some(refresh) = auth::stored_refresh_token()
+        {
+            acc.status = Status::Connecting;
+            let (agent, cfg) = (acc.agent.clone(), acc.config.clone());
+            acc.spawn_raw(move || {
+                let tokens = auth::refresh(&agent, &cfg, &refresh)?;
+                Session::new(agent, cfg, tokens).map(Event::Connected)
+            });
         }
         acc
     }
@@ -390,9 +392,7 @@ impl Account {
                     self.session = Some(s);
                     out.push(Event::Ready);
                 }
-                Event::Error(e) if self.status == Status::Connecting => {
-                    self.status = Status::Failed(e)
-                }
+                Event::Error(e) if self.status == Status::Connecting => self.status = Status::Failed(e),
                 other => out.push(other),
             }
         }
@@ -411,11 +411,7 @@ mod tests {
         Session {
             agent: ureq::AgentBuilder::new().build(),
             cfg: Config::default(),
-            tokens: Arc::new(Mutex::new(auth::Tokens {
-                access: "x".into(),
-                expires_at: Instant::now() + Duration::from_secs(3600),
-                refresh: String::new(),
-            })),
+            tokens: Arc::new(Mutex::new(auth::Tokens { access: "x".into(), expires_at: Instant::now() + Duration::from_secs(3600), refresh: String::new() })),
             limiter: Arc::default(),
             cache: Arc::default(),
             history_id: Arc::default(),

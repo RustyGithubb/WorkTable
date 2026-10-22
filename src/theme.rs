@@ -237,8 +237,7 @@ pub enum FontChoice {
 }
 
 impl FontChoice {
-    pub const ALL: [FontChoice; 7] =
-        [FontChoice::Inter, FontChoice::Ubuntu, FontChoice::PlexSans, FontChoice::Lato, FontChoice::PlexSerif, FontChoice::Hack, FontChoice::PlexMono];
+    pub const ALL: [FontChoice; 7] = [FontChoice::Inter, FontChoice::Ubuntu, FontChoice::PlexSans, FontChoice::Lato, FontChoice::PlexSerif, FontChoice::Hack, FontChoice::PlexMono];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -327,8 +326,7 @@ pub fn set_fonts(ctx: &egui::Context, prefs: &FontPrefs) {
     let achievement_bold = add("wt-achievement-bold-data", FontChoice::Lato, true, 1.0);
 
     // Replis (émojis, symboles) après la police principale de chaque famille.
-    let fallback: Vec<String> =
-        defaults.families.get(&FontFamily::Proportional).cloned().unwrap_or_default().into_iter().filter(|f| f != "Ubuntu-Light").collect();
+    let fallback: Vec<String> = defaults.families.get(&FontFamily::Proportional).cloned().unwrap_or_default().into_iter().filter(|f| f != "Ubuntu-Light").collect();
     let chain = |main: &str| -> Vec<String> {
         let mut v = vec![main.to_string()];
         v.extend(fallback.iter().cloned());
@@ -372,7 +370,6 @@ pub fn apply(ctx: &egui::Context) {
 
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
         style.spacing.button_padding = egui::vec2(12.0, 6.0);
-
     });
     apply_visuals(ctx);
 }
@@ -393,13 +390,7 @@ pub fn apply_visuals(ctx: &egui::Context) {
         v.hyperlink_color = TEXT();
 
         let r = CornerRadius::same(8);
-        for w in [
-            &mut v.widgets.noninteractive,
-            &mut v.widgets.inactive,
-            &mut v.widgets.hovered,
-            &mut v.widgets.active,
-            &mut v.widgets.open,
-        ] {
+        for w in [&mut v.widgets.noninteractive, &mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
             w.corner_radius = r;
         }
         v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDER());
@@ -424,5 +415,3 @@ pub fn apply_visuals(ctx: &egui::Context) {
         v.popup_shadow.color = Color32::from_black_alpha(if is_light() { 40 } else { 96 });
     });
 }
-
-

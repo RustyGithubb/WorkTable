@@ -114,16 +114,8 @@ pub fn fold(s: &str) -> String {
 
 impl Contacts {
     pub fn load() -> Self {
-        let file: File = path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        Contacts {
-            map: file.contacts.into_iter().map(|c| (c.email.clone(), c)).collect(),
-            seen: file.seen.into_iter().collect(),
-            dirty: false,
-            last_save: None,
-        }
+        let file: File = path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        Contacts { map: file.contacts.into_iter().map(|c| (c.email.clone(), c)).collect(), seen: file.seen.into_iter().collect(), dirty: false, last_save: None }
     }
 
     pub fn save(&mut self) {
@@ -161,13 +153,7 @@ impl Contacts {
             }
             let key = format!("{message_id}/{email}");
             let new_message = !message_id.is_empty() && self.seen.insert(key);
-            let c = self.map.entry(email.clone()).or_insert_with(|| Contact {
-                email: email.clone(),
-                name: String::new(),
-                favorite: false,
-                last_seen: 0,
-                count: 0,
-            });
+            let c = self.map.entry(email.clone()).or_insert_with(|| Contact { email: email.clone(), name: String::new(), favorite: false, last_seen: 0, count: 0 });
             if !name.is_empty() && name != email && (c.name.is_empty() || date >= c.last_seen) && c.name != name {
                 c.name = name;
                 self.dirty = true;
@@ -229,13 +215,7 @@ impl Contacts {
                 }
             })
             .collect();
-        hits.sort_by(|(sa, a), (sb, b)| {
-            b.favorite
-                .cmp(&a.favorite)
-                .then(sb.cmp(sa))
-                .then(b.last_seen.cmp(&a.last_seen))
-                .then(a.email.cmp(&b.email))
-        });
+        hits.sort_by(|(sa, a), (sb, b)| b.favorite.cmp(&a.favorite).then(sb.cmp(sa)).then(b.last_seen.cmp(&a.last_seen)).then(a.email.cmp(&b.email)));
         hits.into_iter().take(limit).map(|(_, c)| c).collect()
     }
 }

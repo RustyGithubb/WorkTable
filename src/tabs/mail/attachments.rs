@@ -11,15 +11,43 @@ use crate::google::{Account, Attachment, Event, gmail};
 
 /// Extensions jamais ouvertes automatiquement (exécutables, scripts, raccourcis…).
 const DANGEROUS: &[&str] = &[
-    "exe", "msi", "msix", "appx", "bat", "cmd", "com", "scr", "pif", "cpl", "msc", "ps1", "psm1",
-    "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "lnk", "url", "reg", "jar", "dll", "sys",
-    "iso", "img", "vhd", "vhdx", "application", "gadget", "inf", "scf",
+    "exe",
+    "msi",
+    "msix",
+    "appx",
+    "bat",
+    "cmd",
+    "com",
+    "scr",
+    "pif",
+    "cpl",
+    "msc",
+    "ps1",
+    "psm1",
+    "vbs",
+    "vbe",
+    "js",
+    "jse",
+    "wsf",
+    "wsh",
+    "hta",
+    "lnk",
+    "url",
+    "reg",
+    "jar",
+    "dll",
+    "sys",
+    "iso",
+    "img",
+    "vhd",
+    "vhdx",
+    "application",
+    "gadget",
+    "inf",
+    "scf",
 ];
 const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
-const TEXT_EXT: &[&str] = &[
-    "txt", "csv", "tsv", "md", "json", "log", "xml", "yaml", "yml", "ini", "toml", "rs", "py",
-    "c", "cpp", "h", "hpp", "cs", "ts", "css", "sql",
-];
+const TEXT_EXT: &[&str] = &["txt", "csv", "tsv", "md", "json", "log", "xml", "yaml", "yml", "ini", "toml", "rs", "py", "c", "cpp", "h", "hpp", "cs", "ts", "css", "sql"];
 /// Au-delà, le texte est ouvert dans l'application externe plutôt qu'affiché.
 const MAX_TEXT_PREVIEW: usize = 2 * 1024 * 1024;
 
@@ -175,11 +203,7 @@ impl Attachments {
 
 /// Copie temporaire : %TEMP%\WorkTable\<message>\<fichier>.
 fn write_temp(att: &Attachment, data: &[u8]) -> Result<PathBuf, String> {
-    let safe: String = att
-        .filename
-        .chars()
-        .map(|c| if c.is_control() || r#"\/:*?"<>|"#.contains(c) { '_' } else { c })
-        .collect();
+    let safe: String = att.filename.chars().map(|c| if c.is_control() || r#"\/:*?"<>|"#.contains(c) { '_' } else { c }).collect();
     let dir = std::env::temp_dir().join("WorkTable").join(&att.message_id);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(if safe.trim().is_empty() { "piece-jointe".into() } else { safe });
@@ -189,11 +213,7 @@ fn write_temp(att: &Attachment, data: &[u8]) -> Result<PathBuf, String> {
 
 /// Lien de dernier recours : le message dans Gmail (web), avec ses pièces jointes.
 pub fn gmail_link(email: &str, message_id: &str) -> String {
-    format!(
-        "https://mail.google.com/mail/?authuser={}#all/{}",
-        urlencoding::encode(email),
-        message_id
-    )
+    format!("https://mail.google.com/mail/?authuser={}#all/{}", urlencoding::encode(email), message_id)
 }
 
 pub fn human_size(bytes: u64) -> String {
@@ -221,15 +241,7 @@ mod tests {
     use super::*;
 
     fn att(name: &str, mime: &str) -> Attachment {
-        Attachment {
-            message_id: "m1".into(),
-            attachment_id: Some("a1".into()),
-            filename: name.into(),
-            mime: mime.into(),
-            size: 10,
-            inline_data: None,
-            content_id: None,
-        }
+        Attachment { message_id: "m1".into(), attachment_id: Some("a1".into()), filename: name.into(), mime: mime.into(), size: 10, inline_data: None, content_id: None }
     }
 
     #[test]
@@ -249,9 +261,7 @@ mod tests {
     #[test]
     fn decodes_png_preview() {
         let mut png = Vec::new();
-        image::RgbaImage::from_pixel(3, 2, image::Rgba([255, 0, 0, 255]))
-            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-            .unwrap();
+        image::RgbaImage::from_pixel(3, 2, image::Rgba([255, 0, 0, 255])).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
         let a = att("x.png", "image/png");
         let mut s = Attachments { preview: Some(Preview { att: a.clone(), content: Content::Loading }), ..Default::default() };
         assert!(s.use_data(&a, Intent::Preview, &png).is_none());

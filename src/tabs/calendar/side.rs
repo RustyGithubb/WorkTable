@@ -9,11 +9,7 @@ use crate::theme;
 
 pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &mut Prefs) {
     let w = ui.available_width();
-    if ui
-        .add_sized([w, 32.0], egui::Button::new("+  Nouvel événement"))
-        .on_hover_text("C")
-        .clicked()
-    {
+    if ui.add_sized([w, 32.0], egui::Button::new("+  Nouvel événement")).on_hover_text("C").clicked() {
         let now = Local::now();
         let d = cal.days().into_iter().find(|d| *d == now.date_naive()).unwrap_or(cal.anchor);
         let m = snap((now.hour() * 60 + now.minute()) as i32 + 15, 30).min(23 * 60);
@@ -68,9 +64,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &mut Prefs) {
 
 fn calendar_row(ui: &mut egui::Ui, name: &str, color: Color32, visible: bool, primary: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
-    let resp = resp
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(if visible { "Masquer (clic droit : afficher uniquement)" } else { "Afficher" });
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if visible { "Masquer (clic droit : afficher uniquement)" } else { "Afficher" });
     let p = ui.painter();
     if resp.hovered() {
         p.rect_filled(rect, CornerRadius::same(6), crate::theme::overlay(7));
@@ -79,10 +73,7 @@ fn calendar_row(ui: &mut egui::Ui, name: &str, color: Color32, visible: bool, pr
     let b = Rect::from_center_size(Pos2::new(rect.left() + 14.0, rect.center().y), vec2(14.0, 14.0));
     if visible {
         p.rect_filled(b, CornerRadius::same(4), color);
-        p.add(egui::Shape::line(
-            vec![b.left_center() + vec2(3.0, 0.0), b.center_bottom() + vec2(-1.0, -3.5), b.right_top() + vec2(-3.0, 3.5)],
-            Stroke::new(1.6, theme::BG()),
-        ));
+        p.add(egui::Shape::line(vec![b.left_center() + vec2(3.0, 0.0), b.center_bottom() + vec2(-1.0, -3.5), b.right_top() + vec2(-3.0, 3.5)], Stroke::new(1.6, theme::BG())));
     } else {
         // Agenda masqué : case et nom nettement estompés.
         p.rect_stroke(b, CornerRadius::same(4), Stroke::new(1.5, color.gamma_multiply(0.35)), StrokeKind::Inside);
@@ -119,13 +110,7 @@ fn mini_month(ui: &mut egui::Ui, cal: &mut CalendarState) {
     let (rect, _) = ui.allocate_exact_size(vec2(w, cell * 0.75 + cell * 6.0 * 0.86), Sense::hover());
     let p = ui.painter().clone();
     for (i, d) in ["L", "M", "M", "J", "V", "S", "D"].iter().enumerate() {
-        p.text(
-            Pos2::new(rect.left() + cell * (i as f32 + 0.5), rect.top() + cell * 0.35),
-            Align2::CENTER_CENTER,
-            *d,
-            FontId::proportional(10.5),
-            theme::TEXT_FAINT(),
-        );
+        p.text(Pos2::new(rect.left() + cell * (i as f32 + 0.5), rect.top() + cell * 0.35), Align2::CENTER_CENTER, *d, FontId::proportional(10.5), theme::TEXT_FAINT());
     }
     let today = Local::now().date_naive();
     let shown: Vec<NaiveDate> = match cal.view {
@@ -137,10 +122,7 @@ fn mini_month(ui: &mut egui::Ui, cal: &mut CalendarState) {
     for k in 0..42 {
         let d = start + CDuration::days(k);
         let (col, row) = ((k % 7) as f32, (k / 7) as f32);
-        let r = Rect::from_min_size(
-            Pos2::new(rect.left() + col * cell, rect.top() + cell * 0.75 + row * row_h),
-            vec2(cell, row_h),
-        );
+        let r = Rect::from_min_size(Pos2::new(rect.left() + col * cell, rect.top() + cell * 0.75 + row * row_h), vec2(cell, row_h));
         let resp = ui.interact(r, ui.scope_id().with(("mini", k)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
         if shown.contains(&d) {
             p.rect_filled(r.shrink2(vec2(0.0, 2.0)), CornerRadius::same(5), crate::theme::overlay(12));

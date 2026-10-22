@@ -3,8 +3,8 @@
 use eframe::egui::{self, Align, Color32, CornerRadius, FontId, Layout, Painter, Pos2, Rect, RichText, Sense, Stroke, vec2};
 
 use super::MailState;
-use crate::liquid::Liquid;
 use super::contacts::Contact;
+use crate::liquid::Liquid;
 use crate::{tabs, theme, widgets};
 
 pub enum DirAction {
@@ -27,49 +27,39 @@ pub fn list(ui: &mut egui::Ui, mail: &mut MailState, out: &mut Vec<DirAction>) {
         ui.label(RichText::new(format!("{} contacts", mail.contacts.len())).small().color(theme::TEXT_FAINT()));
     });
     ui.add_space(8.0);
-    ui.add(
-        egui::TextEdit::singleline(&mut mail.dir_query)
-            .hint_text("Rechercher un nom ou une adresse")
-            .desired_width(f32::INFINITY),
-    );
+    ui.add(egui::TextEdit::singleline(&mut mail.dir_query).hint_text("Rechercher un nom ou une adresse").desired_width(f32::INFINITY));
     ui.add_space(8.0);
 
     let found: Vec<Contact> = mail.contacts.search(&mail.dir_query, usize::MAX).into_iter().cloned().collect();
     if found.is_empty() {
-        let hint = if mail.contacts.len() == 0 {
-            "Les adresses des mails reçus s'ajoutent ici automatiquement"
-        } else {
-            "Aucun contact ne correspond"
-        };
+        let hint = if mail.contacts.len() == 0 { "Les adresses des mails reçus s'ajoutent ici automatiquement" } else { "Aucun contact ne correspond" };
         widgets::empty_state(ui, "Aucun contact", hint);
         return;
     }
 
     let favorites = found.iter().filter(|c| c.favorite).count();
-    egui::ScrollArea::vertical()
-        .id_salt("dir_list")
-        .auto_shrink([false, false])
-        .show_rows(ui, ROW_H, found.len(), |ui, range| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            let mut hl = Liquid::begin(ui, "dir_list");
-            for i in range {
-                let c = &found[i];
-                let selected = mail.dir_selected.as_deref() == Some(c.email.as_str());
-                // Séparation visuelle entre les favoris et les autres contacts.
-                let first_regular = favorites > 0 && i == favorites;
-                row(ui, c, selected, first_regular, &mut hl, out);
-            }
-            hl.end(ui, crate::theme::gray(0x30), 8.0);
-        });
+    egui::ScrollArea::vertical().id_salt("dir_list").auto_shrink([false, false]).show_rows(ui, ROW_H, found.len(), |ui, range| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let mut hl = Liquid::begin(ui, "dir_list");
+        for i in range {
+            let c = &found[i];
+            let selected = mail.dir_selected.as_deref() == Some(c.email.as_str());
+            // Séparation visuelle entre les favoris et les autres contacts.
+            let first_regular = favorites > 0 && i == favorites;
+            row(ui, c, selected, first_regular, &mut hl, out);
+        }
+        hl.end(ui, crate::theme::gray(0x30), 8.0);
+    });
 }
 
 fn row(ui: &mut egui::Ui, c: &Contact, selected: bool, separator: bool, hl: &mut Liquid, out: &mut Vec<DirAction>) {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
     let star_rect = Rect::from_center_size(rect.right_center() - vec2(18.0, 0.0), vec2(24.0, 24.0));
-    let star = ui
-        .interact(star_rect, resp.id.with("fav"), Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(if c.favorite { "Retirer des favoris" } else { "Mettre en favori" });
+    let star = ui.interact(star_rect, resp.id.with("fav"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if c.favorite {
+        "Retirer des favoris"
+    } else {
+        "Mettre en favori"
+    });
     if star.clicked() {
         out.push(DirAction::Favorite(c.email.clone()));
     } else if resp.clicked() {
@@ -111,7 +101,13 @@ fn row(ui: &mut egui::Ui, c: &Contact, selected: bool, separator: bool, hl: &mut
     let g = one_line(p, &sub, FontId::proportional(12.0), theme::TEXT_MUTED(), w);
     p.galley(Pos2::new(x, inner.top() + 26.0), g, theme::TEXT_MUTED());
 
-    let col = if c.favorite { theme::TEXT() } else if star.hovered() { theme::TEXT_MUTED() } else { theme::TEXT_FAINT() };
+    let col = if c.favorite {
+        theme::TEXT()
+    } else if star.hovered() {
+        theme::TEXT_MUTED()
+    } else {
+        theme::TEXT_FAINT()
+    };
     star_shape(p, star_rect.center(), 7.0, c.favorite, col);
 }
 
@@ -128,13 +124,7 @@ pub fn detail(ui: &mut egui::Ui, mail: &MailState, out: &mut Vec<DirAction>) {
         let p = ui.painter();
         p.circle_filled(r.center(), 22.0, if c.favorite { theme::TEXT() } else { theme::SURFACE_HI() });
         let initial: String = c.display_name().chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_default();
-        p.text(
-            r.center(),
-            egui::Align2::CENTER_CENTER,
-            initial,
-            theme::title_font(18.0),
-            if c.favorite { theme::BG() } else { theme::TEXT() },
-        );
+        p.text(r.center(), egui::Align2::CENTER_CENTER, initial, theme::title_font(18.0), if c.favorite { theme::BG() } else { theme::TEXT() });
         ui.add_space(8.0);
         ui.vertical(|ui| {
             ui.label(RichText::new(c.display_name()).size(20.0).strong());
@@ -180,33 +170,29 @@ pub fn detail(ui: &mut egui::Ui, mail: &MailState, out: &mut Vec<DirAction>) {
     ui.add_space(6.0);
     let mails = mail.dir_mails.as_ref().filter(|(e, _)| *e == c.email).map(|(_, l)| l);
     let list_h = (ui.available_height() - 34.0).max(80.0);
-    egui::ScrollArea::vertical()
-        .id_salt("dir_contact_mails")
-        .max_height(list_h)
-        .auto_shrink([false, true])
-        .show(ui, |ui| match mails {
-            None if mail.dir_loading.as_deref() == Some(c.email.as_str()) => {
-                for r in [0.8, 0.6, 0.7] {
-                    widgets::ghost_row(ui, r);
-                    widgets::ghost_row(ui, r * 0.5);
-                    ui.add_space(8.0);
+    egui::ScrollArea::vertical().id_salt("dir_contact_mails").max_height(list_h).auto_shrink([false, true]).show(ui, |ui| match mails {
+        None if mail.dir_loading.as_deref() == Some(c.email.as_str()) => {
+            for r in [0.8, 0.6, 0.7] {
+                widgets::ghost_row(ui, r);
+                widgets::ghost_row(ui, r * 0.5);
+                ui.add_space(8.0);
+            }
+        }
+        None => {
+            ui.label(RichText::new("Mails non chargés").small().color(theme::TEXT_FAINT()));
+        }
+        Some(list) if list.is_empty() => {
+            ui.label(RichText::new("Aucun mail reçu de cette adresse").small().color(theme::TEXT_FAINT()));
+        }
+        Some(list) => {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            for m in list {
+                if mail_row(ui, m).clicked() {
+                    out.push(DirAction::OpenMail(c.email.clone(), m.id.clone()));
                 }
             }
-            None => {
-                ui.label(RichText::new("Mails non chargés").small().color(theme::TEXT_FAINT()));
-            }
-            Some(list) if list.is_empty() => {
-                ui.label(RichText::new("Aucun mail reçu de cette adresse").small().color(theme::TEXT_FAINT()));
-            }
-            Some(list) => {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                for m in list {
-                    if mail_row(ui, m).clicked() {
-                        out.push(DirAction::OpenMail(c.email.clone(), m.id.clone()));
-                    }
-                }
-            }
-        });
+        }
+    });
 
     ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
         if ui
@@ -251,12 +237,7 @@ fn last_seen(ms: i64) -> String {
 
 fn one_line(p: &Painter, text: &str, font: FontId, color: Color32, max_w: f32) -> std::sync::Arc<egui::Galley> {
     let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), font, color);
-    job.wrap = egui::text::TextWrapping {
-        max_width: max_w.max(10.0),
-        max_rows: 1,
-        break_anywhere: true,
-        overflow_character: Some('…'),
-    };
+    job.wrap = egui::text::TextWrapping { max_width: max_w.max(10.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
     p.layout_job(job)
 }
 
