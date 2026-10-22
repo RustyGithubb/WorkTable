@@ -3,6 +3,7 @@
 /data/secrets/
 # Contenu des conversations Google Chat (copie chiffrée, messages épinglés) : propre à chacun.
 /data/cache/chat.wtc
+/data/cache/people.wtc
 /data/config/chat_pinned.json
 /data/config/chat_people.json
 /data/config/drive_favorites.json

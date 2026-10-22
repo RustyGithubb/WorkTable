@@ -137,11 +137,10 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
     dropped_files(ui, chat);
 
     // Blocs « Groupes » et « Personnes » masquables, avec le rebond élastique du calendrier.
-    let anim = |ui: &egui::Ui, salt: &str, on: bool| ui.ctx().animate_bool_with_time_and_easing(egui::Id::unique(salt), on, 0.28, |t| crate::prefs::Curve::Elastic.apply(t));
-    let kg = anim(ui, "wt_chat_side", !prefs.chat_side_hidden);
-    let kp = anim(ui, "wt_chat_people", !prefs.chat_people_hidden);
-    let groups_w = if SIDE_W * kg < 24.0 { 0.0 } else { SIDE_W * kg };
-    let people_w = if PEOPLE_W * kp < 24.0 { 0.0 } else { PEOPLE_W * kp };
+    let kg = widgets::reveal(ui.ctx(), "wt_chat_side", !prefs.chat_side_hidden);
+    let kp = widgets::reveal(ui.ctx(), "wt_chat_people", !prefs.chat_people_hidden);
+    let groups_w = widgets::reveal_width(SIDE_W, kg);
+    let people_w = widgets::reveal_width(PEOPLE_W, kp);
     let thread_w = if chat.thread.is_some() { THREAD_W } else { 0.0 };
     let gap = ui.spacing().item_spacing.x;
     let used: f32 = [groups_w, people_w, thread_w].iter().filter(|w| **w > 0.0).map(|w| w + gap).sum();
@@ -161,8 +160,8 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
     let fixed: Vec<f32> = cols.iter().take(cols.len() - 1).map(|c| c.1).collect();
     let acc_ref: &Account = acc;
     widgets::pane_columns(ui, &fixed, |i, ui| match cols[i].0 {
-        0 => animated_column(ui, groups_w, SIDE_W, kg, |ui| groups_block(ui, chat, prefs, book, &mut actions)),
-        1 => animated_column(ui, people_w, PEOPLE_W, kp, |ui| people_block(ui, chat, prefs, book, &mut actions)),
+        0 => widgets::animated_column(ui, groups_w, SIDE_W, kg, |ui| groups_block(ui, chat, prefs, book, &mut actions)),
+        1 => widgets::animated_column(ui, people_w, PEOPLE_W, kp, |ui| people_block(ui, chat, prefs, book, &mut actions)),
         2 => center(ui, chat, acc_ref, prefs, &mut actions),
         _ => thread_panel(ui, chat, &mut actions),
     });
@@ -279,18 +278,6 @@ fn react_picker(ui: &mut egui::Ui, chat: &mut ChatState, actions: &mut Vec<Actio
     } else if outside || ui.input(|i| i.key_pressed(Key::Escape)) {
         chat.react_picker = None;
     }
-}
-
-/// Colonne qui s'anime en largeur : contenu à sa taille normale, rogné, en fondu.
-fn animated_column(ui: &mut egui::Ui, w: f32, full: f32, k: f32, body: impl FnOnce(&mut egui::Ui)) {
-    let inner = ui.available_rect_before_wrap();
-    let margins = w - inner.width();
-    let content = Rect::from_min_size(inner.min, vec2((full - margins).max(inner.width()), inner.height()));
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content).layout(*ui.layout()));
-    child.set_clip_rect(inner.expand(2.0).intersect(ui.clip_rect()));
-    child.multiply_opacity(k.clamp(0.0, 1.0));
-    body(&mut child);
-    ui.allocate_rect(inner, Sense::hover());
 }
 
 /// Boutons d'affichage des blocs Groupes / Personnes.
@@ -506,7 +493,7 @@ fn new_group_form(ui: &mut egui::Ui, chat: &mut ChatState, book: &Contacts, acti
         if g.space {
             ui.add(egui::TextEdit::singleline(&mut g.name).hint_text(t!("Nom de l'espace", "Space name")).desired_width(f32::INFINITY));
         }
-        recipients::field(ui, "", &mut g.members, "chat_new_group", t!("Membres (annuaire)", "Members (directory)"), book, &mut chat.suggest);
+        let _ = recipients::field(ui, "", &mut g.members, "chat_new_group", t!("Membres (annuaire)", "Members (directory)"), book, &mut chat.suggest);
         ui.horizontal(|ui| {
             if ui.button(t!("Créer", "Create")).clicked() {
                 actions.push(Action::CreateGroup);
@@ -547,7 +534,7 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
     });
     ui.add_space(8.0);
     if let Some(addr) = &mut chat.new_dm {
-        recipients::field(ui, "", addr, "chat_new_dm", t!("Nom ou adresse (annuaire)", "Name or address (directory)"), book, &mut chat.suggest);
+        let _ = recipients::field(ui, "", addr, "chat_new_dm", t!("Nom ou adresse (annuaire)", "Name or address (directory)"), book, &mut chat.suggest);
         let email = crate::tabs::mail::contacts::parse_mailbox(addr.trim().trim_end_matches(',')).map(|(_, e)| e).unwrap_or_else(|| addr.trim().trim_end_matches(',').to_string());
         let mut cancel = false;
         ui.horizontal(|ui| {
@@ -720,6 +707,32 @@ fn recent_row(ui: &mut egui::Ui, chat: &ChatState, s: &Space, actions: &mut Vec<
     if resp.clicked() {
         actions.push(Action::Select(s.name.clone()));
     }
+    // Clic droit : fiche contact de la personne (ou des membres d'un groupe), puis actions.
+    resp.context_menu(|ui| {
+        ui.set_min_width(210.0);
+        match chat.others(&s.name).as_slice() {
+            [one] => person_menu(ui, chat, one),
+            _ => members_menu(ui, chat, &s.name),
+        }
+        ui.separator();
+        if ui.button(t!("Ouvrir", "Open")).clicked() {
+            actions.push(Action::Select(s.name.clone()));
+            ui.close();
+        }
+        let email = chat.others(&s.name).first().and_then(|u| chat.email_of(u)).unwrap_or_default();
+        if !email.is_empty() && ui.button(t!("Écrire un mail", "Write a mail")).clicked() {
+            actions.push(Action::MailTo(email));
+            ui.close();
+        }
+        if ui.button(if muted { t!("Réactiver les notifications", "Turn notifications back on") } else { t!("Rendre muet", "Mute") }).clicked() {
+            actions.push(Action::Mute(s.name.clone()));
+            ui.close();
+        }
+        if ui.button(t!("Ouvrir dans Google Chat", "Open in Google Chat")).clicked() {
+            let _ = webbrowser::open(&s.web_link());
+            ui.close();
+        }
+    });
 }
 
 /// Fiche de l'annuaire : photo, nom, adresse.
@@ -767,6 +780,9 @@ fn person_entry(ui: &mut egui::Ui, chat: &ChatState, s: &Space, fav: bool, hl: &
         if !email.is_empty() && ui.button(t!("Écrire un mail", "Write a mail")).clicked() {
             actions.push(Action::MailTo(email.clone()));
             ui.close();
+        }
+        if let Some(u) = chat.others(&s.name).first() {
+            person_menu(ui, chat, u);
         }
         if ui.button(t!("Ouvrir dans Google Chat", "Open in Google Chat")).clicked() {
             let _ = webbrowser::open(&s.web_link());
@@ -882,6 +898,7 @@ fn space_row(ui: &mut egui::Ui, chat: &ChatState, s: &Space, fav: bool, drag: bo
             actions.push(Action::Favorite(s.name.clone()));
             ui.close();
         }
+        members_menu(ui, chat, &s.name);
         ui.separator();
         if ui.button(t!("Choisir une image…", "Choose an image…")).clicked() {
             actions.push(Action::PickIcon(s.name.clone()));
@@ -1158,6 +1175,7 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
     let bg_idx = ui.painter().add(egui::Shape::Noop);
     ui.add_space(if compact { 0.0 } else { 10.0 });
     let left = ui.cursor().left();
+    let mut name_w = 0.0;
     if !compact {
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
         ui.add_space(4.0);
@@ -1170,6 +1188,7 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
         let p = ui.painter();
         let ng = p.layout_no_wrap(name.clone(), theme::editor_font(13.5, true), theme::TEXT());
         let nw = ng.size().x;
+        name_w = nw;
         p.galley(Pos2::new(r.left() + AVATAR + 14.0, r.top() + 1.0), ng, theme::TEXT());
         let mut meta = hhmm(m.created);
         if m.bot {
@@ -1303,6 +1322,12 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
     ui.spacing_mut().item_spacing.y = spacing_before;
     let bottom = ui.cursor().top() - 2.0;
     let rect = Rect::from_min_max(Pos2::new(left, top), Pos2::new(ui.max_rect().right() - 12.0, bottom + 2.0));
+    // Clic droit sur l'avatar, le nom ou la marge du message : fiche contact de l'auteur.
+    if !mine && !m.bot && !sending {
+        let head = Rect::from_min_max(Pos2::new(left, top), Pos2::new(body_left - 2.0, bottom));
+        let head = if compact { head } else { head.union(Rect::from_min_size(Pos2::new(left, top), vec2(AVATAR + 24.0 + name_w, 34.0))) };
+        ui.interact(head, ui.scope_id().with(("chat_who", &m.name)), Sense::click()).context_menu(|ui| person_menu(ui, chat, &m.sender));
+    }
 
     // Survol : fond léger + barre d'actions (réactions rapides, fil, modifier, supprimer).
     if ui.rect_contains_pointer(rect) && chat.editing.is_none() {
@@ -1353,6 +1378,26 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
     if sending {
         ui.multiply_opacity(1.0 / 0.55);
     }
+}
+
+/// Entrée « Fiche contact » d'une personne de Google Chat (par son adresse si elle est connue).
+fn person_menu(ui: &mut egui::Ui, chat: &ChatState, user: &str) {
+    let key = chat.email_of(user).unwrap_or_else(|| user.to_string());
+    crate::people::menu_item(ui, &key, &chat.name_of(user));
+}
+
+/// Sous-menu « Fiches contact » : chaque membre d'un groupe.
+fn members_menu(ui: &mut egui::Ui, chat: &ChatState, space: &str) {
+    let others = chat.others(space);
+    if others.is_empty() {
+        return;
+    }
+    ui.menu_button(t!("👤  Fiches contact", "👤  Contact cards"), |ui| {
+        ui.set_min_width(220.0);
+        for u in others.iter().take(20) {
+            person_menu(ui, chat, u);
+        }
+    });
 }
 
 /// Émojis d'un message qui n'en contient que quelques-uns (sinon `None`).

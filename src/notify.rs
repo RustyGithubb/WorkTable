@@ -1,5 +1,5 @@
 //! Notifications : nouveau mail, nouveau message Google Chat, document partagé sur Drive,
-//! rendez-vous dans quelques minutes. Toutes passent par un bandeau animé en haut au centre de
+//! rendez-vous dans quelques minutes, rappel minuté d'une tâche (logo réveil). Toutes passent par un bandeau animé en haut au centre de
 //! l'écran, façon « succès débloqué » Xbox (apparition élastique, barre de durée : 10 s pour un
 //! mail, 5 s pour le reste), avec le nombre de notifications du même type en attente.
 
@@ -40,6 +40,8 @@ pub enum Target {
     Space(String),
     Drive(DriveFile),
     Event(CalEvent),
+    /// Rappel minuté (identifiant) : ouvre le panneau Rappels du tableau de bord.
+    Reminder(u64),
 }
 
 /// Bandeau animé.
@@ -106,12 +108,13 @@ impl Notifier {
     }
 
     fn push_full(&mut self, prefs: &Prefs, head: String, text: String, body: Option<String>, target: Target) {
-        // Ne pas déranger : la notification n'est pas affichée (ni plus tard).
-        if prefs.do_not_disturb {
+        // Ne pas déranger : la notification n'est pas affichée (ni plus tard) — sauf les rappels
+        // minutés, programmés exprès.
+        if prefs.do_not_disturb && !matches!(target, Target::Reminder(_)) {
             return;
         }
         let sound = (!prefs.notif_no_sound).then_some(match target {
-            Target::Mail(_) | Target::Event(_) => crate::sound::Sound::Mail,
+            Target::Mail(_) | Target::Event(_) | Target::Reminder(_) => crate::sound::Sound::Mail,
             Target::Space(_) | Target::Drive(_) => crate::sound::Sound::Message,
         });
         self.achievements.push_back(Achievement { head, text, target, body, start: None, frames: 0, sound });
@@ -119,6 +122,13 @@ impl Notifier {
             // On garde celui en cours et les plus récents.
             self.achievements.remove(1);
         }
+    }
+
+    /// Rappel minuté arrivé à échéance (`late` : l'app était fermée à l'heure prévue).
+    pub fn on_timer(&mut self, prefs: &Prefs, t: &crate::tasks::Timer, late: bool) {
+        let head = if late { t!("Rappel en retard", "Overdue reminder") } else { t!("Rappel", "Reminder") };
+        let when = chrono::TimeZone::timestamp_millis_opt(&Local, t.due).single().map(|d| d.format("%H:%M").to_string()).unwrap_or_default();
+        self.push(prefs, head.into(), format!("{} - {when}", short(&t.title, 120)), Target::Reminder(t.id));
     }
 
     /// Mails reçus (chargement complet : `initial`, sans notification ; relève : nouveaux mails).
@@ -260,7 +270,7 @@ impl Notifier {
         } else {
             0.0
         };
-        let hold = if matches!(a.target, Target::Mail(_)) { ACH_HOLD_MAIL } else { ACH_HOLD };
+        let hold = if matches!(a.target, Target::Mail(_) | Target::Reminder(_)) { ACH_HOLD_MAIL } else { ACH_HOLD };
         let total = ACH_IN + hold + ACH_OUT;
         if t >= total {
             self.achievements.pop_front();
@@ -709,13 +719,18 @@ fn paint_achievement(ui: &mut egui::Ui, origin: Pos2, full: f32, extra: f32, a: 
         let ink = theme::TEXT();
         // Exactement l'icône de l'onglet d'où vient la notification (comme dans la barre de gauche).
         let tab = match a.target {
-            Target::Mail(_) => crate::app::Tab::Mail,
-            Target::Space(_) => crate::app::Tab::Messages,
-            Target::Drive(_) => crate::app::Tab::Files,
-            Target::Event(_) => crate::app::Tab::Calendar,
+            Target::Mail(_) => Some(crate::app::Tab::Mail),
+            Target::Space(_) => Some(crate::app::Tab::Messages),
+            Target::Drive(_) => Some(crate::app::Tab::Files),
+            Target::Event(_) => Some(crate::app::Tab::Calendar),
+            // Rappel minuté : logo dédié (réveil qui sonne).
+            Target::Reminder(_) => None,
         };
         let icon = Rect::from_center_size(c, egui::vec2(rad * 1.3, rad * 1.3));
-        crate::sidebar::draw_icon(&p, icon, tab, ink, an.icon_phase);
+        match tab {
+            Some(tab) => crate::sidebar::draw_icon(&p, icon, tab, ink, an.icon_phase),
+            None => crate::widgets::alarm_icon(&p, c, rad * 1.45, ink, an.icon_phase),
+        }
         // Pastille du nombre de notifications du même type en attente (comme dans la barre).
         if an.pending > 1 && an.circle > 0.9 {
             let n = if an.pending > 9 { "9+".to_string() } else { an.pending.to_string() };

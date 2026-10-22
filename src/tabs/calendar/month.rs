@@ -27,6 +27,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs) {
     let mut open = None;
     let mut go_day = None;
     let mut create = None;
+    let mut open_timer = None;
     for (k, d) in days.iter().enumerate() {
         let (c, r) = ((k % 7) as f32, (k / 7) as f32);
         let cell = Rect::from_min_size(Pos2::new(rect.left() + c * col_w, rect.top() + head + r * row_h), vec2(col_w, row_h));
@@ -87,12 +88,30 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs) {
                 go_day = Some(*d);
             }
         }
+        // Rappels minutés du jour : pastille ⏰ (heure du premier, nombre), clic = la tâche.
+        let day_timers: Vec<&crate::tasks::Timer> = cal.timers.iter().filter(|t| super::date_of(t.due) == *d).collect();
+        if let Some(first) = day_timers.first() {
+            let label = if day_timers.len() > 1 { format!("{} +{}", hhmm(first.due), day_timers.len() - 1) } else { hhmm(first.due) };
+            let g = p.layout_no_wrap(label, FontId::proportional(10.0), super::grid::timer_ink());
+            let pill = Rect::from_min_size(Pos2::new(cell.right() - g.size().x - 30.0, cell.top() + 5.0), vec2(g.size().x + 26.0, 17.0));
+            let tip: Vec<String> = day_timers.iter().map(|t| format!("⏰ {} {}", hhmm(t.due), t.title)).collect();
+            let r = ui.interact(pill, ui.scope_id().with(("month_timer", k)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tip.join("\n"));
+            p.rect_filled(pill, CornerRadius::same(8), super::grid::timer_color(first));
+            crate::widgets::alarm_icon(&p, pill.left_center() + vec2(10.0, 0.0), 12.0, super::grid::timer_ink(), 1.0);
+            p.galley(Pos2::new(pill.left() + 19.0, pill.center().y - g.size().y / 2.0), g, super::grid::timer_ink());
+            if r.clicked() {
+                open_timer = Some(first.id);
+            }
+        }
         if resp.double_clicked() {
             create = Some(*d);
         }
     }
     if let Some(e) = open {
         cal.open_event(&e);
+    }
+    if open_timer.is_some() {
+        cal.open_timer = open_timer;
     }
     if let Some(d) = go_day {
         cal.view = View::Days(1);

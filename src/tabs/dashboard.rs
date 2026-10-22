@@ -216,6 +216,14 @@ fn planning(ui: &mut egui::Ui, cal: &CalendarState, prefs: &Prefs, out: &mut Opt
             if resp.clicked() {
                 *out = Some(DashAction::Event(e.clone()));
             }
+            resp.context_menu(|ui| {
+                if ui.button(t!("Ouvrir dans le calendrier", "Open in the calendar")).clicked() {
+                    *out = Some(DashAction::Event(e.clone()));
+                    ui.close();
+                }
+                ui.separator();
+                crate::people::guests_menu(ui, &e.attendees);
+            });
         }
         if !now_drawn {
             now_line(ui);
@@ -275,10 +283,14 @@ fn mails(ui: &mut egui::Ui, mail: &mut MailState, out: &mut Option<DashAction>) 
     });
 }
 
-/// Ligne de mail ; clic droit sur un mail épinglé : menu (ouvrir, désépingler → `unpin`).
+/// Ligne de mail ; clic droit : menu (ouvrir, fiche contact, désépingler → `unpin`).
 fn mail_row(ui: &mut egui::Ui, m: &Summary, pinned: bool, out: &mut Option<DashAction>, unpin: &mut Option<String>) {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
-    let tip = if pinned { t!("Ouvrir dans Mail (clic droit : désépingler)", "Open in Mail (right-click: unpin)") } else { t!("Ouvrir dans Mail", "Open in Mail") };
+    let tip = if pinned {
+        t!("Ouvrir dans Mail (clic droit : désépingler, fiche contact)", "Open in Mail (right-click: unpin, contact card)")
+    } else {
+        t!("Ouvrir dans Mail (clic droit : fiche contact)", "Open in Mail (right-click: contact card)")
+    };
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
     let p = ui.painter();
     if pinned {
@@ -306,18 +318,17 @@ fn mail_row(ui: &mut egui::Ui, m: &Summary, pinned: bool, out: &mut Option<DashA
         *out = Some(DashAction::Mail(m.id.clone()));
     }
     // Même menu que pour les messages épinglés.
-    if pinned {
-        resp.context_menu(|ui| {
-            if ui.button(t!("Ouvrir le mail", "Open the mail")).clicked() {
-                *out = Some(DashAction::Mail(m.id.clone()));
-                ui.close();
-            }
-            if ui.button(t!("📌  Désépingler", "📌  Unpin")).clicked() {
-                *unpin = Some(m.id.clone());
-                ui.close();
-            }
-        });
-    }
+    resp.context_menu(|ui| {
+        if ui.button(t!("Ouvrir le mail", "Open the mail")).clicked() {
+            *out = Some(DashAction::Mail(m.id.clone()));
+            ui.close();
+        }
+        crate::people::menu_item_mailbox(ui, &m.from);
+        if pinned && ui.button(t!("📌  Désépingler", "📌  Unpin")).clicked() {
+            *unpin = Some(m.id.clone());
+            ui.close();
+        }
+    });
 }
 
 // --- Messages épinglés (Google Chat) -----------------------------------------------------
@@ -365,6 +376,9 @@ fn pinned_messages(ui: &mut egui::Ui, pins: &mut Pins, out: &mut Option<DashActi
                     *out = Some(DashAction::Chat(m.space.clone()));
                     ui.close();
                 }
+                if !m.sender_id.is_empty() {
+                    crate::people::menu_item(ui, &m.sender_id, &m.sender);
+                }
                 if ui.button(t!("📌  Désépingler", "📌  Unpin")).clicked() {
                     unpin = Some(m.name.clone());
                     ui.close();
@@ -382,36 +396,340 @@ fn pinned_messages(ui: &mut egui::Ui, pins: &mut Pins, out: &mut Option<DashActi
 
 fn reminders(ui: &mut egui::Ui, tasks: &mut Tasks) {
     let now = Local::now().timestamp_millis();
+    let panel = ui.max_rect();
     let list: Vec<(u64, String, Status, i64)> = tasks.reminders(now).into_iter().map(|(t, d)| (t.id, t.title.clone(), t.status, d)).collect();
-    if list.is_empty() {
-        ui.add_space(30.0);
-        widgets::empty_state(ui, t!("Rien en retard", "Nothing overdue"), t!("Les tâches oubliées apparaîtront ici", "Forgotten tasks will appear here"));
-        return;
+    let timers = tasks.timers.clone();
+    if !timers.is_empty() {
+        // Compte à rebours : rafraîchi chaque seconde.
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
     }
-    egui::ScrollArea::vertical().id_salt("dash_reminders").auto_shrink([false, false]).show(ui, |ui| {
-        for (id, title, status, days) in list {
-            egui::Frame::new().fill(theme::SURFACE_HI()).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.add(egui::Label::new(RichText::new(&title).color(theme::TEXT())).wrap());
-                let what = match status {
-                    Status::Todo => tf!("À faire · {}", "To do · {}", tasks::ago(days)),
-                    _ => tf!("En cours · {}", "In progress · {}", tasks::ago(days)),
-                };
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(what).small().color(if days >= 3 { theme::TODAY() } else { theme::TEXT_MUTED() }));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.small_button(t!("✓ Archiver", "✓ Archive")).clicked() {
-                            tasks.set_status(id, Status::Done);
-                        }
-                        if status == Status::Todo && ui.small_button(t!("▶ Commencer", "▶ Start")).clicked() {
-                            tasks.set_status(id, Status::Doing);
-                        }
+    let flash = ui.ctx().data(|d| d.get_temp::<(u64, f64)>(flash_id()));
+    let t_now = ui.input(|i| i.time);
+    if list.is_empty() && timers.is_empty() {
+        ui.add_space(30.0);
+        widgets::empty_state(
+            ui,
+            t!("Rien en retard", "Nothing overdue"),
+            t!("Les tâches oubliées et les rappels minutés (+) apparaîtront ici", "Forgotten tasks and timed reminders (+) will appear here"),
+        );
+    } else {
+        egui::ScrollArea::vertical().id_salt("dash_reminders").auto_shrink([false, false]).show(ui, |ui| {
+            // Rappels minutés (le plus proche d'abord).
+            for tm in &timers {
+                let late = tm.due <= now;
+                let fill = if late { theme::TODAY().gamma_multiply(0.22) } else { theme::SURFACE_HI() };
+                let r = egui::Frame::new().fill(fill).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        let (ir, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                        let ring = if late { ((t_now * 0.7).fract() as f32 * 2.0).min(1.0) } else { 1.0 };
+                        widgets::alarm_icon(ui.painter(), ir.center(), 17.0, if late { theme::TODAY() } else { theme::TEXT() }, ring);
+                        ui.add(egui::Label::new(RichText::new(&tm.title).color(theme::TEXT())).wrap());
+                    });
+                    let when = if late { tf!("Échu · {}", "Due · {}", due_label(tm.due)) } else { format!("{} · {}", until(tm.due - now), due_label(tm.due)) };
+                    ui.add(egui::Label::new(RichText::new(when).small().color(if late { theme::TODAY() } else { theme::TEXT_MUTED() })).wrap());
+                    ui.horizontal(|ui| {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if ui.small_button("✕").on_hover_text(t!("Annuler le rappel", "Cancel the reminder")).clicked() {
+                                tasks.remove_timer(tm.id);
+                            }
+                            if late && ui.small_button(t!("+10 min", "+10 min")).on_hover_text(t!("Me le rappeler dans 10 minutes", "Remind me in 10 minutes")).clicked() {
+                                tasks.snooze(tm.id, 10);
+                            }
+                            if ui.small_button(t!("✓ Fait", "✓ Done")).on_hover_text(t!("Archiver la tâche", "Archive the task")).clicked() {
+                                tasks.set_status(tm.task, Status::Done);
+                                tasks.remove_timer(tm.id);
+                            }
+                        });
                     });
                 });
-            });
-            ui.add_space(6.0);
+                // Arrivée depuis le calendrier ou une notification : la carte s'illumine.
+                if let Some((id, at)) = flash
+                    && id == tm.id
+                {
+                    let k = (1.0 - (t_now - at) / 2.0).clamp(0.0, 1.0) as f32;
+                    if k > 0.0 {
+                        ui.painter().rect_stroke(r.response.rect, CornerRadius::same(8), Stroke::new(2.0, theme::TEXT().gamma_multiply(k)), egui::StrokeKind::Outside);
+                        if k > 0.95 {
+                            ui.scroll_to_rect(r.response.rect, Some(Align::Center));
+                        }
+                        ui.ctx().request_repaint();
+                    }
+                }
+                ui.add_space(6.0);
+            }
+            // Tâches oubliées.
+            for (id, title, status, days) in list {
+                egui::Frame::new().fill(theme::SURFACE_HI()).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.add(egui::Label::new(RichText::new(&title).color(theme::TEXT())).wrap());
+                    let what = match status {
+                        Status::Todo => tf!("À faire · {}", "To do · {}", tasks::ago(days)),
+                        _ => tf!("En cours · {}", "In progress · {}", tasks::ago(days)),
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(what).small().color(if days >= 3 { theme::TODAY() } else { theme::TEXT_MUTED() }));
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if ui.small_button(t!("✓ Archiver", "✓ Archive")).clicked() {
+                                tasks.set_status(id, Status::Done);
+                            }
+                            if status == Status::Todo && ui.small_button(t!("▶ Commencer", "▶ Start")).clicked() {
+                                tasks.set_status(id, Status::Doing);
+                            }
+                        });
+                    });
+                });
+                ui.add_space(6.0);
+            }
+            // Place pour le bouton « + ».
+            ui.add_space(34.0);
+        });
+    }
+    add_button(ui, panel, tasks);
+}
+
+fn flash_id() -> egui::Id {
+    egui::Id::unique("wt_timer_flash")
+}
+
+/// Met en évidence un rappel minuté dans le panneau Rappels (depuis le calendrier ou une notification).
+pub fn flash_timer(ctx: &egui::Context, id: u64) {
+    let t = ctx.input(|i| i.time);
+    ctx.data_mut(|d| d.insert_temp(flash_id(), (id, t)));
+}
+
+/// « dans 12 min », « dans 2 h 05 », « dans 3 jours ».
+fn until(ms: i64) -> String {
+    let min = (ms + 59_999) / 60_000;
+    match min {
+        ..=1 => t!("dans moins d'une minute", "in less than a minute").into(),
+        2..=59 => tf!("dans {min} min", "in {min} min"),
+        60..=1439 => tf!("dans {} h {:02}", "in {} h {:02}", min / 60, min % 60),
+        _ => {
+            let d = (min + 720) / 1440;
+            tf!("dans {d} jour(s)", "in {d} day(s)")
+        }
+    }
+}
+
+/// « aujourd'hui 21:15 », « demain 09:00 », « ven. 24 oct. 09:00 ».
+pub fn due_label(ms: i64) -> String {
+    use chrono::Datelike;
+    let Some(dt) = Local.timestamp_millis_opt(ms).single() else { return String::new() };
+    let d = dt.date_naive();
+    let today = Local::now().date_naive();
+    let day = if d == today {
+        t!("aujourd'hui", "today").to_string()
+    } else if d == today + chrono::Duration::days(1) {
+        t!("demain", "tomorrow").to_string()
+    } else {
+        format!("{} {} {}", crate::tabs::weekday_short(d.weekday()), d.day(), crate::tabs::month_short(d.month()))
+    };
+    format!("{day} {}", dt.format("%H:%M"))
+}
+
+// --- Bouton « + » et rappel minuté -----------------------------------------------------------
+
+/// Formulaire du rappel minuté (gardé entre les images).
+#[derive(Clone, Default)]
+struct TimerForm {
+    open: bool,
+    /// Tâche existante, sinon nouvelle tâche (`title`).
+    task: Option<u64>,
+    title: String,
+    /// Échéance : après un délai (`false`) ou à une date fixe (`true`).
+    fixed: bool,
+    hours: u32,
+    minutes: u32,
+    date: String,
+    time: String,
+}
+
+fn form_id() -> egui::Id {
+    egui::Id::unique("wt_timer_form")
+}
+
+/// Bouton « + » en bas à droite du panneau : menu d'actions (rappel minuté…).
+fn add_button(ui: &mut egui::Ui, panel: Rect, tasks: &mut Tasks) {
+    let c = Pos2::new(panel.right() - 16.0, panel.bottom() - 16.0);
+    let r = Rect::from_center_size(c, vec2(30.0, 30.0));
+    let resp = ui.interact(r, egui::Id::unique("wt_reminders_add"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(t!("Ajouter…", "Add…"));
+    let k = ui.ctx().animate_bool_with_time(resp.id.with("hover"), resp.hovered(), 0.15);
+    let p = ui.painter();
+    p.circle_filled(c, 15.0 + 1.5 * k, crate::sidebar::lerp_color(theme::TEXT(), theme::TEXT_MUTED(), k));
+    let s = Stroke::new(2.0, theme::BG());
+    p.line_segment([c - vec2(6.0, 0.0), c + vec2(6.0, 0.0)], s);
+    p.line_segment([c - vec2(0.0, 6.0), c + vec2(0.0, 6.0)], s);
+    egui::Popup::menu(&resp).align(egui::RectAlign::TOP_END).show(|ui| {
+        ui.set_min_width(220.0);
+        ui.label(RichText::new(t!("AJOUTER", "ADD")).small().color(theme::TEXT_FAINT()));
+        if ui
+            .button(t!("⏰  Rappel minuté…", "⏰  Timed reminder…"))
+            .on_hover_text(t!("Être rappelé d'une tâche après un délai ou à une date fixe", "Get reminded of a task after a delay or at a set date"))
+            .clicked()
+        {
+            let now = Local::now() + chrono::Duration::hours(1);
+            let form = TimerForm {
+                open: true,
+                task: tasks.column(Status::Todo).first().or(tasks.column(Status::Doing).first()).map(|t| t.id),
+                minutes: 30,
+                date: now.format("%d/%m/%Y").to_string(),
+                time: now.format("%H:00").to_string(),
+                ..Default::default()
+            };
+            ui.ctx().data_mut(|d| d.insert_temp(form_id(), form));
+            ui.close();
         }
     });
+    timer_form(ui.ctx(), r, tasks);
+}
+
+/// Fenêtre de création du rappel, au-dessus du bouton « + ».
+fn timer_form(ctx: &egui::Context, anchor: Rect, tasks: &mut Tasks) {
+    let Some(mut f) = ctx.data(|d| d.get_temp::<TimerForm>(form_id())) else { return };
+    if !f.open {
+        return;
+    }
+    let now = Local::now();
+    let mut close = false;
+    let mut submit = false;
+    egui::Area::new(egui::Id::unique("wt_timer_form_area")).order(egui::Order::Foreground).pivot(Align2::RIGHT_BOTTOM).fixed_pos(anchor.right_top() - vec2(0.0, 8.0)).show(
+        ctx,
+        |ui| {
+            egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(14)).corner_radius(CornerRadius::same(12)).show(ui, |ui| {
+                ui.set_width(320.0);
+                ui.horizontal(|ui| {
+                    widgets::alarm_icon(ui.painter(), ui.cursor().min + vec2(9.0, 10.0), 18.0, theme::TEXT(), 1.0);
+                    ui.add_space(22.0);
+                    ui.label(RichText::new(t!("Rappel minuté", "Timed reminder")).font(theme::title_font(16.0)));
+                });
+                ui.add_space(8.0);
+                // Tâche : existante, ou nouvelle (ajoutée à « À faire »).
+                ui.label(RichText::new(t!("TÂCHE", "TASK")).small().color(theme::TEXT_FAINT()));
+                let open_tasks: Vec<(u64, String)> = tasks.column(Status::Todo).into_iter().chain(tasks.column(Status::Doing)).map(|t| (t.id, t.title.clone())).collect();
+                let current =
+                    f.task.and_then(|id| open_tasks.iter().find(|(i, _)| *i == id)).map(|(_, t)| t.clone()).unwrap_or_else(|| t!("➕ Nouvelle tâche", "➕ New task").into());
+                egui::ComboBox::from_id_salt("wt_timer_task").selected_text(current).width(ui.available_width()).show_ui(ui, |ui| {
+                    if ui.selectable_label(f.task.is_none(), t!("➕ Nouvelle tâche", "➕ New task")).clicked() {
+                        f.task = None;
+                    }
+                    for (id, title) in &open_tasks {
+                        if ui.selectable_label(f.task == Some(*id), title).clicked() {
+                            f.task = Some(*id);
+                        }
+                    }
+                });
+                if f.task.is_none() {
+                    let te = ui.add(egui::TextEdit::singleline(&mut f.title).hint_text(t!("Que faut-il faire ?", "What needs doing?")).desired_width(f32::INFINITY));
+                    if f.title.is_empty() && !te.has_focus() && ui.memory(|m| m.focused().is_none()) {
+                        te.request_focus();
+                    }
+                }
+                ui.add_space(10.0);
+                ui.label(RichText::new(t!("QUAND", "WHEN")).small().color(theme::TEXT_FAINT()));
+                let mut fixed = f.fixed;
+                widgets::segmented(ui, "wt_timer_mode", &[(false, t!("Dans…", "In…")), (true, t!("Le…", "On…"))], &mut fixed);
+                f.fixed = fixed;
+                ui.add_space(6.0);
+                if !f.fixed {
+                    ui.horizontal_wrapped(|ui| {
+                        for (label, m) in [("5 min", 5), ("15 min", 15), ("30 min", 30), ("1 h", 60), ("2 h", 120), (t!("1 jour", "1 day"), 1440)] {
+                            if ui.add(egui::Button::new(label).selected(f.hours * 60 + f.minutes == m)).clicked() {
+                                f.hours = m / 60;
+                                f.minutes = m % 60;
+                            }
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut f.hours).range(0..=720).suffix(" h"));
+                        ui.add(egui::DragValue::new(&mut f.minutes).range(0..=59).suffix(" min"));
+                    });
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut f.date).desired_width(96.0).hint_text("jj/mm/aaaa"));
+                        ui.add(egui::TextEdit::singleline(&mut f.time).desired_width(60.0).hint_text("hh:mm"));
+                    });
+                    ui.horizontal_wrapped(|ui| {
+                        let today = now.date_naive();
+                        let mut quick = |ui: &mut egui::Ui, label: &str, d: chrono::NaiveDate, t: &str| {
+                            if ui.button(label).clicked() {
+                                f.date = d.format("%d/%m/%Y").to_string();
+                                f.time = t.to_string();
+                            }
+                        };
+                        quick(ui, t!("Ce soir 18:00", "Tonight 18:00"), today, "18:00");
+                        quick(ui, t!("Demain 9:00", "Tomorrow 9:00"), today + chrono::Duration::days(1), "09:00");
+                        let monday = today + chrono::Duration::days(7 - chrono::Datelike::weekday(&today).num_days_from_monday() as i64);
+                        quick(ui, t!("Lundi 9:00", "Monday 9:00"), monday, "09:00");
+                    });
+                }
+                let due = due_of(&f, now.timestamp_millis());
+                ui.add_space(6.0);
+                match &due {
+                    Ok(ms) => {
+                        ui.label(RichText::new(tf!("Rappel {} ({})", "Reminder {} ({})", due_label(*ms), until(*ms - now.timestamp_millis()))).small().color(theme::TEXT_MUTED()))
+                    }
+                    Err(e) => ui.label(RichText::new(e).small().color(theme::TODAY())),
+                };
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let ready = due.is_ok() && (f.task.is_some() || !f.title.trim().is_empty());
+                    if ui.add_enabled(ready, egui::Button::new(t!("Valider", "Confirm"))).clicked() {
+                        submit = true;
+                    }
+                    if ui.button(t!("Annuler", "Cancel")).clicked() {
+                        close = true;
+                    }
+                });
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    close = true;
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) && due.is_ok() && (f.task.is_some() || !f.title.trim().is_empty()) {
+                    submit = true;
+                }
+            });
+        },
+    );
+    if submit && let Ok(ms) = due_of(&f, now.timestamp_millis()) {
+        let task = match f.task {
+            Some(id) => Some(id),
+            None => tasks.add_task(&f.title),
+        };
+        if let Some(id) = task {
+            tasks.add_timer(id, ms);
+        }
+        close = true;
+    }
+    if close {
+        f.open = false;
+    }
+    ctx.data_mut(|d| d.insert_temp(form_id(), f));
+}
+
+/// Échéance du formulaire (ms), ou la raison pour laquelle elle n'est pas valable.
+fn due_of(f: &TimerForm, now: i64) -> Result<i64, String> {
+    if !f.fixed {
+        let min = f.hours as i64 * 60 + f.minutes as i64;
+        if min == 0 {
+            return Err(t!("Choisis un délai", "Choose a delay").into());
+        }
+        return Ok(now + min * 60_000);
+    }
+    let d = chrono::NaiveDate::parse_from_str(f.date.trim(), "%d/%m/%Y").map_err(|_| t!("Date invalide (jj/mm/aaaa)", "Invalid date (dd/mm/yyyy)").to_string())?;
+    let t = f.time.trim().replace(['h', 'H'], ":");
+    let t = if t.ends_with(':') {
+        format!("{t}00")
+    } else if !t.contains(':') {
+        format!("{t}:00")
+    } else {
+        t
+    };
+    let t = chrono::NaiveTime::parse_from_str(&t, "%H:%M").map_err(|_| t!("Heure invalide (hh:mm)", "Invalid time (hh:mm)").to_string())?;
+    let ms = Local.from_local_datetime(&d.and_time(t)).earliest().map(|x| x.timestamp_millis()).ok_or_else(|| t!("Heure invalide", "Invalid time").to_string())?;
+    if ms <= now {
+        return Err(t!("Cette heure est déjà passée", "This time has already passed").into());
+    }
+    Ok(ms)
 }
 
 // --- Kanban -----------------------------------------------------------------------------------
@@ -470,9 +788,11 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
                             ui.add_space(6.0);
                         }
                         let items: Vec<(u64, String, i64)> = tasks.column(status).iter().map(|t| (t.id, t.title.clone(), t.since)).collect();
+                        let alarms: Vec<(u64, i64)> = tasks.timers.iter().map(|t| (t.task, t.due)).collect();
                         egui::ScrollArea::vertical().id_salt(("dash_kanban", status.label())).auto_shrink([false, false]).show(ui, |ui| {
                             for (id, title, since) in items {
-                                task_card(ui, id, &title, since, status, &mut moves, &mut deletes, &mut renames);
+                                let alarm = alarms.iter().filter(|(t, _)| *t == id).map(|(_, d)| *d).min();
+                                task_card(ui, id, &title, since, status, alarm, &mut moves, &mut deletes, &mut renames);
                             }
                             if tasks.column(status).is_empty() {
                                 ui.label(RichText::new(if dragging.is_some() { t!("Déposer ici", "Drop here") } else { "—" }).small().color(theme::TEXT_FAINT()));
@@ -514,8 +834,19 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
     }
 }
 
+/// `alarm` : prochain rappel minuté de la tâche (réveil et heure sur la carte).
 #[allow(clippy::too_many_arguments)]
-fn task_card(ui: &mut egui::Ui, id: u64, title: &str, since: i64, status: Status, moves: &mut Vec<(u64, Status)>, deletes: &mut Vec<u64>, renames: &mut Vec<(u64, String)>) {
+fn task_card(
+    ui: &mut egui::Ui,
+    id: u64,
+    title: &str,
+    since: i64,
+    status: Status,
+    alarm: Option<i64>,
+    moves: &mut Vec<(u64, Status)>,
+    deletes: &mut Vec<u64>,
+    renames: &mut Vec<(u64, String)>,
+) {
     let edit_id = egui::Id::unique(("wt_task_edit", id));
     let editing: Option<String> = ui.ctx().data(|d| d.get_temp(edit_id));
     let frame = egui::Frame::new()
@@ -578,6 +909,14 @@ fn task_card(ui: &mut egui::Ui, id: u64, title: &str, since: i64, status: Status
                     _ => tasks::ago(days),
                 };
                 ui.label(RichText::new(when).small().color(theme::TEXT_FAINT()));
+                if let Some(due) = alarm {
+                    let late = due <= Local::now().timestamp_millis();
+                    let color = if late { theme::TODAY() } else { theme::TEXT_MUTED() };
+                    let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
+                    widgets::alarm_icon(ui.painter(), r.center(), 12.0, color, 1.0);
+                    let hm = Local.timestamp_millis_opt(due).single().map(|d| d.format("%H:%M").to_string()).unwrap_or_default();
+                    ui.label(RichText::new(hm).small().color(color)).on_hover_text(tf!("Rappel {}", "Reminder {}", due_label(due)));
+                }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let small = |ui: &mut egui::Ui, t: &str, tip: &str| ui.add(egui::Button::new(RichText::new(t).small()).frame(false)).on_hover_text(tip).clicked();
@@ -825,6 +1164,7 @@ fn files(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, two_cols: bool,
                 open = true;
                 ui.close();
             }
+            crate::people::menu_item_mailbox(ui, &m.from);
         });
         if open {
             match (&f.url, &f.attachment) {

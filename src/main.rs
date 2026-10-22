@@ -14,6 +14,7 @@ mod liquid;
 mod notes_store;
 mod notify;
 mod paths;
+mod people;
 mod prefs;
 mod search;
 mod sidebar;

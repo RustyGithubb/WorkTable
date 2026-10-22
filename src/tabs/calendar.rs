@@ -48,6 +48,9 @@ pub struct Editor {
     pub error: Option<String>,
     pub saving: bool,
     pub confirm_delete: bool,
+    /// Champs modifiables (bouton « Modifier ») ; sinon l'événement est affiché en lecture.
+    /// Un nouvel événement s'ouvre directement en édition.
+    pub editing: bool,
 }
 
 /// Geste souris en cours sur la grille.
@@ -73,6 +76,12 @@ pub struct CalendarState {
     pub mini_month: NaiveDate,
     pub selected: Option<(String, String)>,
     pub editor: Option<Editor>,
+    /// Dernier événement affiché dans le panneau (animation de fermeture).
+    pub panel_last: Option<CalEvent>,
+    /// Rappels minutés des tâches (copie, mise à jour par l'app) : pastilles dans la grille.
+    pub timers: Vec<crate::tasks::Timer>,
+    /// Pastille de rappel cliquée : à ouvrir dans le tableau de bord.
+    pub open_timer: Option<u64>,
     pub drag: Option<Drag>,
     pub loading_calendars: bool,
     pub need_consent: bool,
@@ -97,6 +106,9 @@ impl Default for CalendarState {
             mini_month: today.with_day(1).unwrap_or(today),
             selected: None,
             editor: None,
+            panel_last: None,
+            timers: Vec::new(),
+            open_timer: None,
             drag: None,
             loading_calendars: false,
             need_consent: false,
@@ -320,11 +332,12 @@ impl CalendarState {
                 let l = self.events.entry(event.calendar.clone()).or_default();
                 l.retain(|e| e.id != event.id);
                 self.selected = Some((event.calendar.clone(), event.id.clone()));
-                l.push(event);
+                l.push(event.clone());
+                // Enregistré : retour à l'affichage (lecture) de l'événement.
                 if let Some(ed) = &mut self.editor
                     && ed.saving
                 {
-                    self.editor = None;
+                    *ed = Editor::new(event.clone(), Some(event));
                 }
                 self.info(t!("Événement enregistré", "Event saved"));
             }
@@ -414,7 +427,9 @@ impl CalendarState {
         if let Some(ed) = &mut self.editor
             && ed.original.as_ref().is_some_and(|o| o.id == e.id)
         {
+            let editing = ed.editing;
             *ed = Editor::new(e.clone(), Some(e.clone()));
+            ed.editing = editing;
         }
         e.attendees.retain(|a| !a.is_empty());
         acc.run(move |s| {
@@ -488,6 +503,7 @@ impl Editor {
             error: None,
             saving: false,
             confirm_delete: false,
+            editing: original.is_none(),
             original,
             ev,
         }
@@ -576,10 +592,21 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &mut Account, prefs
     // Colonne de gauche masquable : l'agenda prend alors toute la largeur.
     // Ouverture / fermeture rapide avec un léger rebond élastique.
     const SIDE_W: f32 = 250.0;
-    let k = ui.ctx().animate_bool_with_time_and_easing(egui::Id::unique("wt_cal_side"), !prefs.calendar_side_hidden, 0.28, |t| crate::prefs::Curve::Elastic.apply(t));
-    let side_w = if SIDE_W * k < 24.0 { 0.0 } else { SIDE_W * k };
+    const PANEL_W: f32 = 360.0;
+    let k = widgets::reveal(ui.ctx(), "wt_cal_side", !prefs.calendar_side_hidden);
+    let side_w = widgets::reveal_width(SIDE_W, k);
     let gaps = if side_w > 0.0 { 8.0 } else { 0.0 };
-    let panel_w = if cal.editor.is_some() { 360.0 } else { 0.0 };
+    // Panneau de l'événement : même ouverture que les colonnes de Google Chat ; à la fermeture,
+    // le dernier événement reste affiché (en lecture) le temps de l'animation.
+    let open = cal.editor.is_some();
+    if let Some(ed) = &cal.editor {
+        cal.panel_last = Some(ed.ev.clone());
+    }
+    let kp = widgets::reveal(ui.ctx(), "wt_cal_panel", open);
+    let panel_w = if cal.panel_last.is_some() { widgets::reveal_width(PANEL_W, kp) } else { 0.0 };
+    if !open && panel_w == 0.0 {
+        cal.panel_last = None;
+    }
     let center_w = (ui.available_width() - side_w - panel_w - gaps - if panel_w > 0.0 { 8.0 } else { 0.0 }).max(200.0);
     let mut fixed: Vec<f32> = Vec::new();
     if side_w > 0.0 {
@@ -593,19 +620,16 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &mut Account, prefs
     let mut toggle_side = false;
     let side_hidden = prefs.calendar_side_hidden;
     widgets::pane_columns(ui, &fixed, |i, ui| match i + offset {
-        0 => {
-            // Contenu dessiné à sa largeur normale et rogné par la colonne qui s'anime.
-            let inner = ui.available_rect_before_wrap();
-            let margins = side_w - inner.width();
-            let content = egui::Rect::from_min_size(inner.min, egui::vec2((SIDE_W - margins).max(inner.width()), inner.height()));
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content).layout(*ui.layout()));
-            child.set_clip_rect(inner.expand(2.0).intersect(ui.clip_rect()));
-            child.multiply_opacity(k.clamp(0.0, 1.0));
-            side::show(&mut child, cal, prefs);
-            ui.allocate_rect(inner, egui::Sense::hover());
-        }
+        // Contenu dessiné à sa largeur normale et rogné par la colonne qui s'anime.
+        0 => widgets::animated_column(ui, side_w, SIDE_W, k, |ui| side::show(ui, cal, prefs)),
         1 => center(ui, cal, prefs, acc_ref, side_hidden, &mut toggle_side),
-        _ => panel::show(ui, cal, acc_ref, book),
+        _ => widgets::animated_column(ui, panel_w, PANEL_W, kp, |ui| {
+            if cal.editor.is_some() {
+                panel::show(ui, cal, acc_ref, book);
+            } else if let Some(e) = cal.panel_last.clone() {
+                panel::view(ui, cal, &e, book);
+            }
+        }),
     });
     if toggle_side {
         prefs.calendar_side_hidden = !prefs.calendar_side_hidden;
@@ -741,9 +765,22 @@ fn shortcuts(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs) {
         cal.new_event(prefs, at(d, m), at(d, m + 60), false);
     }
     if pressed(Key::Escape) {
-        cal.editor = None;
-        cal.selected = None;
         cal.drag = None;
+        match &mut cal.editor {
+            // Modification d'un événement existant : Échap l'annule (retour à l'affichage).
+            Some(ed) if ed.editing && !ed.saving => {
+                if let Some(o) = ed.original.clone() {
+                    *ed = Editor::new(o.clone(), Some(o));
+                } else {
+                    cal.editor = None;
+                    cal.selected = None;
+                }
+            }
+            _ => {
+                cal.editor = None;
+                cal.selected = None;
+            }
+        }
     }
 }
 

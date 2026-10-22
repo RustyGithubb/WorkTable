@@ -249,6 +249,11 @@ pub enum Event {
         query: String,
         list: Vec<Summary>,
     },
+    /// Mails échangés avec une personne (bouton « Chercher ses mails » de sa fiche contact).
+    PersonMails {
+        email: String,
+        list: Result<Vec<Summary>, String>,
+    },
     /// Derniers fichiers reçus par mail (tableau de bord).
     SharedFiles(Vec<(Summary, gmail::SharedFile)>),
     /// Résultats Google Drive (onglet Fichiers, recherche globale).

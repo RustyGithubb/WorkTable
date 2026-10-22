@@ -59,7 +59,8 @@ fn move_cursor_to_end(ctx: &egui::Context, id: egui::Id, text: &str) {
     ctx.memory_mut(|m| m.request_focus(id));
 }
 
-pub fn field(ui: &mut egui::Ui, label: &str, text: &mut String, salt: &str, hint: &str, book: &Contacts, st: &mut Suggest) {
+/// Renvoie la zone de saisie (pour un menu contextuel, par exemple).
+pub fn field(ui: &mut egui::Ui, label: &str, text: &mut String, salt: &str, hint: &str, book: &Contacts, st: &mut Suggest) -> egui::Response {
     let ctx = ui.ctx().clone();
     let id = egui::Id::unique(("wt_recipients", salt));
     if st.refocus == Some(id) {
@@ -156,6 +157,7 @@ pub fn field(ui: &mut egui::Ui, label: &str, text: &mut String, salt: &str, hint
         move_cursor_to_end(&ctx, id, text);
         *refocus = Some(id);
     }
+    resp
 }
 
 fn suggestion_row(ui: &mut egui::Ui, c: &Contact, highlighted: bool) -> egui::Response {

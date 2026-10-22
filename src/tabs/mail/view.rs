@@ -619,6 +619,8 @@ fn message_row(ui: &mut egui::Ui, m: &Summary, active: bool, pinned: bool, count
         if ui.button(t!("Ouvrir", "Open")).clicked() {
             actions.push(Action::Open(m.id.clone()));
         }
+        crate::people::menu_item_mailbox(ui, &m.from);
+        ui.separator();
         let fav = if m.starred() { t!("Retirer des favoris", "Remove from starred") } else { t!("Ajouter aux favoris", "Add to starred") };
         if ui.button(fav).clicked() {
             actions.push(Action::Star(m.clone()));
@@ -802,10 +804,12 @@ fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &
             });
         });
         if !m.to.is_empty() {
-            ui.add(egui::Label::new(RichText::new(tf!("À : {}", "To: {}", m.to)).small().color(theme::TEXT_MUTED())).wrap());
+            let r = ui.add(egui::Label::new(RichText::new(tf!("À : {}", "To: {}", m.to)).small().color(theme::TEXT_MUTED())).wrap().sense(Sense::click()));
+            r.context_menu(|ui| people_menu(ui, &m.to));
         }
         if !m.cc.is_empty() {
-            ui.add(egui::Label::new(RichText::new(tf!("Cc : {}", "Cc: {}", m.cc)).small().color(theme::TEXT_MUTED())).wrap());
+            let r = ui.add(egui::Label::new(RichText::new(tf!("Cc : {}", "Cc: {}", m.cc)).small().color(theme::TEXT_MUTED())).wrap().sense(Sense::click()));
+            r.context_menu(|ui| people_menu(ui, &m.cc));
         }
         // Reçu via une adresse intermédiaire (groupe / liste) : couleur réglable.
         let via = groups::intermediates(s, &mail.own);
@@ -1001,6 +1005,7 @@ fn thread_card(
             let s = &t.summary;
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if open { 20.0 } else { 38.0 }), Sense::click());
             let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if open { t!("Replier", "Collapse") } else { t!("Déplier", "Expand") });
+            resp.context_menu(|ui| crate::people::menu_item_mailbox(ui, &s.from));
             toggled = resp.clicked();
             let p = ui.painter();
             let date = short_date(s.date);
@@ -1155,6 +1160,14 @@ fn jump_target(ui: &mut egui::Ui, jump: &mut Option<DocTarget>, flash: &mut Opti
 }
 
 /// Expéditeur cliquable : voir ses mails, favori de l'annuaire, écrire.
+/// Menu « Fiche contact » de chaque personne d'une liste de destinataires.
+fn people_menu(ui: &mut egui::Ui, list: &str) {
+    ui.set_min_width(220.0);
+    for mb in contacts::split_list(list).iter().take(12) {
+        crate::people::menu_item_mailbox(ui, mb);
+    }
+}
+
 fn sender_menu(ui: &mut egui::Ui, book: &contacts::Contacts, from: &str, actions: &mut Vec<Action>) {
     let Some((_, email)) = contacts::parse_mailbox(from) else {
         ui.label(RichText::new(from).strong());
@@ -1165,8 +1178,11 @@ fn sender_menu(ui: &mut egui::Ui, book: &contacts::Contacts, from: &str, actions
     let text = if favorite { format!("★ {from}") } else { from.to_string() };
     let btn = egui::Button::new(RichText::new(text).strong()).frame(false);
     let r = ui.add(btn).on_hover_text(t!("Options de l'annuaire", "Directory options")).on_hover_cursor(egui::CursorIcon::PointingHand);
+    r.context_menu(|ui| crate::people::menu_item_mailbox(ui, from));
     egui::Popup::menu(&r).show(|ui| {
         ui.set_min_width(220.0);
+        crate::people::menu_item_mailbox(ui, from);
+        ui.separator();
         if ui.button(t!("Voir tous ses mails", "See all their mails")).clicked() {
             actions.push(Action::FromFilter(email.clone()));
         }

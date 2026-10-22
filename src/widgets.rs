@@ -397,6 +397,58 @@ pub fn pane_columns(ui: &mut egui::Ui, fixed: &[f32], mut body: impl FnMut(usize
     ui.allocate_rect(full, egui::Sense::hover());
 }
 
+/// Logo des rappels minutés : réveil (deux cloches, cadran, aiguilles, pieds).
+/// `ring` (0..1) : il sonne (oscille) puis se pose ; 1 = au repos.
+pub fn alarm_icon(p: &egui::Painter, c: egui::Pos2, size: f32, color: egui::Color32, ring: f32) {
+    let ring = ring.clamp(0.0, 1.0);
+    let angle = (ring * 30.0).sin() * 0.32 * (1.0 - ring);
+    let (s, co) = angle.sin_cos();
+    let at = |x: f32, y: f32| c + egui::vec2(x * co - y * s, x * s + y * co) * size;
+    let w = (size * 0.085).max(1.2);
+    let stroke = egui::Stroke::new(w, color);
+    let center = at(0.0, 0.06);
+    p.circle_stroke(center, size * 0.34, stroke);
+    // Aiguilles (10 h 10).
+    p.line_segment([center, at(0.0, -0.14)], stroke);
+    p.line_segment([center, at(0.13, 0.13)], stroke);
+    // Cloches.
+    for side in [-1.0, 1.0] {
+        let pts: Vec<egui::Pos2> = (0..=8)
+            .map(|i| {
+                let a = std::f32::consts::PI * (1.0 + i as f32 / 8.0);
+                at(side * 0.30 + 0.13 * a.cos(), -0.34 + 0.13 * a.sin() + 0.04)
+            })
+            .collect();
+        p.add(egui::Shape::convex_polygon(pts, color, egui::Stroke::NONE));
+    }
+    // Pieds.
+    p.line_segment([at(-0.2, 0.33), at(-0.29, 0.45)], stroke);
+    p.line_segment([at(0.2, 0.33), at(0.29, 0.45)], stroke);
+}
+
+/// Avancement (0..1, avec rebond élastique) de l'ouverture d'une colonne : même animation que
+/// les blocs Groupes / Personnes de Google Chat.
+pub fn reveal(ctx: &egui::Context, salt: &str, open: bool) -> f32 {
+    ctx.animate_bool_with_time_and_easing(egui::Id::unique(salt), open, 0.28, |t| crate::prefs::Curve::Elastic.apply(t))
+}
+
+/// Largeur d'une colonne qui s'anime (0 quand elle est presque fermée).
+pub fn reveal_width(full: f32, k: f32) -> f32 {
+    if full * k < 24.0 { 0.0 } else { full * k }
+}
+
+/// Colonne qui s'anime en largeur : contenu à sa taille normale, rogné, en fondu.
+pub fn animated_column(ui: &mut egui::Ui, w: f32, full: f32, k: f32, body: impl FnOnce(&mut egui::Ui)) {
+    let inner = ui.available_rect_before_wrap();
+    let margins = w - inner.width();
+    let content = egui::Rect::from_min_size(inner.min, egui::vec2((full - margins).max(inner.width()), inner.height()));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content).layout(*ui.layout()));
+    child.set_clip_rect(inner.expand(2.0).intersect(ui.clip_rect()));
+    child.multiply_opacity(k.clamp(0.0, 1.0));
+    body(&mut child);
+    ui.allocate_rect(inner, egui::Sense::hover());
+}
+
 /// Ligne « libellé + champ texte » occupant toute la largeur disponible.
 pub fn field(ui: &mut egui::Ui, label: &str, label_w: f32, edit: egui::TextEdit) -> egui::Response {
     ui.horizontal(|ui| {

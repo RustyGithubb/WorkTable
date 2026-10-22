@@ -70,6 +70,7 @@ fn row(ui: &mut egui::Ui, c: &Contact, selected: bool, separator: bool, hl: &mut
         out.push(DirAction::Select(c.email.clone()));
     }
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    resp.context_menu(|ui| crate::people::menu_item(ui, &c.email, &c.name));
 
     let p = ui.painter();
     let inner = rect.shrink2(vec2(0.0, 2.0));
@@ -154,6 +155,16 @@ pub fn detail(ui: &mut egui::Ui, mail: &MailState, out: &mut Vec<DirAction>) {
         let fav = if c.favorite { t!("Retirer des favoris", "Remove from favourites") } else { t!("Mettre en favori", "Add to favourites") };
         if ui.button(fav).clicked() {
             out.push(DirAction::Favorite(c.email.clone()));
+        }
+        if ui
+            .button(t!("👤  Fiche contact", "👤  Contact card"))
+            .on_hover_text(t!(
+                "Tout ce qui est relié à cette personne : mails, conversations, fichiers, rendez-vous",
+                "Everything linked to this person: mails, conversations, files, events"
+            ))
+            .clicked()
+        {
+            crate::people::open(ui.ctx(), &c.email, &c.name);
         }
     });
 

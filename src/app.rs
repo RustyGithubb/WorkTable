@@ -45,6 +45,9 @@ pub struct WorkTableApp {
     notes: tabs::notes::NotesState,
     links: crate::links::Links,
     notify: crate::notify::Notifier,
+    /// Fiches contact (annuaire caché, chiffré) et leur overlay.
+    people: crate::people::People,
+    card: crate::people::CardView,
     prefs: Prefs,
 }
 
@@ -103,6 +106,8 @@ impl WorkTableApp {
             notes: Default::default(),
             links: crate::links::Links::load(),
             notify: Default::default(),
+            people: Default::default(),
+            card: Default::default(),
             prefs,
         }
     }
@@ -136,6 +141,34 @@ impl WorkTableApp {
     }
 }
 
+impl WorkTableApp {
+    /// Rappel minuté : panneau Rappels du tableau de bord, carte mise en évidence.
+    fn show_timer(&mut self, ctx: &egui::Context, id: u64) {
+        self.current = Tab::Dashboard;
+        tabs::dashboard::flash_timer(ctx, id);
+    }
+
+    /// Élément ouvert depuis une fiche contact.
+    fn card_action(&mut self, a: crate::people::Action) {
+        use crate::people::Action as A;
+        use crate::search::Target;
+        use tabs::files::author::DriveAction as D;
+        match a {
+            A::Mail(id) => self.go_to(Target::Mail(id)),
+            A::Space(s) => self.go_to(Target::Space(s)),
+            A::Drive(f) => self.go_to(Target::Drive(f)),
+            A::File(f) => self.go_to(Target::File(f)),
+            A::Event(cal, id, start) => match crate::people::live_event(&self.calendar, &cal, &id, start) {
+                Some(e) => self.go_to(Target::Event(e)),
+                None => self.go_to(Target::Date(tabs::calendar::date_of(start))),
+            },
+            A::WriteMail(email) => self.drive_action(D::WriteMail(email)),
+            A::ChatWith(email) => self.drive_action(D::ChatWith(email)),
+            A::Directory(email) => self.go_to(Target::Contact(email)),
+        }
+    }
+}
+
 impl eframe::App for WorkTableApp {
     /// Fond transparent : la fenêtre du bandeau de notification ne montre que la capsule
     /// (la fenêtre principale est entièrement recouverte par l'interface).
@@ -146,6 +179,7 @@ impl eframe::App for WorkTableApp {
     /// Fermeture : dernier enregistrement de la copie locale des conversations.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.chat.flush_store();
+        self.people.flush();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -196,6 +230,10 @@ impl eframe::App for WorkTableApp {
                         self.search.on_drive(query, files);
                     }
                 }
+                Event::PersonMails { email, list } => {
+                    let own = self.account.session().map(|s| s.email.to_lowercase()).unwrap_or_default();
+                    self.people.on_mails(email, list, &own);
+                }
                 Event::Drive(e) => {
                     if let crate::google::drive::DriveEvent::Listing { source: crate::google::drive::Source::Shared, files, .. } = &e {
                         self.notify.on_shared(files, &self.prefs);
@@ -211,7 +249,21 @@ impl eframe::App for WorkTableApp {
         self.chat.recent_emojis = tabs::messages::emoji::recent();
         self.chat.background(&self.account, self.current == Tab::Messages, ui.ctx());
         self.notes.background(ui.ctx());
+        self.people.background(ui.ctx(), &self.account, &self.mail, &self.chat, &self.calendar, &self.drive);
         self.notify.background(ui.ctx(), &self.account, &self.calendar, &self.prefs);
+        // Rappels minutés : notification à l'échéance, pastilles dans le calendrier.
+        let now = chrono::Local::now().timestamp_millis();
+        for t in self.tasks.fire_due(now) {
+            self.notify.on_timer(&self.prefs, &t, t.due < now - 60_000);
+        }
+        self.tasks.save_if_needed();
+        if let Some(next) = self.tasks.timers.iter().filter(|t| !t.fired).map(|t| t.due).min() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis((next - now).clamp(200, 60_000) as u64));
+        }
+        self.calendar.timers.clone_from(&self.tasks.timers);
+        if let Some(id) = self.calendar.open_timer.take() {
+            self.show_timer(ui.ctx(), id);
+        }
         let mut note_action = None;
 
         // 1. L'onglet ouvert occupe toute la fenêtre.
@@ -299,12 +351,13 @@ impl eframe::App for WorkTableApp {
         if let Some(t) = self.notify.show(ui.ctx(), window_rect) {
             use crate::notify::Target as N;
             use crate::search::Target;
-            self.go_to(match t {
-                N::Mail(id) => Target::Mail(id),
-                N::Space(s) => Target::Space(s),
-                N::Drive(f) => Target::Drive(f),
-                N::Event(e) => Target::Event(e),
-            });
+            match t {
+                N::Mail(id) => self.go_to(Target::Mail(id)),
+                N::Space(s) => self.go_to(Target::Space(s)),
+                N::Drive(f) => self.go_to(Target::Drive(f)),
+                N::Event(e) => self.go_to(Target::Event(e)),
+                N::Reminder(id) => self.show_timer(ui.ctx(), id),
+            }
         }
 
         // 3. Bouton Réglages, ancré en bas à gauche, toujours visible.
@@ -319,8 +372,12 @@ impl eframe::App for WorkTableApp {
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Space)) {
             self.search.toggle(ui.ctx());
         }
-        if let Some(t) = self.search.show(ui.ctx(), &self.account, &self.mail, &self.calendar, &self.chat, &self.tasks, &self.notes, &self.prefs) {
+        if let Some(t) = self.search.show(ui.ctx(), &self.account, &self.mail, &self.calendar, &self.chat, &self.tasks, &self.notes, &self.people, &self.prefs) {
             self.go_to(t);
+        }
+        // Fiche contact (clic droit sur une trace d'une personne, ou depuis la recherche).
+        if let Some(a) = self.card.show(ui.ctx(), &mut self.people, &self.mail, &self.chat, &self.account) {
+            self.card_action(a);
         }
 
         let recent = tabs::messages::emoji::recent();
@@ -355,6 +412,8 @@ impl WorkTableApp {
                 self.mail.open_from_elsewhere(&self.account, &id);
                 self.current = Tab::Mail;
             }
+            // Ouverte par la recherche elle-même (overlay de la fiche contact).
+            Target::Person(_) => {}
             Target::Contact(email) => {
                 self.mail.directory = true;
                 self.mail.select_contact(&self.account, &email);

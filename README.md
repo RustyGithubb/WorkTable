@@ -103,18 +103,38 @@ finale, lit la version dans `Cargo.toml` et produit `installer\Output\WorkTable-
   ouvert avec l'application Windows par défaut (navigateur en dernier recours). Clic droit et panneau
   de détail : ouvrir dans le navigateur, ouvrir un Docs / Sheets / Slides avec une application du PC
   (export docx / xlsx / pptx), télécharger, copier le lien, afficher l'emplacement.
+- Le panneau de détail s'ouvre et se referme avec l'animation des colonnes de Google Chat.
 - **Fiche « Auteur »** dans le panneau de détail (ouvert au clic sur un fichier) : nom et adresse du
   propriétaire (Drive partagé : dernière personne à l'avoir modifié), et ce que WorkTable sait déjà de
   lui : annuaire (mails échangés), ses 3 derniers mails, la conversation Google Chat avec lui,
   les rendez-vous en commun — chaque ligne s'ouvre dans son onglet. Boutons : écrire un mail, ses
-  mails, ouvrir / écrire sur Chat, « Ses fichiers » (fichiers Drive dont il est propriétaire).
+  mails, ouvrir / écrire sur Chat, « Ses fichiers » (fichiers Drive dont il est propriétaire),
+  « Fiche contact ».
 - Comme pour Gmail : dossiers gardés en mémoire (relus au plus toutes les 2 minutes), champs limités,
   requêtes via le même limiteur et les mêmes reprises.
+
+## Fiches contact
+Annuaire caché, sans onglet : chaque personne croisée dans l'app (mails, Google Chat, invités des
+rendez-vous, auteurs des fichiers Drive) a une fiche qui rassemble ce qui la relie à toi.
+- **Ouverture** : clic droit sur une trace de la personne › « 👤 Fiche contact » — un mail (liste,
+  expéditeur, À / Cc, tableau de bord), un message ou une conversation Google Chat (membres d'un
+  groupe), un fichier Drive (propriétaire, dernière modification), un rendez-vous (invités, dans la
+  grille, le panneau ou le planning du tableau de bord), un contact de l'annuaire, un fichier reçu,
+  un message épinglé. Aussi depuis Ctrl+Espace (en premier) et la fiche « Auteur » du Drive.
+- **Overlay** (même style que Ctrl+Espace) : conversation privée, groupes en commun, mails (reçus,
+  envoyés, en copie), fichiers, rendez-vous (prochains d'abord) — clic ou Entrée pour s'y rendre.
+  Boutons : écrire, Chat, annuaire, et **« Chercher ses mails »** : seule requête à Gmail, à la
+  demande, pour relier tous les mails échangés avec cette personne.
+- **Sans requête supplémentaire** : les fiches se remplissent avec ce que les onglets ont déjà
+  chargé ; les conversations viennent de la copie locale de Google Chat.
+- **Stockage** : `cache\people.wtc`, chiffré (AES-256-GCM) avec la clé de la copie des
+  conversations (protégée par Windows), lié au compte, effacé à la déconnexion ou par Réglages ›
+  Données › Vider. 40 mails, 40 fichiers et 30 rendez-vous gardés par personne.
 
 ## Recherche globale (Ctrl+Espace)
 Barre de recherche au centre, par-dessus l'app, sur un fond flouté. Elle trouve :
 - les **mails** (déjà chargés, plus une recherche Gmail après une courte pause de frappe) ;
-- les **contacts** de l'annuaire ;
+- les **fiches contact** (proposées en premier) : Entrée ouvre la fiche de la personne ;
 - les **événements** du calendrier et les **dates** (« demain », « vendredi », « 25/10 », « 3 novembre ») ;
 - les fichiers **Google Drive** (nom et contenu) ;
 - les conversations et messages **Google Chat**, les **tâches** (archives comprises), les **fichiers partagés** ;
@@ -180,6 +200,15 @@ Enregistrement automatique une seconde après la dernière frappe.
   clic = ouvre la conversation, clic droit = désépingler. Sauvegarde : `data\config\chat_pinned.json`.
 - **Rappels** : tâches « À faire » depuis les jours précédents et « En cours » depuis 3 jours ou plus,
   avec « Commencer » / « Archiver ».
+  - Bouton **+** en bas à droite : menu d'actions. **⏰ Rappel minuté** : une tâche (existante, ou
+    nouvelle, ajoutée à « À faire ») rappelée **dans** un délai (5 min… 1 jour, ou heures / minutes)
+    ou **le** jour et à l'heure choisis (raccourcis : ce soir, demain, lundi).
+  - Les rappels s'affichent en tête du panneau avec un compte à rebours ; échus : en rouge, avec
+    « +10 min », « ✓ Fait » (archive la tâche) et « ✕ ». Réveil et heure sur la carte Kanban.
+  - À l'échéance : notification avec un logo réveil dédié (même pendant « Ne pas déranger » ;
+    « Rappel en retard » si l'app était fermée), clic = la tâche dans le tableau de bord.
+  - Calendrier : pastille ⏰ et barre pointillée à l'heure du rappel (vue Mois : pastille du jour) ;
+    clic = la tâche, mise en évidence dans le panneau Rappels. Sauvegarde avec les tâches.
 - **Tâches** (Kanban) : À faire / En cours / Archivé. Ajout avec Entrée, glisser-déposer d'une colonne à
   l'autre, boutons ◀ ▶ ✓ ✕, double-clic pour renommer, clic droit › Renommer / Effacer la tâche. Le bloc « Archivé » est vidé chaque jour : ses
   tâches passent dans **Archives** (repliées sous le Kanban, par jour, avec « Restaurer »).
@@ -262,8 +291,13 @@ Enregistrement automatique une seconde après la dernière frappe.
   sans horaire, événements simultanés côte à côte.
 - Créer : glisser sur une plage libre (pas de 15 min), clic simple (1 h), double-clic dans le
   bandeau Journée (journée entière) ou dans la vue Mois.
-- Modifier à la souris : glisser un événement (autre heure / autre jour), tirer son bord bas (durée).
-- Panneau de droite : titre, début / fin, journée entière, durées rapides, agenda, couleur
+- Clic sur un événement : panneau de droite **en lecture** (titre, date et heures, agenda, lieu,
+  Google Meet, invités — clic = fiche contact —, description). Rien n'est modifiable avant le
+  bouton **« ✏ Modifier »** (ou E) ; Annuler / Échap revient à l'affichage, l'enregistrement aussi.
+- Modifier à la souris (seulement pendant la modification de cet événement) : le glisser (autre
+  heure / autre jour), tirer son bord bas (durée).
+- Le panneau s'ouvre et se referme avec l'animation des colonnes de Google Chat (rebond élastique).
+- Panneau en modification : titre, début / fin, journée entière, durées rapides, agenda, couleur
   (11 couleurs Google), invités avec suggestions de l'annuaire, lieu, Google Meet (ajout / rejoindre),
   description, enregistrer (Ctrl+Entrée), supprimer (avec confirmation), ouvrir dans Google Agenda.
   Les invités reçoivent les invitations / mises à jour de Google.

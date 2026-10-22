@@ -192,8 +192,58 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Acc
             p.text(tr.center(), Align2::CENTER_CENTER, t, FontId::proportional(10.5), Color32::WHITE);
         }
 
+        // Rappels minutés des tâches : barre à l'heure prévue et pastille ⏰ (clic = la tâche).
+        for tm in &cal.timers {
+            let Some(i) = days.iter().position(|d| *d == date_of(tm.due)) else { continue };
+            let c = col_rect(i);
+            let y = y_of(minutes_of(tm.due));
+            let color = timer_color(tm);
+            let dash = 5.0;
+            let mut x = c.left() + 2.0;
+            while x < c.right() - 6.0 {
+                p.hline(x..=(x + dash).min(c.right() - 6.0), y, Stroke::new(1.5, color));
+                x += dash * 1.8;
+            }
+            let label = format!("{} {}", hhmm(tm.due), tm.title);
+            let g = p.layout_no_wrap(label, FontId::proportional(10.5), timer_ink());
+            let w = (g.size().x + 30.0).min(c.width() - 10.0).max(30.0);
+            let pill = Rect::from_min_size(Pos2::new(c.left() + 3.0, y - 9.0), vec2(w, 18.0));
+            let r = ui.interact(pill, ui.scope_id().with(("wt_timer_pill", tm.id)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tf!(
+                "Rappel : {} — ouvrir la tâche dans le tableau de bord",
+                "Reminder: {} — open the task in the dashboard",
+                tm.title
+            ));
+            let fill = if r.hovered() { color } else { color.gamma_multiply(0.92) };
+            p.rect_filled(pill, CornerRadius::same(9), fill);
+            crate::widgets::alarm_icon(&p, pill.left_center() + vec2(11.0, 0.0), 13.0, timer_ink(), 1.0);
+            p.with_clip_rect(pill.shrink(2.0).intersect(p.clip_rect())).galley(Pos2::new(pill.left() + 21.0, pill.center().y - g.size().y / 2.0), g, timer_ink());
+            if r.clicked() {
+                cal.open_timer = Some(tm.id);
+            }
+        }
+
+        // Clic droit sur un événement : fiches contact des invités.
+        let menu_id = ui.scope_id().with("wt_event_menu");
+        if resp.secondary_clicked() {
+            let e = resp.interact_pointer_pos().and_then(|pos| hits.iter().rev().find(|(r, ..)| r.contains(pos))).map(|(_, e, _)| e.attendees.clone());
+            ui.ctx().data_mut(|d| d.insert_temp(menu_id, e));
+        }
+        resp.context_menu(|ui| match ui.ctx().data(|d| d.get_temp::<Option<Vec<String>>>(menu_id)).flatten() {
+            Some(guests) => crate::people::guests_menu(ui, &guests),
+            None => ui.close(),
+        });
         interact(ui, cal, prefs, acc, &resp, rect, &days, col_w, &hits);
     });
+}
+
+/// Couleur des pastilles de rappel : ambre, ou couleur « aujourd'hui » une fois l'heure passée.
+pub fn timer_color(t: &crate::tasks::Timer) -> Color32 {
+    if t.due <= Local::now().timestamp_millis() { theme::TODAY() } else { Color32::from_rgb(0xF6, 0xBF, 0x26) }
+}
+
+/// Texte et logo sur une pastille de rappel.
+pub fn timer_ink() -> Color32 {
+    Color32::from_rgb(0x1C, 0x1C, 0x1C)
 }
 
 /// Disposition côte à côte des événements qui se chevauchent : (événement, colonne, nb colonnes).
@@ -282,7 +332,12 @@ fn interact(
         let m = (((pos.y - rect.top()) / HOUR_H) * 60.0) as i32;
         Some((days[i], m.clamp(0, 24 * 60)))
     };
-    let writable = |e: &CalEvent| cal.calendar(&e.calendar).is_some_and(|c| c.writable);
+    // Déplacement / durée à la souris : seulement pour l'événement en cours de modification
+    // (bouton « Modifier » du panneau) ; sinon un clic l'affiche, sans rien changer.
+    let writable = |e: &CalEvent| {
+        cal.calendar(&e.calendar).is_some_and(|c| c.writable)
+            && cal.editor.as_ref().is_some_and(|ed| ed.editing && ed.original.as_ref().is_some_and(|o| o.id == e.id && o.calendar == e.calendar))
+    };
     let hit_at = |pos: Pos2| hits.iter().rev().find(|(r, ..)| r.contains(pos));
 
     // Curseur : poignée de durée en bas d'un événement, main sur un événement.
@@ -423,7 +478,9 @@ fn all_day_row(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, days: 
         let selected = cal.selected.as_ref().is_some_and(|(sc, si)| *sc == e.calendar && *si == e.id);
         p.rect_filled(r, CornerRadius::same(5), c.gamma_multiply(if selected { 0.7 } else { 0.45 }));
         p.with_clip_rect(r).text(r.left_center() + vec2(8.0, 0.0), Align2::LEFT_CENTER, &e.title, theme::editor_font(11.5, true), theme::TEXT());
-        if ui.interact(r, ui.scope_id().with(("allday", &e.id)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).clicked() {
+        let er = ui.interact(r, ui.scope_id().with(("allday", &e.id)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+        er.context_menu(|ui| crate::people::guests_menu(ui, &e.attendees));
+        if er.clicked() {
             clicked_event = Some(e.clone());
         }
     }

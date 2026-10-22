@@ -112,7 +112,7 @@ pub fn card(ui: &mut egui::Ui, f: &DriveFile, links: &Links, out: &mut Option<Dr
     ui.label(RichText::new(t!("AUTEUR", "AUTHOR")).small().strong().color(theme::TEXT_MUTED()));
     ui.add_space(6.0);
     // En-tête : initiale, nom, adresse.
-    ui.horizontal(|ui| {
+    let head = ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
         ui.painter().circle_filled(r.center(), 17.0, theme::SURFACE_HI());
         let initial: String = k.name.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
@@ -124,6 +124,11 @@ pub fn card(ui: &mut egui::Ui, f: &DriveFile, links: &Links, out: &mut Option<Dr
             }
         });
     });
+    if !k.email.is_empty() {
+        ui.interact(head.response.rect, ui.scope_id().with("wt_author_head"), Sense::click())
+            .on_hover_text(t!("Clic droit : fiche contact", "Right-click: contact card"))
+            .context_menu(|ui| crate::people::menu_item(ui, &k.email, &k.name));
+    }
     if shared_drive {
         ui.label(RichText::new(t!("Drive partagé : dernière personne à l'avoir modifié", "Shared drive: last person who modified it")).small().color(theme::TEXT_FAINT()));
     } else if !f.modified_by.is_empty() && !f.modified_by_email.eq_ignore_ascii_case(&k.email) {
@@ -173,6 +178,16 @@ pub fn card(ui: &mut egui::Ui, f: &DriveFile, links: &Links, out: &mut Option<Dr
     ui.add_space(10.0);
     let w = ui.available_width();
     let half = (w - ui.spacing().item_spacing.x) / 2.0;
+    if ui
+        .add_sized([w, 28.0], egui::Button::new(t!("👤  Fiche contact", "👤  Contact card")))
+        .on_hover_text(t!(
+            "Tout ce qui est relié à cette personne : mails, conversations, fichiers, rendez-vous",
+            "Everything linked to this person: mails, conversations, files, events"
+        ))
+        .clicked()
+    {
+        crate::people::open(ui.ctx(), &k.email, &k.name);
+    }
     ui.horizontal(|ui| {
         if ui.add_sized([half, 28.0], egui::Button::new(t!("✉  Écrire un mail", "✉  Write a mail"))).clicked() {
             *out = Some(DriveAction::WriteMail(k.email.clone()));

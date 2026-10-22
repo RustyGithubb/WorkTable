@@ -218,10 +218,21 @@ fn data_card(ui: &mut egui::Ui) {
                     ),
                 };
                 ui.label(RichText::new(text).small().color(theme::TEXT_FAINT()));
+                if let Some(b) = crate::people::size() {
+                    let s = crate::tabs::mail::attachments::human_size(b.max(1));
+                    ui.label(
+                        RichText::new(tf!(
+                            "Fiches contact (personnes et ce qui les relie à toi), chiffrées elles aussi ({s}).",
+                            "Contact cards (people and what links them to you), encrypted too ({s})."
+                        ))
+                        .small()
+                        .color(theme::TEXT_FAINT()),
+                    );
+                }
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .add_enabled(store::size().is_some(), egui::Button::new(t!("Vider", "Clear")))
+                    .add_enabled(store::size().is_some() || crate::people::size().is_some(), egui::Button::new(t!("Vider", "Clear")))
                     .on_hover_text(t!("Supprime la copie locale (elle se reconstitue au prochain lancement)", "Deletes the local copy (rebuilt at the next launch)"))
                     .clicked()
                 {

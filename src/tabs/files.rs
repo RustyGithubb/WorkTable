@@ -37,6 +37,8 @@ pub struct DriveState {
     /// Chemin du dossier affiché (identifiant, nom).
     paths: HashMap<String, Vec<(String, String)>>,
     pub selected: Option<DriveFile>,
+    /// Dernier fichier affiché dans le détail (animation de fermeture).
+    detail_last: Option<DriveFile>,
     query: String,
     by_date: bool,
     grid: bool,
@@ -61,6 +63,11 @@ impl DriveState {
     pub fn on_ready(&mut self) {
         let favorites = std::mem::take(&mut self.favorites);
         *self = DriveState { by_date: self.by_date, grid: self.grid, favorites, favorites_loaded: self.favorites_loaded, ..Default::default() };
+    }
+
+    /// Fichiers déjà listés (dossiers, recherches, favoris) : relevés pour les fiches contact.
+    pub fn known_files(&self) -> impl Iterator<Item = &DriveFile> {
+        self.listings.values().flat_map(|(l, _, _)| l.iter()).chain(self.favorites.iter()).chain(self.selected.iter())
     }
 
     // --- Favoris ------------------------------------------------------------------------
@@ -404,9 +411,16 @@ pub fn show(ui: &mut egui::Ui, st: &mut DriveState, acc: &mut Account, prefs: &m
     shortcuts(ui, st, acc_ref);
 
     // Colonnes : navigation (masquable, rebond élastique) | liste | détail.
-    let k = ui.ctx().animate_bool_with_time_and_easing(egui::Id::unique("wt_drive_side"), !prefs.files_side_hidden, 0.28, |t| crate::prefs::Curve::Elastic.apply(t));
-    let side_w = if SIDE_W * k < 24.0 { 0.0 } else { SIDE_W * k };
-    let detail_w = if st.selected.is_some() { DETAIL_W } else { 0.0 };
+    let k = widgets::reveal(ui.ctx(), "wt_drive_side", !prefs.files_side_hidden);
+    let side_w = widgets::reveal_width(SIDE_W, k);
+    // Détail : s'ouvre et se referme comme les colonnes de Google Chat (le dernier fichier
+    // affiché reste visible pendant la fermeture).
+    let open = st.selected.is_some();
+    if open {
+        st.detail_last.clone_from(&st.selected);
+    }
+    let kd = widgets::reveal(ui.ctx(), "wt_drive_detail", open);
+    let detail_w = if st.detail_last.is_some() { widgets::reveal_width(DETAIL_W, kd) } else { 0.0 };
     let gap = ui.spacing().item_spacing.x;
     let center_w = (ui.available_width() - side_w - detail_w - if side_w > 0.0 { gap } else { 0.0 } - if detail_w > 0.0 { gap } else { 0.0 }).max(260.0);
     let mut cols: Vec<(usize, f32)> = Vec::new();
@@ -420,21 +434,25 @@ pub fn show(ui: &mut egui::Ui, st: &mut DriveState, acc: &mut Account, prefs: &m
     let fixed: Vec<f32> = cols.iter().take(cols.len() - 1).map(|c| c.1).collect();
     let mut toggle_side = false;
     widgets::pane_columns(ui, &fixed, |i, ui| match cols[i].0 {
-        0 => {
-            let inner = ui.available_rect_before_wrap();
-            let margins = side_w - inner.width();
-            let content = Rect::from_min_size(inner.min, vec2((SIDE_W - margins).max(inner.width()), inner.height()));
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content).layout(*ui.layout()));
-            child.set_clip_rect(inner.expand(2.0).intersect(ui.clip_rect()));
-            child.multiply_opacity(k.clamp(0.0, 1.0));
-            side(&mut child, st, acc_ref);
-            ui.allocate_rect(inner, Sense::hover());
-        }
+        0 => widgets::animated_column(ui, side_w, SIDE_W, k, |ui| side(ui, st, acc_ref)),
         1 => center(ui, st, acc_ref, prefs.files_side_hidden, &mut toggle_side),
         _ => {
-            egui::ScrollArea::vertical().id_salt("drive_detail").auto_shrink([false, false]).show(ui, |ui| detail(ui, st, acc_ref, links, &mut out));
+            // Fermeture en cours : le dernier fichier est affiché le temps de l'animation.
+            let closing = !open;
+            if closing {
+                st.selected.clone_from(&st.detail_last);
+            }
+            widgets::animated_column(ui, detail_w, DETAIL_W, kd, |ui| {
+                egui::ScrollArea::vertical().id_salt("drive_detail").auto_shrink([false, false]).show(ui, |ui| detail(ui, st, acc_ref, links, &mut out));
+            });
+            if closing && st.selected.as_ref().map(|f| &f.id) == st.detail_last.as_ref().map(|f| &f.id) {
+                st.selected = None;
+            }
         }
     });
+    if !open && detail_w == 0.0 {
+        st.detail_last = None;
+    }
     if toggle_side {
         prefs.files_side_hidden = !prefs.files_side_hidden;
     }
@@ -514,6 +532,7 @@ fn side(ui: &mut egui::Ui, st: &mut DriveState, acc: &Account) {
                         unfav = Some(f.clone());
                         ui.close();
                     }
+                    author_menu(ui, f);
                 });
             }
         });
@@ -803,7 +822,25 @@ fn handle(r: &egui::Response, f: &DriveFile, fav: bool, open: &mut Option<DriveF
             *menu = Some((f.clone(), 5));
             ui.close();
         }
+        author_menu(ui, f);
     });
+}
+
+/// Fiches contact du propriétaire et de la dernière personne à avoir modifié le fichier.
+fn author_menu(ui: &mut egui::Ui, f: &DriveFile) {
+    let mut people: Vec<(&str, &str)> = Vec::new();
+    for (email, name) in [(&f.owner_email, &f.owner), (&f.modified_by_email, &f.modified_by)] {
+        if !email.is_empty() && !people.iter().any(|(e, _)| e.eq_ignore_ascii_case(email)) {
+            people.push((email, name));
+        }
+    }
+    if people.is_empty() {
+        return;
+    }
+    ui.separator();
+    for (email, name) in people {
+        crate::people::menu_item(ui, email, name);
+    }
 }
 
 fn list_header(ui: &mut egui::Ui) {

@@ -121,13 +121,29 @@ pub fn save_now(snap: &Snapshot) {
 
 fn write(snap: &Snapshot) -> Result<(), String> {
     let plain = serde_json::to_vec(snap).map_err(|e| e.to_string())?;
+    write_sealed(&file(), MAGIC, &plain)
+}
+
+/// Chiffre `plain` avec la clé de la copie locale et l'écrit dans `path` (en-tête `magic`).
+/// Sert aussi à l'annuaire caché des fiches contact.
+pub(crate) fn write_sealed(path: &std::path::Path, magic: &[u8; 4], plain: &[u8]) -> Result<(), String> {
     let k = key(true).ok_or("clé indisponible")?;
-    let (nonce, ct) = crate::notes_store::encrypt(&k, &plain)?;
-    let mut out = Vec::with_capacity(MAGIC.len() + nonce.len() + ct.len());
-    out.extend_from_slice(MAGIC);
+    let (nonce, ct) = crate::notes_store::encrypt(&k, plain)?;
+    let mut out = Vec::with_capacity(magic.len() + nonce.len() + ct.len());
+    out.extend_from_slice(magic);
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&ct);
-    crate::paths::write_atomic(&file(), &out).map_err(|e| e.to_string())
+    crate::paths::write_atomic(path, &out).map_err(|e| e.to_string())
+}
+
+/// Relit et déchiffre un fichier écrit par [`write_sealed`].
+pub(crate) fn read_sealed(path: &std::path::Path, magic: &[u8; 4]) -> Option<Vec<u8>> {
+    let raw = std::fs::read(path).ok()?;
+    let rest = raw.strip_prefix(magic)?;
+    if rest.len() < 12 {
+        return None;
+    }
+    crate::notes_store::decrypt(&key(false)?, &rest[..12], &rest[12..]).ok()
 }
 
 /// Relit la copie dans un fil à part (déchiffrement et lecture ne retardent pas l'affichage) ;
@@ -142,18 +158,13 @@ pub fn load_async() -> std::sync::mpsc::Receiver<Option<Snapshot>> {
 }
 
 fn load() -> Option<Snapshot> {
-    let raw = std::fs::read(file()).ok()?;
-    let rest = raw.strip_prefix(MAGIC)?;
-    if rest.len() < 12 {
-        return None;
-    }
-    let plain = crate::notes_store::decrypt(&key(false)?, &rest[..12], &rest[12..]).ok()?;
-    serde_json::from_slice(&plain).ok()
+    serde_json::from_slice(&read_sealed(&file(), MAGIC)?).ok()
 }
 
-/// Efface la copie locale et sa clé.
+/// Efface la copie locale (conversations et fiches contact) et sa clé.
 pub fn clear() {
     let _ = std::fs::remove_file(file());
+    let _ = std::fs::remove_file(crate::people::file());
     let _ = std::fs::remove_file(key_file());
 }
 

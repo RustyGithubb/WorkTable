@@ -17,6 +17,9 @@ pub struct PinnedMsg {
     /// Nom de la conversation au moment de l'épinglage.
     pub space_title: String,
     pub sender: String,
+    /// Identifiant Google Chat de l'auteur (« users/… ») : fiche contact.
+    #[serde(default)]
+    pub sender_id: String,
     pub text: String,
     /// Date du message (ms).
     pub created: i64,
@@ -56,7 +59,7 @@ impl Pins {
         let pinned = !self.contains(&m.name);
         if pinned {
             let text = if m.text.trim().is_empty() && !m.attachments.is_empty() { t!("📎 Pièce jointe", "📎 Attachment").to_string() } else { m.text.clone() };
-            self.list.insert(0, PinnedMsg { name: m.name.clone(), space: m.space.clone(), space_title, sender, text, created: m.created });
+            self.list.insert(0, PinnedMsg { name: m.name.clone(), space: m.space.clone(), space_title, sender, sender_id: m.sender.clone(), text, created: m.created });
             self.list.truncate(MAX);
         } else {
             self.list.retain(|p| p.name != m.name);

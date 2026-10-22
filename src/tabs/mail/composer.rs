@@ -77,8 +77,8 @@ pub fn show(
     };
     ui.label(RichText::new(title).font(theme::title_font(20.0)));
     ui.add_space(12.0);
-    recipients::field(ui, t!("À", "To"), &mut d.to, "to", t!("Nom ou adresse…", "Name or address…"), book, &mut ed.suggest);
-    recipients::field(ui, "Cc", &mut d.cc, "cc", "", book, &mut ed.suggest);
+    let _ = recipients::field(ui, t!("À", "To"), &mut d.to, "to", t!("Nom ou adresse…", "Name or address…"), book, &mut ed.suggest);
+    let _ = recipients::field(ui, "Cc", &mut d.cc, "cc", "", book, &mut ed.suggest);
     widgets::field(ui, t!("Objet", "Subject"), 52.0, egui::TextEdit::singleline(&mut d.subject));
     ui.add_space(8.0);
 

@@ -1,6 +1,9 @@
 //! Tâches du tableau de bord (petit Kanban) : À faire → En cours → Archivé.
 //! Le bloc « Archivé » repart à zéro chaque jour : les tâches archivées les jours précédents
 //! passent dans l'historique des archives. Sauvegarde locale : tasks.json.
+//!
+//! Rappels minutés : une tâche peut être rappelée à une heure donnée (après un délai, ou à une
+//! date fixe) ; notification à l'échéance, pastille dans le calendrier.
 
 use chrono::{Local, TimeZone};
 use serde::{Deserialize, Serialize};
@@ -36,12 +39,32 @@ pub struct Task {
     pub since: i64,
 }
 
+/// Rappel minuté d'une tâche.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Timer {
+    pub id: u64,
+    /// Tâche rappelée (Kanban).
+    pub task: u64,
+    pub title: String,
+    /// Échéance (ms).
+    pub due: i64,
+    pub created: i64,
+    /// Notification déjà affichée.
+    #[serde(default)]
+    pub fired: bool,
+}
+
 #[derive(Default, Serialize, Deserialize)]
 pub struct Tasks {
     pub list: Vec<Task>,
     /// Tâches archivées les jours précédents (plus récentes en premier).
     pub archive: Vec<Task>,
     next_id: u64,
+    /// Rappels minutés (du plus proche au plus lointain).
+    #[serde(default)]
+    pub timers: Vec<Timer>,
+    #[serde(default)]
+    next_timer: u64,
     #[serde(skip)]
     dirty: bool,
 }
@@ -98,14 +121,60 @@ impl Tasks {
     }
 
     pub fn add(&mut self, title: &str) {
+        self.add_task(title);
+    }
+
+    /// Ajoute une tâche « À faire » ; renvoie son identifiant.
+    pub fn add_task(&mut self, title: &str) -> Option<u64> {
         let title = title.trim();
         if title.is_empty() {
-            return;
+            return None;
         }
         self.next_id = self.next_id.max(self.list.iter().chain(&self.archive).map(|t| t.id).max().unwrap_or(0)) + 1;
         let n = now();
         self.list.push(Task { id: self.next_id, title: title.to_string(), status: Status::Todo, created: n, since: n });
         self.dirty = true;
+        Some(self.next_id)
+    }
+
+    // --- Rappels minutés -------------------------------------------------------------------
+
+    /// Programme le rappel d'une tâche à l'échéance `due` (ms) ; renvoie son identifiant.
+    pub fn add_timer(&mut self, task: u64, due: i64) -> Option<u64> {
+        let title = self.list.iter().find(|t| t.id == task)?.title.clone();
+        self.next_timer = self.next_timer.max(self.timers.iter().map(|t| t.id).max().unwrap_or(0)) + 1;
+        self.timers.push(Timer { id: self.next_timer, task, title, due, created: now(), fired: false });
+        self.timers.sort_by_key(|t| t.due);
+        self.dirty = true;
+        Some(self.next_timer)
+    }
+
+    pub fn remove_timer(&mut self, id: u64) {
+        self.timers.retain(|t| t.id != id);
+        self.dirty = true;
+    }
+
+    /// Repousse un rappel de `minutes` à partir de maintenant.
+    pub fn snooze(&mut self, id: u64, minutes: i64) {
+        if let Some(t) = self.timers.iter_mut().find(|t| t.id == id) {
+            t.due = now() + minutes * 60_000;
+            t.fired = false;
+            self.timers.sort_by_key(|t| t.due);
+            self.dirty = true;
+        }
+    }
+
+    /// Rappels arrivés à échéance (marqués comme notifiés).
+    pub fn fire_due(&mut self, at: i64) -> Vec<Timer> {
+        let mut out = Vec::new();
+        for t in self.timers.iter_mut().filter(|t| !t.fired && t.due <= at) {
+            t.fired = true;
+            out.push(t.clone());
+        }
+        if !out.is_empty() {
+            self.dirty = true;
+        }
+        out
     }
 
     pub fn set_status(&mut self, id: u64, status: Status) {
@@ -116,6 +185,10 @@ impl Tasks {
             t.since = now();
             self.dirty = true;
         }
+        // Tâche terminée : ses rappels n'ont plus lieu d'être.
+        if status == Status::Done {
+            self.timers.retain(|t| t.task != id);
+        }
     }
 
     pub fn rename(&mut self, id: u64, title: &str) {
@@ -123,11 +196,15 @@ impl Tasks {
             t.title = title.trim().to_string();
             self.dirty = true;
         }
+        for t in self.timers.iter_mut().filter(|t| t.task == id) {
+            t.title = title.trim().to_string();
+        }
     }
 
     pub fn remove(&mut self, id: u64) {
         self.list.retain(|t| t.id != id);
         self.archive.retain(|t| t.id != id);
+        self.timers.retain(|t| t.task != id);
         self.dirty = true;
     }
 
@@ -193,6 +270,27 @@ mod tests {
         assert_eq!(t.archive.len(), 1);
         t.restore(id);
         assert_eq!(t.column(Status::Todo).len(), 1);
+    }
+
+    #[test]
+    fn timers_fire_once_and_follow_their_task() {
+        let mut t = Tasks::default();
+        let id = t.add_task("Envoyer le rendu").unwrap();
+        let n = now();
+        let a = t.add_timer(id, n + 60_000).unwrap();
+        t.add_timer(id, n - 1000);
+        assert!(t.add_timer(999, n).is_none(), "tâche inconnue");
+        assert_eq!(t.timers[0].due, n - 1000, "le plus proche d'abord");
+        let fired = t.fire_due(n);
+        assert_eq!(fired.len(), 1);
+        assert!(t.fire_due(n).is_empty(), "une seule notification");
+        assert_eq!(t.fire_due(n + 120_000).len(), 1);
+        t.snooze(a, 10);
+        assert!(!t.timers.iter().find(|x| x.id == a).unwrap().fired);
+        t.rename(id, "Envoyer le rendu final");
+        assert!(t.timers.iter().all(|x| x.title == "Envoyer le rendu final"));
+        t.set_status(id, Status::Done);
+        assert!(t.timers.is_empty(), "tâche archivée : rappels retirés");
     }
 
     #[test]
