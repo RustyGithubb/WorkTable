@@ -103,6 +103,8 @@ pub struct Prefs {
     pub chat_muted: Vec<String>,
     /// Émojis utilisés récemment (sélecteur).
     pub chat_recent_emojis: Vec<String>,
+    /// Couleur de peau choisie pour les émojis (0 = jaune par défaut, 1 à 5 = claire → foncée).
+    pub emoji_tone: u8,
     /// Navigation de l'onglet Fichiers masquée.
     pub files_side_hidden: bool,
     /// Polices et tailles par groupe (titres, interface, texte, code).

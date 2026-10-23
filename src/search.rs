@@ -579,9 +579,12 @@ fn search(
 
     // Tâches (y compris archives).
     for t in tasks.list.iter().chain(tasks.archive.iter()) {
-        if let Some(s) = score(&words, &[&t.title]) {
+        if let Some(s) = score(&words, &[&t.title, &t.summary]) {
             let archived = tasks.archive.iter().any(|a| a.id == t.id);
-            let sub = if archived { t!("Tâche archivée", "Archived task").to_string() } else { tf!("Tâche · {}", "Task · {}", t.status.label()) };
+            let mut sub = if archived { t!("Tâche archivée", "Archived task").to_string() } else { tf!("Tâche · {}", "Task · {}", t.status.label()) };
+            if let Some(first) = t.summary.lines().find(|l| !l.trim().is_empty()) {
+                sub.push_str(&format!(" · {}", first.trim()));
+            }
             push(&mut out, Hit { group: "Tâches", icon: "✅", title: t.title.clone(), sub, target: Target::Task, score: s });
         }
     }

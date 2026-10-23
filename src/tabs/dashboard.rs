@@ -397,7 +397,7 @@ fn pinned_messages(ui: &mut egui::Ui, pins: &mut Pins, out: &mut Option<DashActi
 fn reminders(ui: &mut egui::Ui, tasks: &mut Tasks) {
     let now = Local::now().timestamp_millis();
     let panel = ui.max_rect();
-    let list: Vec<(u64, String, Status, i64)> = tasks.reminders(now).into_iter().map(|(t, d)| (t.id, t.title.clone(), t.status, d)).collect();
+    let list: Vec<(u64, String, Status, i64, String)> = tasks.reminders(now).into_iter().map(|(t, d)| (t.id, t.title.clone(), t.status, d, t.summary.clone())).collect();
     let timers = tasks.timers.clone();
     if !timers.is_empty() {
         // Compte à rebours : rafraîchi chaque seconde.
@@ -459,10 +459,13 @@ fn reminders(ui: &mut egui::Ui, tasks: &mut Tasks) {
                 ui.add_space(6.0);
             }
             // Tâches oubliées.
-            for (id, title, status, days) in list {
+            for (id, title, status, days, summary) in list {
                 egui::Frame::new().fill(theme::SURFACE_HI()).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.add(egui::Label::new(RichText::new(&title).color(theme::TEXT())).wrap());
+                    let r = ui.add(egui::Label::new(RichText::new(&title).color(theme::TEXT())).wrap());
+                    if !summary.is_empty() {
+                        r.on_hover_text(&summary);
+                    }
                     let what = match status {
                         Status::Todo => tf!("À faire · {}", "To do · {}", tasks::ago(days)),
                         _ => tf!("En cours · {}", "In progress · {}", tasks::ago(days)),
@@ -741,9 +744,7 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
     let col_w = (ui.available_width() - 2.0 * gap) / 3.0;
     let h = ui.available_height();
     let dragging = egui::DragAndDrop::payload::<TaskDrag>(ui.ctx());
-    let mut moves: Vec<(u64, Status)> = Vec::new();
-    let mut deletes = Vec::new();
-    let mut renames: Vec<(u64, String)> = Vec::new();
+    let mut edits = CardEdits::default();
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
         for status in Status::ALL {
@@ -787,12 +788,12 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
                             ui.ctx().data_mut(|d| d.insert_temp(id, text));
                             ui.add_space(6.0);
                         }
-                        let items: Vec<(u64, String, i64)> = tasks.column(status).iter().map(|t| (t.id, t.title.clone(), t.since)).collect();
+                        let items: Vec<tasks::Task> = tasks.column(status).into_iter().cloned().collect();
                         let alarms: Vec<(u64, i64)> = tasks.timers.iter().map(|t| (t.task, t.due)).collect();
                         egui::ScrollArea::vertical().id_salt(("dash_kanban", status.label())).auto_shrink([false, false]).show(ui, |ui| {
-                            for (id, title, since) in items {
-                                let alarm = alarms.iter().filter(|(t, _)| *t == id).map(|(_, d)| *d).min();
-                                task_card(ui, id, &title, since, status, alarm, &mut moves, &mut deletes, &mut renames);
+                            for t in &items {
+                                let alarm = alarms.iter().filter(|(x, _)| *x == t.id).map(|(_, d)| *d).min();
+                                task_card(ui, t, alarm, &mut edits);
                             }
                             if tasks.column(status).is_empty() {
                                 ui.label(RichText::new(if dragging.is_some() { t!("Déposer ici", "Drop here") } else { "—" }).small().color(theme::TEXT_FAINT()));
@@ -807,7 +808,7 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
             {
                 ui.painter().rect_stroke(r.rect, CornerRadius::same(10), Stroke::new(1.5, theme::TODAY()), egui::StrokeKind::Inside);
                 if ui.input(|i| i.pointer.any_released()) {
-                    moves.push((d.0, status));
+                    edits.moves.push((d.0, status));
                     egui::DragAndDrop::clear_payload(ui.ctx());
                 }
             }
@@ -823,32 +824,46 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
             });
         });
     }
-    for (id, s) in moves {
+    for (id, s) in edits.moves {
         tasks.set_status(id, s);
     }
-    for (id, t) in renames {
+    for (id, t) in edits.renames {
         tasks.rename(id, &t);
     }
-    for id in deletes {
+    for (id, t) in edits.summaries {
+        tasks.set_summary(id, &t);
+    }
+    for id in edits.deletes {
         tasks.remove(id);
     }
 }
 
-/// `alarm` : prochain rappel minuté de la tâche (réveil et heure sur la carte).
-#[allow(clippy::too_many_arguments)]
-fn task_card(
-    ui: &mut egui::Ui,
-    id: u64,
-    title: &str,
-    since: i64,
-    status: Status,
-    alarm: Option<i64>,
-    moves: &mut Vec<(u64, Status)>,
-    deletes: &mut Vec<u64>,
-    renames: &mut Vec<(u64, String)>,
-) {
+/// Modifications demandées depuis les cartes du Kanban (appliquées après l'affichage).
+#[derive(Default)]
+struct CardEdits {
+    moves: Vec<(u64, Status)>,
+    deletes: Vec<u64>,
+    renames: Vec<(u64, String)>,
+    summaries: Vec<(u64, String)>,
+}
+
+/// Lignes du résumé affichées sur la carte (le reste au survol).
+const SUMMARY_LINES: usize = 4;
+
+/// Carte d'une tâche : titre, résumé, ancienneté, rappel (`alarm`), boutons.
+/// Double-clic : renommer ; clic droit : renommer, résumé, effacer.
+fn task_card(ui: &mut egui::Ui, task: &tasks::Task, alarm: Option<i64>, out: &mut CardEdits) {
+    let (id, title, since, status) = (task.id, task.title.as_str(), task.since, task.status);
     let edit_id = egui::Id::unique(("wt_task_edit", id));
     let editing: Option<String> = ui.ctx().data(|d| d.get_temp(edit_id));
+    let sum_id = egui::Id::unique(("wt_task_summary", id));
+    let summary_edit: Option<String> = ui.ctx().data(|d| d.get_temp(sum_id));
+    // Zone de la carte (glisser, double-clic, clic droit) enregistrée AVANT son contenu, à la place
+    // qu'elle occupait à l'image précédente : les boutons et le résumé, dessinés ensuite, restent
+    // au-dessus et cliquables. Pendant une saisie, la carte ne capte pas la souris.
+    let rect_id = egui::Id::unique(("wt_task_rect", id));
+    let busy = editing.is_some() || summary_edit.is_some();
+    let card = if busy { None } else { ui.ctx().data(|d| d.get_temp::<Rect>(rect_id)).map(|r| ui.interact(r, egui::Id::unique(("wt_task_card", id)), Sense::click_and_drag())) };
     let frame = egui::Frame::new()
         .fill(theme::SURFACE_HI())
         .stroke(Stroke::new(1.0, theme::BORDER()))
@@ -856,6 +871,8 @@ fn task_card(
         .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
+            // Textes non sélectionnables : un glisser sur la carte la déplace.
+            ui.style_mut().interaction.selectable_labels = false;
             if let Some(mut t) = editing.clone() {
                 // Renommage : Entrée ou clic ailleurs pour valider, Échap pour annuler.
                 let field_id = edit_id.with("field");
@@ -890,7 +907,7 @@ fn task_card(
                 });
                 if done || cancel {
                     if done && !t.trim().is_empty() {
-                        renames.push((id, t.trim().to_string()));
+                        out.renames.push((id, t.trim().to_string()));
                     }
                     ui.ctx().data_mut(|d| {
                         d.remove::<String>(edit_id);
@@ -902,6 +919,65 @@ fn task_card(
                 return;
             }
             ui.add(egui::Label::new(RichText::new(title).color(if status == Status::Done { theme::TEXT_MUTED() } else { theme::TEXT() })).wrap());
+            if let Some(mut s) = summary_edit.clone() {
+                // Résumé : champ sur plusieurs lignes (Entrée = nouvelle ligne).
+                ui.add_space(4.0);
+                let field_id = sum_id.with("field");
+                let r = ui.add(
+                    egui::TextEdit::multiline(&mut s)
+                        .id(field_id)
+                        .desired_rows(4)
+                        .desired_width(f32::INFINITY)
+                        .hint_text(t!("Résumé, notes, étapes… (plusieurs lignes)", "Summary, notes, steps… (several lines)")),
+                );
+                if r.changed()
+                    && let Some(x) = crate::tabs::messages::emoji::replace_codes(&s)
+                {
+                    s = x;
+                }
+                let started = sum_id.with("started");
+                if !ui.ctx().data(|d| d.get_temp::<bool>(started)).unwrap_or(false) {
+                    r.request_focus();
+                    ui.ctx().data_mut(|d| d.insert_temp(started, true));
+                }
+                let mut done = r.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
+                let mut cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                ui.horizontal(|ui| {
+                    if ui.small_button(t!("✓ Enregistrer", "✓ Save")).on_hover_text(t!("Ctrl + Entrée", "Ctrl + Enter")).clicked() {
+                        done = true;
+                    }
+                    if ui.small_button(t!("Annuler", "Cancel")).on_hover_text(t!("Échap", "Esc")).clicked() {
+                        cancel = true;
+                    }
+                });
+                if done || cancel {
+                    if done {
+                        out.summaries.push((id, s));
+                    }
+                    ui.ctx().data_mut(|d| {
+                        d.remove::<String>(sum_id);
+                        d.remove::<bool>(sum_id.with("started"));
+                    });
+                } else {
+                    ui.ctx().data_mut(|d| d.insert_temp(sum_id, s));
+                }
+                return;
+            }
+            // Résumé : premières lignes, le texte complet au survol ; clic = le modifier.
+            if !task.summary.trim().is_empty() {
+                let lines: Vec<&str> = task.summary.lines().collect();
+                let mut shown = lines.iter().take(SUMMARY_LINES).copied().collect::<Vec<_>>().join("\n");
+                if lines.len() > SUMMARY_LINES {
+                    shown.push_str("\n…");
+                }
+                ui.add_space(2.0);
+                let r = ui.add(egui::Label::new(RichText::new(shown).small().color(theme::TEXT_MUTED())).wrap().sense(Sense::click())).on_hover_cursor(egui::CursorIcon::Text);
+                let r = if lines.len() > SUMMARY_LINES { r.on_hover_text(&task.summary) } else { r.on_hover_text(t!("Clic : modifier le résumé", "Click: edit the summary")) };
+                if r.clicked() {
+                    ui.ctx().data_mut(|d| d.insert_temp(sum_id, task.summary.clone()));
+                }
+                ui.add_space(2.0);
+            }
             let days = (Local::now().timestamp_millis() - since) / 86_400_000;
             ui.horizontal(|ui| {
                 let when = match status {
@@ -921,55 +997,63 @@ fn task_card(
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let small = |ui: &mut egui::Ui, t: &str, tip: &str| ui.add(egui::Button::new(RichText::new(t).small()).frame(false)).on_hover_text(tip).clicked();
                     if small(ui, "✕", t!("Supprimer", "Delete")) {
-                        deletes.push(id);
+                        out.deletes.push(id);
                     }
                     match status {
                         Status::Todo => {
                             if small(ui, "▶", t!("Passer en cours", "Move to in progress")) {
-                                moves.push((id, Status::Doing));
+                                out.moves.push((id, Status::Doing));
                             }
                         }
                         Status::Doing => {
                             if small(ui, "✓", t!("Archiver", "Archive")) {
-                                moves.push((id, Status::Done));
+                                out.moves.push((id, Status::Done));
                             }
                             if small(ui, "◀", t!("Remettre à faire", "Move back to to-do")) {
-                                moves.push((id, Status::Todo));
+                                out.moves.push((id, Status::Todo));
                             }
                         }
                         Status::Done => {
                             if small(ui, "◀", t!("Reprendre", "Resume")) {
-                                moves.push((id, Status::Doing));
+                                out.moves.push((id, Status::Doing));
                             }
                         }
+                    }
+                    let tip = if task.summary.is_empty() { t!("Ajouter un résumé", "Add a summary") } else { t!("Modifier le résumé", "Edit the summary") };
+                    if small(ui, "≡", tip) {
+                        ui.ctx().data_mut(|d| d.insert_temp(sum_id, task.summary.clone()));
                     }
                 });
             });
         });
+    ui.ctx().data_mut(|d| d.insert_temp(rect_id, frame.response.rect));
     // Glisser la carte d'une colonne à l'autre ; double-clic pour renommer.
-    // Pendant le renommage, la carte ne capte pas la souris (le champ et ses boutons restent cliquables).
-    if editing.is_some() {
+    let Some(resp) = card else {
         ui.add_space(6.0);
         return;
-    }
-    let resp = ui.interact(frame.response.rect, egui::Id::unique(("wt_task_card", id)), Sense::click_and_drag());
+    };
     resp.dnd_set_drag_payload(TaskDrag(id));
     if resp.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     } else if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
     }
-    if resp.double_clicked() && editing.is_none() {
+    if resp.double_clicked() {
         ui.ctx().data_mut(|d| d.insert_temp(edit_id, title.to_string()));
     }
-    // Clic droit : petit menu (renommer, effacer).
+    // Clic droit : petit menu (renommer, résumé, effacer).
     resp.context_menu(|ui| {
         if ui.button(t!("✏  Renommer", "✏  Rename")).clicked() {
             ui.ctx().data_mut(|d| d.insert_temp(edit_id, title.to_string()));
             ui.close();
         }
+        let label = if task.summary.is_empty() { t!("≡  Ajouter un résumé", "≡  Add a summary") } else { t!("≡  Modifier le résumé", "≡  Edit the summary") };
+        if ui.button(label).clicked() {
+            ui.ctx().data_mut(|d| d.insert_temp(sum_id, task.summary.clone()));
+            ui.close();
+        }
         if ui.button(RichText::new(t!("🗑  Effacer la tâche", "🗑  Delete the task")).color(theme::TODAY())).clicked() {
-            deletes.push(id);
+            out.deletes.push(id);
             ui.close();
         }
     });

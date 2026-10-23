@@ -94,6 +94,7 @@ impl WorkTableApp {
         theme::set_fonts(ctx, &prefs.fonts);
         theme::set_theme(ctx, prefs.theme);
         tabs::messages::emoji::set_recent(prefs.chat_recent_emojis.clone());
+        tabs::messages::emoji::set_tone(prefs.emoji_tone);
         Self {
             current: Tab::Dashboard,
             account: Account::new(ctx.clone()),
@@ -381,6 +382,10 @@ impl eframe::App for WorkTableApp {
         }
 
         let recent = tabs::messages::emoji::recent();
+        let tone = tabs::messages::emoji::tone();
+        if tone != self.prefs.emoji_tone {
+            self.prefs.emoji_tone = tone;
+        }
         if recent != self.prefs.chat_recent_emojis {
             self.prefs.chat_recent_emojis = recent;
         }

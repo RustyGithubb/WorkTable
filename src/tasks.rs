@@ -37,6 +37,9 @@ pub struct Task {
     pub created: i64,
     /// Entrée dans l'état actuel (ms) : « en cours depuis… ».
     pub since: i64,
+    /// Résumé sur plusieurs lignes (notes, étapes…), facultatif.
+    #[serde(default)]
+    pub summary: String,
 }
 
 /// Rappel minuté d'une tâche.
@@ -132,7 +135,7 @@ impl Tasks {
         }
         self.next_id = self.next_id.max(self.list.iter().chain(&self.archive).map(|t| t.id).max().unwrap_or(0)) + 1;
         let n = now();
-        self.list.push(Task { id: self.next_id, title: title.to_string(), status: Status::Todo, created: n, since: n });
+        self.list.push(Task { id: self.next_id, title: title.to_string(), status: Status::Todo, created: n, since: n, summary: String::new() });
         self.dirty = true;
         Some(self.next_id)
     }
@@ -198,6 +201,17 @@ impl Tasks {
         }
         for t in self.timers.iter_mut().filter(|t| t.task == id) {
             t.title = title.trim().to_string();
+        }
+    }
+
+    /// Remplace le résumé d'une tâche (lignes vides de fin retirées).
+    pub fn set_summary(&mut self, id: u64, summary: &str) {
+        if let Some(t) = self.list.iter_mut().chain(self.archive.iter_mut()).find(|t| t.id == id) {
+            let s = summary.trim_end().to_string();
+            if t.summary != s {
+                t.summary = s;
+                self.dirty = true;
+            }
         }
     }
 
@@ -291,6 +305,20 @@ mod tests {
         assert!(t.timers.iter().all(|x| x.title == "Envoyer le rendu final"));
         t.set_status(id, Status::Done);
         assert!(t.timers.is_empty(), "tâche archivée : rappels retirés");
+    }
+
+    #[test]
+    fn summary_is_kept_and_saved() {
+        let mut t = Tasks::default();
+        let id = t.add_task("Rendu").unwrap();
+        t.set_summary(id, "1. Exporter\n2. Envoyer\n\n");
+        assert_eq!(t.list[0].summary, "1. Exporter\n2. Envoyer");
+        let json = serde_json::to_string(&t).unwrap();
+        let back: Tasks = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.list[0].summary, t.list[0].summary);
+        // Anciennes tâches sans résumé : relues sans erreur.
+        let old: Task = serde_json::from_str(r#"{"id":1,"title":"x","status":"Todo","created":0,"since":0}"#).unwrap();
+        assert!(old.summary.is_empty());
     }
 
     #[test]

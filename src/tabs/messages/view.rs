@@ -1273,6 +1273,23 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
                         actions.push(Action::React(m.clone(), e.clone()));
                     }
                 }
+                // Ajouter une autre réaction : sélecteur complet (tous les émojis).
+                if !sending && !failed {
+                    let (r, resp) = ui.allocate_exact_size(vec2(40.0, 24.0), Sense::click());
+                    let resp = resp.on_hover_text(t!("Ajouter une réaction (tous les émojis)", "Add a reaction (all emojis)")).on_hover_cursor(egui::CursorIcon::PointingHand);
+                    let p = ui.painter();
+                    p.rect(
+                        r,
+                        CornerRadius::same(12),
+                        if resp.hovered() { theme::SURFACE_HI() } else { theme::SURFACE() },
+                        Stroke::new(1.0, theme::BORDER()),
+                        egui::StrokeKind::Inside,
+                    );
+                    add_reaction_icon(p, r.center(), 15.0, resp.hovered());
+                    if resp.clicked() {
+                        actions.push(Action::ReactPicker(m.clone(), r.right_bottom() + vec2(300.0, 0.0)));
+                    }
+                }
             });
         }
         if threaded && !replies.is_empty() {
@@ -1328,11 +1345,43 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
     ui.spacing_mut().item_spacing.y = spacing_before;
     let bottom = ui.cursor().top() - 2.0;
     let rect = Rect::from_min_max(Pos2::new(left, top), Pos2::new(ui.max_rect().right() - 12.0, bottom + 2.0));
-    // Clic droit sur l'avatar, le nom ou la marge du message : fiche contact de l'auteur.
-    if !mine && !m.bot && !sending {
-        let head = Rect::from_min_max(Pos2::new(left, top), Pos2::new(body_left - 2.0, bottom));
-        let head = if compact { head } else { head.union(Rect::from_min_size(Pos2::new(left, top), vec2(AVATAR + 24.0 + name_w, 34.0))) };
-        ui.interact(head, ui.scope_id().with(("chat_who", &m.name)), Sense::click()).context_menu(|ui| person_menu(ui, chat, &m.sender));
+    // Clic droit sur l'avatar, le nom ou la marge du message : réagir (réactions rapides ou tous
+    // les émojis) et fiche contact de l'auteur.
+    if !sending && !failed {
+        // Deux zones distinctes (marge à gauche, ligne du nom) : leur rectangle englobant
+        // recouvrirait le message et ses pastilles de réaction.
+        let gutter = Rect::from_min_max(Pos2::new(left, top), Pos2::new(body_left - 2.0, bottom));
+        let mut resp = ui.interact(gutter, ui.scope_id().with(("chat_who", &m.name)), Sense::click());
+        if !compact {
+            let name_row = Rect::from_min_size(Pos2::new(body_left - 2.0, top), vec2(name_w + 12.0, 30.0));
+            resp = resp.union(ui.interact(name_row, ui.scope_id().with(("chat_who_name", &m.name)), Sense::click()));
+        }
+        let at = resp.interact_pointer_pos().unwrap_or(gutter.right_top());
+        resp.context_menu(|ui| {
+            ui.label(RichText::new(t!("RÉAGIR", "REACT")).small().color(theme::TEXT_FAINT()));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                for e in QUICK.iter().map(|e| e.to_string()).chain(chat.recent_emojis.iter().take(3).cloned()).fold(Vec::<String>::new(), |mut v, e| {
+                    if !v.contains(&e) {
+                        v.push(e);
+                    }
+                    v
+                }) {
+                    if crate::emoji_img::button(ui, &e, 28.0).clicked() {
+                        actions.push(Action::React(m.clone(), e));
+                        ui.close();
+                    }
+                }
+            });
+            if ui.button(t!("😀  Tous les émojis…", "😀  All emojis…")).clicked() {
+                actions.push(Action::ReactPicker(m.clone(), at + vec2(300.0, 0.0)));
+                ui.close();
+            }
+            if !mine && !m.bot {
+                ui.separator();
+                person_menu(ui, chat, &m.sender);
+            }
+        });
     }
 
     // Survol : fond léger + barre d'actions (réactions rapides, fil, modifier, supprimer).
@@ -1342,7 +1391,7 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
             ui.painter().text(Pos2::new(left + AVATAR / 2.0 + 4.0, top + 10.0), Align2::CENTER_CENTER, hhmm(m.created), FontId::proportional(9.5), theme::TEXT_FAINT());
         }
         let mut items: Vec<(&str, &str)> = QUICK.iter().map(|e| (*e, "Réagir")).collect();
-        items.push(("＋", "Autres réactions"));
+        items.push(("😀", "Autres réactions"));
         if threaded && !m.thread_reply {
             items.push(("↩", "Répondre dans le fil"));
         }
@@ -1365,6 +1414,8 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
             }
             if *tip == "Réagir" {
                 crate::emoji_img::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(17.0, 17.0)), icon, theme::TEXT());
+            } else if *tip == "Autres réactions" {
+                add_reaction_icon(ui.painter(), r.center(), 16.0, resp.hovered());
             } else {
                 ui.painter().text(r.center(), Align2::CENTER_CENTER, *icon, FontId::proportional(14.0), theme::TEXT());
             }
@@ -1384,6 +1435,27 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
     if sending {
         ui.multiply_opacity(1.0 / 0.55);
     }
+}
+
+/// Icône « ajouter une réaction » : visage souriant et petit « + ».
+fn add_reaction_icon(p: &egui::Painter, c: Pos2, size: f32, hot: bool) {
+    let color = if hot { theme::TEXT() } else { theme::TEXT_MUTED() };
+    let r = size * 0.42;
+    let face = c - vec2(size * 0.12, -size * 0.04);
+    p.circle_stroke(face, r, Stroke::new(1.4, color));
+    p.circle_filled(face + vec2(-r * 0.38, -r * 0.25), 1.3, color);
+    p.circle_filled(face + vec2(r * 0.38, -r * 0.25), 1.3, color);
+    let pts: Vec<Pos2> = (0..=8)
+        .map(|i| {
+            let a = std::f32::consts::PI * (0.2 + 0.6 * i as f32 / 8.0);
+            face + vec2(r * 0.55 * a.cos(), r * 0.55 * a.sin())
+        })
+        .collect();
+    p.add(egui::Shape::line(pts, Stroke::new(1.3, color)));
+    let pc = c + vec2(size * 0.42, -size * 0.32);
+    let s = size * 0.17;
+    p.line_segment([pc - vec2(s, 0.0), pc + vec2(s, 0.0)], Stroke::new(1.5, color));
+    p.line_segment([pc - vec2(0.0, s), pc + vec2(0.0, s)], Stroke::new(1.5, color));
 }
 
 /// Entrée « Fiche contact » d'une personne de Google Chat (par son adresse si elle est connue).
@@ -1459,12 +1531,15 @@ fn bar_tip(key: &str) -> &str {
     if key == "Épingler" {
         return t!("Épingler au tableau de bord", "Pin to the dashboard");
     }
+    if key == "Autres réactions" && !crate::i18n::en() {
+        return "Choisir une réaction parmi tous les émojis";
+    }
     if !crate::i18n::en() {
         return key;
     }
     match key {
         "Réagir" => "React",
-        "Autres réactions" => "More reactions",
+        "Autres réactions" => "Choose a reaction among all emojis",
         "Répondre dans le fil" => "Reply in thread",
         "Modifier" => "Edit",
         "Supprimer" => "Delete",

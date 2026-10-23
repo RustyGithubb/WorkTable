@@ -35,6 +35,40 @@ pub fn file_code(emoji: &str) -> String {
     emoji.chars().filter(|c| *c != '\u{FE0F}').map(|c| format!("{:04x}", c as u32)).collect::<Vec<_>>().join("_")
 }
 
+/// Émoji correspondant à un nom de fichier du cache (inverse de [`file_code`]).
+fn emoji_of_code(code: &str) -> Option<String> {
+    let s: String = code.split('_').map(|h| u32::from_str_radix(h, 16).ok().and_then(char::from_u32)).collect::<Option<String>>()?;
+    // Le fichier ne garde pas le sélecteur de variante : on retrouve la forme du catalogue.
+    if let Some(e) = emojis::get(&s) {
+        return Some(e.as_str().to_string());
+    }
+    let with_fe0f: String = s.chars().flat_map(|c| [c, '\u{FE0F}']).collect();
+    emojis::get(&with_fe0f).or_else(|| emojis::iter().find(|e| file_code(e.as_str()) == code)).map(|e| e.as_str().to_string())
+}
+
+/// Émojis déjà enregistrés sur cet ordinateur (images du cache) : affichés sans attendre, même
+/// hors ligne. Relu au plus toutes les 5 s.
+pub fn stored() -> Vec<String> {
+    static LIST: OnceLock<Mutex<(Option<std::time::Instant>, Vec<String>)>> = OnceLock::new();
+    let m = LIST.get_or_init(Default::default);
+    let Ok(mut g) = m.lock() else { return Vec::new() };
+    if g.0.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(5)) {
+        let mut list: Vec<String> = disk_dir()
+            .and_then(|d| std::fs::read_dir(d).ok())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".png")).and_then(emoji_of_code))
+            .collect();
+        // Ordre du catalogue Unicode (comme les catégories).
+        let order: std::collections::HashMap<&str, usize> = emojis::iter().enumerate().map(|(i, e)| (e.as_str(), i)).collect();
+        list.sort_by_key(|e| order.get(e.as_str()).copied().unwrap_or(usize::MAX));
+        list.dedup();
+        *g = (Some(std::time::Instant::now()), list);
+    }
+    g.1.clone()
+}
+
 fn disk_dir() -> Option<PathBuf> {
     Some(crate::paths::cache().join("emoji"))
 }
@@ -189,6 +223,14 @@ pub fn find(text: &str) -> Vec<(usize, usize, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_names_map_back_to_emojis() {
+        for e in ["😀", "❤️", "👍", "🏳️‍🌈", "#️⃣"] {
+            assert_eq!(emoji_of_code(&file_code(e)).as_deref(), Some(e), "{e}");
+        }
+        assert!(emoji_of_code("zzzz").is_none());
+    }
 
     #[test]
     fn file_codes_and_detection() {

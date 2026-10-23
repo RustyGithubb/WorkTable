@@ -212,7 +212,7 @@ Enregistrement automatique une seconde après la dernière frappe.
   - Calendrier : pastille ⏰ et barre pointillée à l'heure du rappel (vue Mois : pastille du jour) ;
     clic = la tâche, mise en évidence dans le panneau Rappels. Sauvegarde avec les tâches.
 - **Tâches** (Kanban) : À faire / En cours / Archivé. Ajout avec Entrée, glisser-déposer d'une colonne à
-  l'autre, boutons ◀ ▶ ✓ ✕, double-clic pour renommer, clic droit › Renommer / Effacer la tâche. Le bloc « Archivé » est vidé chaque jour : ses
+  l'autre, boutons ◀ ▶ ✓ ✕, double-clic pour renommer, clic droit › Renommer / Ajouter un résumé / Effacer la tâche. **Résumé** sur plusieurs lignes (bouton ≡, clic droit ou clic sur le résumé ; Entrée = nouvelle ligne, Ctrl+Entrée = enregistrer, Échap = annuler) : 4 premières lignes sur la carte, le reste au survol ; aussi cherché par Ctrl+Espace. Le bloc « Archivé » est vidé chaque jour : ses
   tâches passent dans **Archives** (repliées sous le Kanban, par jour, avec « Restaurer »).
   Sauvegarde : `data\config\tasks.json`.
 - **Fichiers reçus** : les 6 derniers fichiers partagés par mail, uniquement PDF (pièces jointes) et
@@ -352,6 +352,17 @@ Enregistrement automatique une seconde après la dernière frappe.
   mentions `@Nom`), messages cités, « (modifié) ».
 - Survol d'un message : réactions rapides 👍 ❤️ 😂 🎉 👀 (clic sur une réaction = l'ajouter / la retirer),
   répondre dans le fil, modifier / supprimer ses messages, copier le texte.
+- **Réagir avec n'importe quel émoji** : bouton 😀+ de la barre de survol, pastille 😀+ après les
+  réactions d'un message, ou clic droit sur l'avatar / le nom › Réagir (réactions rapides et
+  récentes, « Tous les émojis… »). Le sélecteur (le même que pour écrire) propose les récents,
+  l'onglet 💾 **Enregistrés** (émojis déjà gardés sur l'ordinateur : affichage immédiat, hors
+  ligne), la recherche et les catégories.
+- **Émojis d'iOS** : exactement la liste de l'iPhone (Emoji 17.0, iOS 26.4) — 1 914 émojis,
+  3 944 avec les couleurs de peau — dans les 8 catégories du clavier iOS et leur ordre
+  (Smileys et personnes, Animaux et nature, Nourriture et boissons, Activités, Voyages et lieux,
+  Objets, Symboles, Drapeaux). Rangée **Peau** : couleur par défaut (mémorisée) ; clic droit sur
+  un émoji : toutes ses variantes (6, ou 26 pour les couples à deux teintes), comme l'appui
+  long sur iPhone. Les émojis plus récents (Emoji 18.0) ne sont pas encore proposés.
 - Fils (espaces à fils) : « N réponses · dernière à hh:mm » ouvre le fil dans un panneau à droite.
 - Pièces jointes : images affichées dans la discussion ; fichiers téléchargés puis ouverts avec
   l'application Windows par défaut ; fichiers Drive ouverts dans le navigateur ; « Ouvrir dans
