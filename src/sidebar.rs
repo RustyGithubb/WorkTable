@@ -463,6 +463,11 @@ fn badge(p: &Painter, rect: Rect, n: usize) {
     p.galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
 }
 
+/// Pastille sans nombre (mise à jour disponible), même couleur que celle des non lus.
+fn update_dot(p: &Painter, rect: Rect) {
+    p.circle(rect.right_top() + vec2(-5.0, 5.0), 5.0, theme::TODAY(), Stroke::new(1.5, theme::SIDEBAR_BG()));
+}
+
 fn nav_button(ui: &mut egui::Ui, tab: Tab, active: bool, hl: &mut Liquid, tip: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -510,8 +515,8 @@ fn magnify(ui: &egui::Ui, key: &str, rect: Rect) -> f32 {
 }
 
 /// Bouton rond « Réglages », ancré en bas à gauche, au premier plan sur tous les onglets.
-/// Renvoie `true` s'il a été cliqué.
-pub fn settings_button(ctx: &egui::Context, window: Rect, active: bool) -> bool {
+/// `dot` : pastille (mise à jour disponible). Renvoie `true` s'il a été cliqué.
+pub fn settings_button(ctx: &egui::Context, window: Rect, active: bool, dot: bool) -> bool {
     let size = BUTTON + 16.0; // même diamètre que la pilule
     let pos = Pos2::new(window.left() + SCREEN_MARGIN, window.bottom() - SCREEN_MARGIN - size);
     let mut clicked = false;
@@ -527,6 +532,9 @@ pub fn settings_button(ctx: &egui::Context, window: Rect, active: bool) -> bool 
             let zoom = magnify(ui, "settings", rect);
             paint_button(ui, rect, &resp, hl.coverage(rect), zoom, phase, draw_gear);
             hl.end(ui, theme::TEXT(), BUTTON / 2.0);
+            if dot {
+                update_dot(ui.painter(), rect);
+            }
             clicked = resp.clicked();
         });
     });

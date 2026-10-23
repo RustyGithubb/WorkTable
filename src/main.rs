@@ -23,6 +23,7 @@ mod tabs;
 mod tasks;
 mod theme;
 mod titlebar;
+mod update;
 mod widgets;
 
 /// En cas de plantage, la cause est écrite dans `data\config\crash.log` :

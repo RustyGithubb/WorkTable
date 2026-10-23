@@ -28,6 +28,8 @@ sha2 = "0.11.1"
 ureq = { version = "2", features = ["json"] }
 urlencoding = "2.1.3"
 webbrowser = "1.2.4"
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
+self-replace = "1.5.0"
 
 [target.'cfg(windows)'.dependencies]
 # Bordure de la fenêtre du bandeau de notification, sons, langue de Windows, protection de clé (DPAPI).

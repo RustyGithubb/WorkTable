@@ -49,6 +49,8 @@ pub struct WorkTableApp {
     people: crate::people::People,
     card: crate::people::CardView,
     prefs: Prefs,
+    /// Mises à jour publiées sur GitHub (vérifiées au lancement).
+    update: crate::update::Updater,
 }
 
 impl WorkTableApp {
@@ -95,6 +97,9 @@ impl WorkTableApp {
         theme::set_theme(ctx, prefs.theme);
         tabs::messages::emoji::set_recent(prefs.chat_recent_emojis.clone());
         tabs::messages::emoji::set_tone(prefs.emoji_tone);
+        // Nouvelle version sur GitHub ? (en arrière-plan ; pastille sur le bouton Réglages)
+        let update = crate::update::Updater::default();
+        update.check(ctx);
         Self {
             current: Tab::Dashboard,
             account: Account::new(ctx.clone()),
@@ -110,6 +115,7 @@ impl WorkTableApp {
             people: Default::default(),
             card: Default::default(),
             prefs,
+            update,
         }
     }
 }
@@ -297,7 +303,7 @@ impl eframe::App for WorkTableApp {
                         self.drive_action(a);
                     }
                 }
-                Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.prefs),
+                Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.prefs, &self.update),
             },
         );
 
@@ -362,7 +368,7 @@ impl eframe::App for WorkTableApp {
         }
 
         // 3. Bouton Réglages, ancré en bas à gauche, toujours visible.
-        if sidebar::settings_button(ui.ctx(), window_rect, self.current == Tab::Settings) {
+        if sidebar::settings_button(ui.ctx(), window_rect, self.current == Tab::Settings, self.update.badge()) {
             self.current = Tab::Settings;
         }
 

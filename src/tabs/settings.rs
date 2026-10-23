@@ -7,12 +7,12 @@ use crate::liquid::Liquid;
 use crate::prefs::{Animation, Curve, Prefs};
 use crate::{theme, widgets};
 
-pub fn show(ui: &mut egui::Ui, acc: &mut Account, prefs: &mut Prefs) {
+pub fn show(ui: &mut egui::Ui, acc: &mut Account, prefs: &mut Prefs, update: &crate::update::Updater) {
     widgets::page_header(ui, t!("Application", "Application"), t!("Réglages", "Settings"));
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         let width = ui.available_width().min(760.0);
         ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
-            general(ui, prefs);
+            general(ui, prefs, update);
             data_card(ui);
             themes(ui, prefs);
             fonts(ui, prefs);
@@ -34,8 +34,8 @@ pub fn show(ui: &mut egui::Ui, acc: &mut Account, prefs: &mut Prefs) {
     });
 }
 
-/// Langue de l'interface et onglet au démarrage.
-fn general(ui: &mut egui::Ui, prefs: &mut Prefs) {
+/// Langue de l'interface, onglet au démarrage et mises à jour.
+fn general(ui: &mut egui::Ui, prefs: &mut Prefs, update: &crate::update::Updater) {
     use crate::i18n::Language;
     widgets::card(ui, t!("Général", "General"), 0.0, |ui| {
         ui.horizontal(|ui| {
@@ -63,8 +63,69 @@ fn general(ui: &mut egui::Ui, prefs: &mut Prefs) {
                 ui.label(RichText::new(crate::app::Tab::Dashboard.label()).color(theme::TEXT_MUTED()));
             });
         });
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(4.0);
+        updates(ui, update);
     });
     ui.add_space(12.0);
+}
+
+/// Mises à jour : vérifier sur GitHub, installer, redémarrer.
+fn updates(ui: &mut egui::Ui, update: &crate::update::Updater) {
+    use crate::update::{self, State};
+    let current = env!("CARGO_PKG_VERSION");
+    let state = update.state();
+    let checked = update.checked_at().map(|t| tf!(" (vérifié à {})", " (checked at {})", t.format("%H:%M"))).unwrap_or_default();
+    let (status, accent) = match &state {
+        State::Idle => (tf!("Version {current}", "Version {current}"), false),
+        State::Checking => (t!("Recherche d'une nouvelle version…", "Looking for a new version…").to_string(), false),
+        State::UpToDate => (tf!("Version {current} — à jour{checked}", "Version {current} — up to date{checked}"), false),
+        State::Available(r) => (tf!("Version {} disponible (actuelle : {current})", "Version {} available (current: {current})", r.version), true),
+        State::Downloading(r) => (tf!("Téléchargement de la version {}…", "Downloading version {}…", r.version), false),
+        State::Ready(v) => (tf!("Version {v} installée — redémarrez pour l'utiliser.", "Version {v} installed — restart to use it."), true),
+        State::Failed(e) => (e.clone(), false),
+    };
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.label(t!("Mises à jour", "Updates"));
+            let color = if accent { theme::TODAY() } else { theme::TEXT_FAINT() };
+            ui.horizontal(|ui| {
+                if matches!(state, State::Checking | State::Downloading(_)) {
+                    ui.add(egui::Spinner::new().size(11.0));
+                }
+                ui.add(egui::Label::new(RichText::new(status).small().color(color)).wrap());
+            });
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match &state {
+            State::Idle | State::UpToDate | State::Failed(_) => {
+                if ui.button(t!("Vérifier", "Check")).on_hover_text(t!("Chercher une nouvelle version sur GitHub", "Look for a new version on GitHub")).clicked() {
+                    update.check(ui.ctx());
+                }
+            }
+            State::Available(r) => {
+                match update::install_blocker() {
+                    None => {
+                        if ui.button(tf!("Installer la {}", "Install {}", r.version)).clicked() {
+                            update.install(ui.ctx());
+                        }
+                    }
+                    Some(why) => {
+                        ui.add_enabled(false, egui::Button::new(t!("Installer", "Install"))).on_disabled_hover_text(why);
+                    }
+                }
+                if !r.page.is_empty() && ui.button(t!("Notes de version", "Release notes")).clicked() {
+                    let _ = open::that_detached(&r.page);
+                }
+            }
+            State::Ready(_) => {
+                if ui.button(t!("Redémarrer", "Restart")).clicked() {
+                    update::restart(ui.ctx());
+                }
+            }
+            State::Checking | State::Downloading(_) => {}
+        });
+    });
 }
 
 enum Value {
