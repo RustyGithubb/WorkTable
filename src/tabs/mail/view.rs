@@ -1425,30 +1425,6 @@ fn body_image(ui: &mut egui::Ui, state: Option<&inline::ImgState>, alt: &str, sp
     clicked
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn spec(w: Option<Dim>, h: Option<Dim>, mw: Option<Dim>) -> ImageSpec {
-        ImageSpec { width: w, height: h, max_width: mw, align: HAlign::Left }
-    }
-
-    #[test]
-    fn image_sizes_like_gmail() {
-        let nat = vec2(1200.0, 600.0);
-        // Taille naturelle, réduite à la largeur du panneau.
-        assert_eq!(image_size(nat, spec(None, None, None), 800.0), vec2(800.0, 400.0));
-        assert_eq!(image_size(vec2(200.0, 100.0), spec(None, None, None), 800.0), vec2(200.0, 100.0));
-        // Largeur imposée : proportions conservées.
-        assert_eq!(image_size(nat, spec(Some(Dim::Px(300.0)), None, None), 800.0), vec2(300.0, 150.0));
-        // Largeur + hauteur imposées : respectées telles quelles.
-        assert_eq!(image_size(nat, spec(Some(Dim::Px(300.0)), Some(Dim::Px(300.0)), None), 800.0), vec2(300.0, 300.0));
-        // Pourcentage + max-width.
-        assert_eq!(image_size(nat, spec(Some(Dim::Percent(100.0)), None, Some(Dim::Px(500.0))), 800.0), vec2(500.0, 250.0));
-        assert_eq!(image_size(nat, spec(Some(Dim::Percent(50.0)), None, None), 800.0), vec2(400.0, 200.0));
-    }
-}
-
 // --- Pièces jointes --------------------------------------------------------
 
 fn attachment_chip(ui: &mut egui::Ui, a: &Attachment, atts: &attachments::Attachments, email: &str, actions: &mut Vec<Action>) -> Rect {
@@ -1645,4 +1621,28 @@ pub(crate) fn short_date(ms: i64) -> String {
 pub(crate) fn long_date(ms: i64) -> String {
     let Some(d) = to_local(ms) else { return String::new() };
     format!("{} {} {} {}, {}", tabs::weekday_name(d.weekday()), d.day(), tabs::month_name(d.month()), d.year(), d.format("%H:%M"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spec(w: Option<Dim>, h: Option<Dim>, mw: Option<Dim>) -> ImageSpec {
+        ImageSpec { width: w, height: h, max_width: mw, align: HAlign::Left }
+    }
+
+    #[test]
+    fn image_sizes_like_gmail() {
+        let nat = vec2(1200.0, 600.0);
+        // Taille naturelle, réduite à la largeur du panneau.
+        assert_eq!(image_size(nat, spec(None, None, None), 800.0), vec2(800.0, 400.0));
+        assert_eq!(image_size(vec2(200.0, 100.0), spec(None, None, None), 800.0), vec2(200.0, 100.0));
+        // Largeur imposée : proportions conservées.
+        assert_eq!(image_size(nat, spec(Some(Dim::Px(300.0)), None, None), 800.0), vec2(300.0, 150.0));
+        // Largeur + hauteur imposées : respectées telles quelles.
+        assert_eq!(image_size(nat, spec(Some(Dim::Px(300.0)), Some(Dim::Px(300.0)), None), 800.0), vec2(300.0, 300.0));
+        // Pourcentage + max-width.
+        assert_eq!(image_size(nat, spec(Some(Dim::Percent(100.0)), None, Some(Dim::Px(500.0))), 800.0), vec2(500.0, 250.0));
+        assert_eq!(image_size(nat, spec(Some(Dim::Percent(50.0)), None, None), 800.0), vec2(400.0, 200.0));
+    }
 }

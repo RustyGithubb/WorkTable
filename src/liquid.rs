@@ -169,22 +169,6 @@ pub fn flow(from: Rect, to: Rect, t: f32, curve: Curve) -> Rect {
     r
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn flow_stretches_then_lands() {
-        let a = Rect::from_min_size(Pos2::new(0.0, 0.0), vec2(40.0, 40.0));
-        let b = Rect::from_min_size(Pos2::new(0.0, 200.0), vec2(40.0, 40.0));
-        assert_eq!(flow(a, b, 0.0, Curve::EaseInOut), Rect::from_center_size(a.center(), a.size()));
-        let mid = flow(a, b, 0.5, Curve::EaseInOut);
-        assert!(mid.height() > 40.0, "étirée pendant le trajet : {mid:?}");
-        assert!(mid.width() < 40.0, "amincie : {mid:?}");
-        assert_eq!(flow(a, b, 1.0, Curve::EaseInOut), b);
-    }
-}
-
 // --- Transitions simples (repli, largeur) avec les mêmes réglages ------------------
 
 fn easing(curve: Curve) -> fn(f32) -> f32 {
@@ -224,4 +208,20 @@ pub fn collapse(ui: &mut egui::Ui, salt: &str, open: bool, body: impl FnOnce(&mu
     let measured = child.min_rect().height();
     ui.ctx().data_mut(|d| d.insert_temp(h_id, measured));
     ui.allocate_space(vec2(avail.width(), if k < 1.0 { measured * k } else { measured }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flow_stretches_then_lands() {
+        let a = Rect::from_min_size(Pos2::new(0.0, 0.0), vec2(40.0, 40.0));
+        let b = Rect::from_min_size(Pos2::new(0.0, 200.0), vec2(40.0, 40.0));
+        assert_eq!(flow(a, b, 0.0, Curve::EaseInOut), Rect::from_center_size(a.center(), a.size()));
+        let mid = flow(a, b, 0.5, Curve::EaseInOut);
+        assert!(mid.height() > 40.0, "étirée pendant le trajet : {mid:?}");
+        assert!(mid.width() < 40.0, "amincie : {mid:?}");
+        assert_eq!(flow(a, b, 1.0, Curve::EaseInOut), b);
+    }
 }

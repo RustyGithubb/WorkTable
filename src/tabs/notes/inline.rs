@@ -271,7 +271,7 @@ mod tests {
     fn styles() {
         let p = parse("a **b** c");
         let bold: Vec<_> = p.spans.iter().filter(|s| s.style.bold && !s.marker).map(|s| s.range.clone()).collect();
-        assert_eq!(bold, [4..5]);
+        assert_eq!(bold, vec![4..5]);
         let p = parse("[x](u)");
         assert_eq!(p.links, ["u"]);
     }

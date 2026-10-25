@@ -1,14 +1,27 @@
 # WorkTable
 
 Application d'organisation de travail en Rust (`eframe` / `egui` 0.37).
-Onglets : Tableau de bord, Calendrier, Mail (Gmail), Messages (Google Chat), Prise de notes, Fichiers (Google Drive), Réglages.
+Onglets : Tableau de bord, Calendrier, Mail (Gmail), Messages (Google Chat), Prise de notes, Fichiers (Google Drive), Blueprint (automatisations), Réglages.
 Interface en français ou en anglais (Réglages › Général › Langue ; par défaut, la langue de Windows).
+
+Ce fichier sert aussi de **guide dans l'app** : la note « Guide de WorkTable (README) », en
+favori dans Prise de notes, affiche ce README tel qu'il était au moment de la compilation
+(lecture seule). Le modifier ici, puis le commiter, met à jour le guide de la version suivante.
 
 ## Lancer
 ```
 cargo run
 ```
-Rust ≥ 1.85 (édition 2024). Tests : `cargo test`.
+Rust ≥ 1.95 (édition 2024 ; minimum imposé par egui 0.37, voir `rust-version` dans `Cargo.toml`).
+
+Avant de pousser, les mêmes vérifications que la CI :
+```
+cargo fmt
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+La CI (`.github/workflows/ci.yml`) les relance sous Windows à chaque push sur `main` et à chaque
+pull request, et compile avec la version minimale de Rust.
 
 ## Configurer Google (une seule fois, ~10 min)
 
@@ -68,8 +81,14 @@ l'un d'eux a été supprimé. Dans ce dossier :
 - `data\notes\` : notes Markdown et leurs pièces jointes ;
 - `cache\` : émojis téléchargés (recréés automatiquement si absents) et `chat.wtc`, copie chiffrée
   des conversations Google Chat récentes (voir Messages) ;
-- `secrets\` : identifiants Google (`google.json`) et jeton de connexion — **ignoré par git**,
-  à ne jamais publier.
+- `secrets\` : identifiants Google (`google.json`) et jeton de connexion ;
+- `data\blueprints\` : un fichier par graph du Blueprint (avec ses variables) ;
+- `data\blueprint_runs.json` : journal des exécutions réelles, attentes en cours (« Attendre »)
+  et dernier passage de l'app (mails à rattraper au lancement suivant).
+
+En développement, ce dossier `data\` est celui du projet : **tout le dossier est ignoré par git**
+(`.gitignore`) car il contient des données personnelles (notes, contacts, tâches, sujets de
+mails dans le journal du Blueprint…). Ne jamais le publier.
 
 Les fichiers sont enregistrés de façon atomique (fichier temporaire puis renommage) : une coupure
 ne laisse jamais un réglage ou une note à moitié écrit. Aucun mail n'est stocké sur le disque.
@@ -458,6 +477,66 @@ est découpé à sa forme (sans ombre). `WORKTABLE_RENDERER=glow` ou `=wgpu` for
   double-clic 100 % / 200 %, 0 pour réinitialiser, Échap ou clic à côté pour fermer ; « Ouvrir »
   lance l'application par défaut (ou Drive dans le navigateur). Notes protégées : pas d'« Ouvrir ».
 
+## Blueprint (automatisations)
+Onglet en bas à gauche de la barre de navigation. Des graphs no-code à la manière des Blueprints
+d'Unreal Engine 5 : des **events** (mail reçu, message Chat reçu, rendez-vous qui commence, rappel
+qui sonne) déclenchent un flux de **nodes** reliées par des fils.
+
+- **Liste des graphs** : recherche, favoris, renommer (double-clic), dupliquer, activer,
+  exporter (clic droit › Exporter…), importer (bouton à côté de « Nouveau graph », ou glisser un
+  `.json` sur l'onglet ; un graph importé arrive désactivé).
+- **Éditeur** : clic droit dans le vide = bibliothèque de nodes ; clic droit maintenu = déplacer
+  la vue ; molette = zoom ; `Origine` = recentrer. Glisser une pin = tirer un fil (lâché dans le
+  vide : bibliothèque filtrée sur les nodes compatibles) ; `Alt` + clic = rompre. Sélection au
+  cadre ; `Suppr`, `Ctrl+D` (dupliquer), `Q` (aligner), `Ctrl+Z` / `Ctrl+Y` (annuler / rétablir),
+  `Ctrl+C` / `Ctrl+X` / `Ctrl+V` (copier / couper / coller, aussi d'un graph à l'autre).
+- **Types de pins** (couleurs d'Unreal) : exécution, booléen, nombre, texte, liste, mail, message,
+  contact, rendez-vous, rappel, et **Objet** (n'importe lequel) décomposé par « Décomposer
+  (Break data) » : classe, logo, titre, contenu, auteur, catégorie, groupe, date, identifiant.
+- **Mots-clés** des events : en pilules (Entrée ou virgule pour valider). Le mot **entier** doit
+  figurer dans le texte, sans tenir compte des majuscules ni des accents (« urgent » trouve
+  « URGENT : devis » mais pas « urgentiste »).
+- **Actions** : notification, tâche, note, rappel (créer, reporter, supprimer), rendez-vous,
+  épingler, favoris, corbeille, ranger dans un groupe, changer la catégorie Gmail, variables.
+- **Flux et logique** : condition (Branch), comparer du texte, pour chaque, séquence, une fois par
+  période (Do Once), attendre (Delay), calcul, comparer des nombres, maintenant, ET / OU / NON,
+  joindre du texte, variables (gardées d'une exécution à l'autre, même après fermeture).
+- **Simuler** : exécution à blanc sur des données d'exemple modifiables (enveloppe de la pilule),
+  animée, avec journal. Rien n'est envoyé.
+- **Actif** : le graph tourne pour de vrai à chaque arrivée (journal « Exécutions réelles »,
+  conservé). Les mails non lus reçus app fermée (moins de 24 h) sont rattrapés au lancement ; un
+  « Attendre » en cours reprend après une fermeture. « Ne pas déranger » bloque les events, sauf
+  ceux qui cochent « Outrepasser Ne pas déranger ».
+
+Code : `src/tabs/blueprint.rs` (onglet, liste, pilule de commandes, journal),
+`src/tabs/blueprint/` — `nodes.rs` (catalogue), `editor.rs` (nodes et fils), `canvas.rs` (grille,
+caméra), `library.rs` (bibliothèque), `sim.rs` (exécution), `runtime.rs` (déclenchements réels),
+`store.rs` (fichiers).
+
+## Mises à jour
+Au lancement, l'app interroge la dernière version publiée sur GitHub (`releases/latest` du dépôt
+indiqué par `repository` dans `Cargo.toml`, qui doit être **public**). Si elle est plus récente,
+une pastille apparaît sur Réglages ; Réglages › Général › **Installer** télécharge l'archive
+Windows, vérifie son empreinte SHA-256 (**obligatoire** : sans fichier `.sha256` publié, rien
+n'est installé), remplace l'exécutable et propose de redémarrer. Les données ne sont pas touchées.
+
+## Publier une version
+Les versions sont construites par [`dist`](https://github.com/axodotdev/cargo-dist)
+(`.github/workflows/release.yml`, configuration dans `dist-workspace.toml` : Windows x64 seulement).
+1. Noter les changements dans `CHANGELOG.md`.
+2. Changer `version` dans `Cargo.toml` (ex. `0.3.2`), puis `cargo build --release` (met à jour
+   `Cargo.lock`).
+3. Commiter le code **sans** le dossier `data\` :
+   ```
+   git add src Cargo.toml Cargo.lock README.md CHANGELOG.md
+   git commit -m "Version 0.3.2"
+   git push
+   git tag v0.3.2
+   git push origin v0.3.2
+   ```
+Le tag (`v` + exactement la version de `Cargo.toml`) déclenche la compilation et la publication.
+Pas de suffixe (`-beta`…) : une préversion n'est pas proposée par la vérification de mise à jour.
+
 ## Licences
 - Police Inter : SIL Open Font License 1.1 — `assets/fonts/LICENSE-Inter.txt`.
 - Polices IBM Plex Sans / Serif / Mono : SIL OFL 1.1 — `assets/fonts/LICENSE-IBMPlex.txt`.
@@ -475,3 +554,6 @@ est découpé à sa forme (sans ombre). `WORKTABLE_RENDERER=glow` ou `=wgpu` for
 - `src/notes_store.rs` — notes locales : Markdown, pièces jointes, chiffrement
 - `src/tabs/notes/` — éditeur par blocs (`editor.rs`), Markdown en ligne (`inline.rs`), liens (`links.rs`)
 - `src/tabs/` — un fichier par onglet ; `mail.rs` (état/actions) + `mail/view.rs` (affichage)
+- `src/tabs/blueprint/` — automatisations (voir Blueprint)
+- `src/update.rs` — vérification et installation des mises à jour
+- `src/paths.rs` — emplacement des données selon le mode de lancement

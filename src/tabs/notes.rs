@@ -349,6 +349,16 @@ fn note_row(ui: &mut egui::Ui, n: &Note, selected: bool, salt: &str, clicked: &m
         right - r.left() - 34.0,
     );
     p.galley(Pos2::new(r.left() + 32.0, r.center().y - title.size().y / 2.0), title, theme::TEXT());
+    if n.builtin {
+        // Guide intégré : toujours en favori, sans menu.
+        crate::tabs::mail::view::draw_star(ui.painter(), star_r.center(), 6.5, true, theme::TODAY());
+        let resp = resp
+            .on_hover_text(t!("Guide intégré à l'app (README du projet, mis à jour avec chaque version)", "Guide built into the app (project README, updated with each release)"));
+        if resp.clicked() {
+            *clicked = Some(n.id.clone());
+        }
+        return;
+    }
     if over || n.favorite {
         let s = ui.interact(star_r, id.with("star"), Sense::click()).on_hover_text(if n.favorite {
             t!("Retirer des favoris", "Remove from favourites")
@@ -391,6 +401,10 @@ fn note_row(ui: &mut egui::Ui, n: &Note, selected: bool, salt: &str, clicked: &m
 }
 
 fn note_action(st: &mut NotesState, id: &str, what: &str) {
+    // Le guide intégré ne se modifie pas.
+    if id == notes_store::GUIDE_ID {
+        return;
+    }
     match what {
         "delete" => st.confirm_delete = Some(id.to_string()),
         "protect" => st.password = Some(Password { id: id.to_string(), a: String::new(), b: String::new(), error: None }),
@@ -433,6 +447,14 @@ fn main(ui: &mut egui::Ui, st: &mut NotesState, cal: &CalendarState, mail: &Mail
     ui.horizontal(|ui| {
         ui.set_height(32.0);
         let note = &mut st.notes[idx];
+        if note.builtin {
+            ui.label(
+                RichText::new(t!("Guide intégré — README du projet, mis à jour avec chaque version de l'app", "Built-in guide — project README, updated with each app release"))
+                    .small()
+                    .color(theme::TEXT_MUTED()),
+            );
+            return;
+        }
         let msg = if locked {
             t!("Note protégée — contenu chiffré", "Protected note — encrypted content")
         } else if note.readonly {
@@ -604,7 +626,11 @@ fn page(ui: &mut egui::Ui, st: &mut NotesState, idx: usize, edit: bool, locked: 
         ui.label(RichText::new(note.display_title()).font(theme::title_font(34.0)).color(if note.title.is_empty() { theme::TEXT_FAINT() } else { theme::TEXT() }));
     }
     ui.add_space(4.0);
-    ui.label(RichText::new(tf!("Modifiée {} · créée {}", "Modified {} · created {}", long(note.updated), long(note.created))).small().color(theme::TEXT_FAINT()));
+    if note.builtin {
+        ui.label(RichText::new(tf!("Version {} de WorkTable", "WorkTable version {}", env!("CARGO_PKG_VERSION"))).small().color(theme::TEXT_FAINT()));
+    } else {
+        ui.label(RichText::new(tf!("Modifiée {} · créée {}", "Modified {} · created {}", long(note.updated), long(note.created))).small().color(theme::TEXT_FAINT()));
+    }
     ui.add_space(10.0);
 
     if locked {

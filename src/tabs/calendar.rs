@@ -890,8 +890,7 @@ mod tests {
 
     #[test]
     fn navigation_and_ranges() {
-        let mut c = CalendarState::default();
-        c.view = View::Days(7);
+        let mut c = CalendarState { view: View::Days(7), ..Default::default() };
         c.go_to(NaiveDate::from_ymd_opt(2026, 10, 22).unwrap());
         assert_eq!(c.anchor, NaiveDate::from_ymd_opt(2026, 10, 19).unwrap(), "semaine du lundi");
         c.shift(1);

@@ -188,12 +188,18 @@ fn download_and_replace(r: &Release) -> Result<(), String> {
         return Err(why.into());
     }
     let url = r.archive.as_deref().ok_or_else(|| tf!("La version {} ne contient pas d'archive Windows.", "Release {} has no Windows archive.", r.version))?;
+    // Empreinte obligatoire : sans elle, impossible de vérifier l'archive, on n'installe pas.
+    let sum_url = r.checksum.as_deref().ok_or_else(|| {
+        tf!(
+            "La version {} ne publie pas d'empreinte SHA-256 : installation annulée par sécurité.",
+            "Release {} publishes no SHA-256 checksum: installation cancelled for safety.",
+            r.version
+        )
+    })?;
     let zip = download(url)?;
-    if let Some(sum_url) = &r.checksum {
-        let expected = String::from_utf8_lossy(&download(sum_url)?).split_whitespace().next().unwrap_or_default().to_ascii_lowercase();
-        if sha256_hex(&zip) != expected {
-            return Err(t!("Archive corrompue (empreinte SHA-256 différente) : rien n'a été modifié.", "Corrupted archive (SHA-256 mismatch): nothing was changed.").into());
-        }
+    let expected = String::from_utf8_lossy(&download(sum_url)?).split_whitespace().next().unwrap_or_default().to_ascii_lowercase();
+    if expected.len() != 64 || sha256_hex(&zip) != expected {
+        return Err(t!("Archive corrompue (empreinte SHA-256 différente) : rien n'a été modifié.", "Corrupted archive (SHA-256 mismatch): nothing was changed.").into());
     }
     let exe = extract_exe(&zip)?;
     let tmp = std::env::temp_dir().join(format!("worktable-{}.exe", r.version));

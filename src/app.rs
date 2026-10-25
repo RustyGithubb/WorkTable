@@ -36,6 +36,9 @@ impl Tab {
 }
 
 pub struct WorkTableApp {
+    /// Réglages modifiés, pas encore enregistrés : enregistrés quand l'édition est finie (pas à
+    /// chaque image pendant le glisser d'un curseur).
+    prefs_dirty: Option<std::time::Instant>,
     current: Tab,
     account: Account,
     mail: MailState,
@@ -104,6 +107,7 @@ impl WorkTableApp {
         let update = crate::update::Updater::default();
         update.check(ctx);
         Self {
+            prefs_dirty: None,
             current: Tab::Dashboard,
             account: Account::new(ctx.clone()),
             mail: MailState::default(),
@@ -323,6 +327,9 @@ impl eframe::App for WorkTableApp {
 
     /// Fermeture : dernier enregistrement de la copie locale des conversations.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if self.prefs_dirty.take().is_some() {
+            self.prefs.save();
+        }
         self.chat.flush_store();
         self.people.flush();
     }
@@ -553,7 +560,17 @@ impl eframe::App for WorkTableApp {
             theme::set_fonts(ui.ctx(), &self.prefs.fonts);
         }
         if self.prefs != prefs_before {
-            self.prefs.save();
+            self.prefs_dirty = Some(std::time::Instant::now());
+        }
+        // Enregistrement une demi-seconde après la dernière modification, souris relâchée.
+        if let Some(t) = self.prefs_dirty {
+            let wait = std::time::Duration::from_millis(500);
+            if t.elapsed() >= wait && !ui.input(|i| i.pointer.any_down()) {
+                self.prefs_dirty = None;
+                self.prefs.save();
+            } else {
+                ui.ctx().request_repaint_after(wait.saturating_sub(t.elapsed()).max(std::time::Duration::from_millis(50)));
+            }
         }
     }
 }

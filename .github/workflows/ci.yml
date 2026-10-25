@@ -1,0 +1,43 @@
+# Vérifications à chaque push sur main et à chaque pull request :
+# mise en forme, lints (avertissements = erreurs), tests, et compilation avec la version
+# minimale de Rust annoncée dans Cargo.toml (`rust-version`).
+# Sous Windows, comme l'app distribuée.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Format, clippy, tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Mise en forme
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test
+
+  msrv:
+    name: Rust minimal (1.95)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95
+      - uses: Swatinem/rust-cache@v2
+      - name: Compilation
+        run: cargo check --all-targets

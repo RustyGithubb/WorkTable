@@ -179,10 +179,67 @@ pub struct Note {
     pub dirty: bool,
     pub edited_at: Option<std::time::Instant>,
     next_block: u64,
+    /// Note intégrée à l'app (le guide) : en lecture seule, jamais enregistrée ni supprimée.
+    pub builtin: bool,
 }
+
+/// Recolle les paragraphes coupés à la main dans un Markdown (une ligne du fichier = un bloc
+/// dans l'éditeur) : une ligne de texte qui suit une ligne de texte ou d'élément de liste la
+/// continue. Les titres, listes, citations, tableaux, séparateurs et blocs de code restent tels quels.
+fn unwrap_lines(md: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut code = false;
+    let mut joinable = false;
+    for line in md.lines() {
+        let t = line.trim_start();
+        if t.starts_with("```") {
+            code = !code;
+            out.push(line.to_string());
+            joinable = false;
+            continue;
+        }
+        if code {
+            out.push(line.to_string());
+            continue;
+        }
+        let starts_block = t.is_empty()
+            || t.starts_with('#')
+            || t.starts_with('>')
+            || t.starts_with('|')
+            || t.starts_with("- ")
+            || t.starts_with("* ")
+            || t.starts_with("---")
+            || t.split_once(". ").is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+        match out.last_mut() {
+            Some(prev) if joinable && !starts_block => {
+                prev.push(' ');
+                prev.push_str(t);
+            }
+            _ => out.push(line.to_string()),
+        }
+        // Texte ou élément de liste : la ligne suivante peut le continuer.
+        joinable = !t.is_empty() && !t.starts_with('#') && !t.starts_with('|') && !t.starts_with("---");
+    }
+    out.join("\n")
+}
+
+/// Identifiant du guide intégré.
+pub const GUIDE_ID: &str = "worktable-guide";
+
+/// Le guide de l'app : le `README.md` du projet, compilé dans l'exécutable. Il suit donc le
+/// dépôt : chaque version publiée affiche le README de son commit.
+const README: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"));
 
 pub fn dir() -> Option<PathBuf> {
     Some(crate::paths::data().join("notes"))
+}
+
+/// Fichier d'une image de note (`rel` : chemin écrit dans la note, relatif au dossier des notes
+/// ou absolu).
+pub fn image_path(rel: &str) -> Option<PathBuf> {
+    let rel = rel.replace("%20", " ");
+    let p = std::path::Path::new(&rel);
+    if p.is_absolute() { Some(p.to_path_buf()) } else { Some(dir()?.join(p)) }
 }
 
 fn now() -> i64 {
@@ -208,10 +265,29 @@ impl Note {
             dirty: true,
             edited_at: None,
             next_block: 0,
+            builtin: false,
         };
         let b = note.block(Kind::Text, "");
         note.blocks.push(b);
         note
+    }
+
+    /// Le guide intégré (README), en favori et en lecture seule.
+    pub fn guide() -> Self {
+        let mut n = Note::new();
+        n.id = GUIDE_ID.into();
+        n.title = t!("Guide de WorkTable (README)", "WorkTable guide (README)").into();
+        // Le titre « # WorkTable » du README fait doublon avec celui de la note.
+        let body = README.replace("\r\n", "\n");
+        let body = body.strip_prefix("# WorkTable\n").unwrap_or(&body).trim_start_matches('\n');
+        n.set_markdown(&unwrap_lines(body));
+        n.created = 0;
+        n.updated = 0;
+        n.favorite = true;
+        n.readonly = true;
+        n.builtin = true;
+        n.dirty = false;
+        n
     }
 
     pub fn block(&mut self, kind: Kind, text: &str) -> Block {
@@ -312,6 +388,10 @@ impl Note {
     }
 
     pub fn save(&mut self) -> Result<(), String> {
+        if self.builtin {
+            self.dirty = false;
+            return Ok(());
+        }
         let d = dir().ok_or(t!("dossier introuvable", "folder not found"))?;
         std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
         let md_path = d.join(format!("{}.md", self.id));
@@ -421,6 +501,7 @@ impl Note {
             }
         }
         out.sort_by_key(|n| -n.updated);
+        out.push(Note::guide());
         out
     }
 
@@ -524,19 +605,6 @@ impl Note {
         Ok(rel)
     }
 
-    /// Contenu d'une image de la note (mémoire pour une note protégée, disque sinon).
-    pub fn image_bytes(&self, rel: &str) -> Option<Vec<u8>> {
-        if let Some(b) = self.images.get(rel) {
-            return Some(b.clone());
-        }
-        let rel = rel.replace("%20", " ");
-        let p = std::path::Path::new(&rel);
-        if p.is_absolute() {
-            return std::fs::read(p).ok();
-        }
-        std::fs::read(dir()?.join(p)).ok()
-    }
-
     /// Début des données chiffrées (affichées floutées tant que la note est verrouillée).
     pub fn cipher_preview(&self, n: usize) -> String {
         self.sealed.as_ref().map(|(d, _)| d.chars().take(n).collect()).unwrap_or_default()
@@ -625,6 +693,23 @@ mod tests {
         let mut m = Note::new();
         m.set_markdown(&md);
         assert_eq!(m.to_markdown(), md);
+    }
+
+    #[test]
+    fn readme_paragraphs_are_rejoined() {
+        let md = "Un texte\ncoupé en deux.\n\n- liste\n  suite\n- autre\n```\na\nb\n```\n## Titre\nfin";
+        assert_eq!(unwrap_lines(md), "Un texte coupé en deux.\n\n- liste suite\n- autre\n```\na\nb\n```\n## Titre\nfin");
+    }
+
+    #[test]
+    fn guide_is_the_readme_read_only() {
+        let mut g = Note::guide();
+        assert!(g.builtin && g.readonly && g.favorite);
+        assert!(g.blocks.iter().any(|b| b.kind == Kind::H2 && b.text.starts_with("Blueprint")));
+        // Jamais écrit sur le disque.
+        g.dirty = true;
+        assert!(g.save().is_ok());
+        assert!(!g.dirty);
     }
 
     #[test]

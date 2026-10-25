@@ -220,30 +220,6 @@ pub fn find(text: &str) -> Vec<(usize, usize, String)> {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cache_names_map_back_to_emojis() {
-        for e in ["😀", "❤️", "👍", "🏳️‍🌈", "#️⃣"] {
-            assert_eq!(emoji_of_code(&file_code(e)).as_deref(), Some(e), "{e}");
-        }
-        assert!(emoji_of_code("zzzz").is_none());
-    }
-
-    #[test]
-    fn file_codes_and_detection() {
-        assert_eq!(file_code("😀"), "1f600");
-        assert_eq!(file_code("❤️"), "2764");
-        assert_eq!(file_code("#️⃣"), "0023_20e3");
-        let f = find("Salut 👍 et ❤️ !");
-        assert_eq!(f.len(), 2);
-        assert_eq!(f[0].2, "👍");
-        assert!(find("bonjour 2024").is_empty());
-    }
-}
-
 // --- Émojis couleur partout ------------------------------------------------------------------
 
 /// Peut-il y avoir un émoji dans ce texte ? (test rapide avant l'analyse complète)
@@ -385,4 +361,28 @@ pub fn colorize_frame(ctx: &egui::Context) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_names_map_back_to_emojis() {
+        for e in ["😀", "❤️", "👍", "🏳️‍🌈", "#️⃣"] {
+            assert_eq!(emoji_of_code(&file_code(e)).as_deref(), Some(e), "{e}");
+        }
+        assert!(emoji_of_code("zzzz").is_none());
+    }
+
+    #[test]
+    fn file_codes_and_detection() {
+        assert_eq!(file_code("😀"), "1f600");
+        assert_eq!(file_code("❤️"), "2764");
+        assert_eq!(file_code("#️⃣"), "0023_20e3");
+        let f = find("Salut 👍 et ❤️ !");
+        assert_eq!(f.len(), 2);
+        assert_eq!(f[0].2, "👍");
+        assert!(find("bonjour 2024").is_empty());
+    }
 }

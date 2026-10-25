@@ -22,6 +22,10 @@ pub struct Ed {
     pub cursor: Option<(u64, usize, usize)>,
     pub slash: Option<Slash>,
     textures: HashMap<String, Option<(egui::TextureHandle, Vec2)>>,
+    /// Images en cours de lecture et de décodage (en arrière-plan : une grosse image ne fige
+    /// pas l'interface), et celles qui viennent d'arriver.
+    loading: std::collections::HashSet<String>,
+    decoded: Decoded,
     pub error: Option<String>,
     /// Commande « / » de rattachement : type de lien, bloc et position de la mention.
     pub link_request: Option<(LinkTab, u64, usize)>,
@@ -34,6 +38,9 @@ pub struct Ed {
 }
 
 pub use super::links::Tab as LinkTab;
+
+/// Images décodées en arrière-plan : (clé, image ou `None` si illisible).
+type Decoded = std::sync::Arc<std::sync::Mutex<Vec<(String, Option<egui::ColorImage>)>>>;
 
 pub struct Slash {
     pub block: u64,
@@ -152,18 +159,44 @@ pub fn body(ui: &mut egui::Ui, note: &mut Note, ed: &mut Ed, edit: bool) -> Opti
             Kind::Image => {
                 let rel = note.blocks[i].text.clone();
                 let key = format!("{note_id}/{rel}");
-                let tex = ed
-                    .textures
-                    .entry(key.clone())
-                    .or_insert_with(|| {
-                        let bytes = note.image_bytes(&rel)?;
-                        let img = decode(&bytes)?;
+                // Images décodées depuis la dernière image affichée : en textures.
+                let arrived: Vec<_> = ed.decoded.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default();
+                for (k, img) in arrived {
+                    ed.loading.remove(&k);
+                    let tex = img.map(|img| {
                         let size = vec2(img.size[0] as f32, img.size[1] as f32);
-                        Some((ctx.load_texture(format!("note_{key}"), img, egui::TextureOptions::LINEAR), size))
-                    })
-                    .clone();
+                        (ctx.load_texture(format!("note_{k}"), img, egui::TextureOptions::LINEAR), size)
+                    });
+                    ed.textures.insert(k, tex);
+                }
+                let tex = ed.textures.get(&key).cloned();
+                if tex.is_none() && ed.loading.insert(key.clone()) {
+                    // Lecture et décodage hors de l'interface ; image d'une note protégée : déjà en
+                    // mémoire (jamais en clair sur le disque).
+                    let (mem, path) = (note.images.get(&rel).cloned(), notes_store::image_path(&rel));
+                    let (out, k, c) = (ed.decoded.clone(), key.clone(), ctx.clone());
+                    std::thread::spawn(move || {
+                        let bytes = mem.or_else(|| std::fs::read(path?).ok());
+                        let img = bytes.and_then(|b| decode(&b));
+                        if let Ok(mut v) = out.lock() {
+                            v.push((k, img));
+                        }
+                        c.request_repaint();
+                    });
+                }
                 match tex {
-                    Some((t, size)) => {
+                    None => {
+                        let (r, _) = ui.allocate_exact_size(vec2(width, 120.0), Sense::hover());
+                        ui.painter().rect_filled(r, CornerRadius::same(6), theme::SURFACE_HI());
+                        ui.painter().text(
+                            r.center(),
+                            egui::Align2::CENTER_CENTER,
+                            t!("Chargement de l'image…", "Loading the image…"),
+                            egui::FontId::proportional(12.0),
+                            theme::TEXT_MUTED(),
+                        );
+                    }
+                    Some(Some((t, size))) => {
                         let scale = (width / size.x).min(1.0);
                         let sz = size * scale;
                         let (r, resp) = ui.allocate_exact_size(vec2(width, sz.y + 8.0), Sense::click());
@@ -192,7 +225,7 @@ pub fn body(ui: &mut egui::Ui, note: &mut Note, ed: &mut Ed, edit: bool) -> Opti
                             crate::lightbox::open(&ctx, key.clone(), t.clone(), name, open);
                         }
                     }
-                    None => {
+                    Some(None) => {
                         let (r, resp) = ui.allocate_exact_size(vec2(width, 40.0), Sense::click());
                         ui.painter().rect_stroke(r, CornerRadius::same(6), Stroke::new(1.0, theme::BORDER()), egui::StrokeKind::Inside);
                         ui.painter().text(
@@ -999,31 +1032,6 @@ pub fn format(note: &mut Note, ed: &mut Ed, open: &str, close: &str) {
     note.touch();
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wrap_toggles() {
-        let mut t = "un mot ici".to_string();
-        let (a, b) = wrap(&mut t, 3, 6, "**", "**");
-        assert_eq!((t.as_str(), a, b), ("un **mot** ici", 5, 8));
-        let (a, b) = wrap(&mut t, a, b, "**", "**");
-        assert_eq!((t.as_str(), a, b), ("un mot ici", 3, 6));
-        let mut t = "é".to_string();
-        assert_eq!(link(&mut t, 0, 1), (4, 12));
-        assert_eq!(t, "[é](https://)");
-    }
-
-    #[test]
-    fn shortcuts() {
-        assert_eq!(shortcut(Kind::Text, "## ", 3), Some((Kind::H2, 3)));
-        assert_eq!(shortcut(Kind::Text, "- ", 2), Some((Kind::Bullet, 2)));
-        assert_eq!(shortcut(Kind::Bullet, "[ ] ", 4), Some((Kind::Todo(false), 4)));
-        assert_eq!(shortcut(Kind::Text, "a - ", 4), None);
-    }
-}
-
 /// Insère une mention (lien vers un mail, un événement…) à la position donnée d'un bloc.
 pub fn insert_mention(note: &mut Note, ed: &mut Ed, block: u64, pos: usize, label: &str, url: &str) {
     let label: String = label.chars().filter(|c| !matches!(c, '[' | ']' | '\n' | '\r')).take(80).collect();
@@ -1118,4 +1126,29 @@ fn emoji_picker(ui: &mut egui::Ui, ed: &mut Ed) -> Option<String> {
         ed.picker = None;
     }
     picked
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_toggles() {
+        let mut t = "un mot ici".to_string();
+        let (a, b) = wrap(&mut t, 3, 6, "**", "**");
+        assert_eq!((t.as_str(), a, b), ("un **mot** ici", 5, 8));
+        let (a, b) = wrap(&mut t, a, b, "**", "**");
+        assert_eq!((t.as_str(), a, b), ("un mot ici", 3, 6));
+        let mut t = "é".to_string();
+        assert_eq!(link(&mut t, 0, 1), (4, 12));
+        assert_eq!(t, "[é](https://)");
+    }
+
+    #[test]
+    fn shortcuts() {
+        assert_eq!(shortcut(Kind::Text, "## ", 3), Some((Kind::H2, 3)));
+        assert_eq!(shortcut(Kind::Text, "- ", 2), Some((Kind::Bullet, 2)));
+        assert_eq!(shortcut(Kind::Bullet, "[ ] ", 4), Some((Kind::Todo(false), 4)));
+        assert_eq!(shortcut(Kind::Text, "a - ", 4), None);
+    }
 }

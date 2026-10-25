@@ -2,13 +2,16 @@
 name = "worktable"
 version = "0.3.1"
 edition = "2024"
+# Version minimale de Rust : imposée par egui / eframe 0.37 (le code lui-même demande 1.88,
+# pour les chaînes `if let … && let …`). Vérifiée par la CI (.github/workflows/ci.yml).
+rust-version = "1.95"
 description = "Organisation de travail : tableau de bord, calendrier, mail, messages, notes et fichiers Google"
 repository = "https://github.com/RustyGithubb/WorkTable"
 
 [dependencies]
 aes-gcm = "0.10"
 argon2 = "0.5"
-base64 = "0.23.1"
+base64 = "0.22"
 chrono = "0.4.45"
 directories = "6.0.0"
 eframe = { version = "0.37.0", features = ["glow"] }
@@ -21,10 +24,10 @@ lettre = { version = "0.11.23", default-features = false, features = ["builder"]
 open = "5.4.4"
 rfd = "0.17.2"
 raw-window-handle = "0.6"
-scraper = "0.27.0"
+scraper = "0.29"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-sha2 = "0.11.1"
+sha2 = "0.10"
 ureq = { version = "2", features = ["json"] }
 urlencoding = "2.1.3"
 webbrowser = "1.2.4"
