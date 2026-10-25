@@ -17,6 +17,7 @@ pub fn show(ui: &mut egui::Ui, acc: &mut Account, prefs: &mut Prefs, update: &cr
             themes(ui, prefs);
             fonts(ui, prefs);
             animations(ui, prefs);
+            blueprint(ui, prefs);
             group_colors(ui, prefs);
             widgets::card(ui, t!("Compte Google", "Google account"), 0.0, |ui| {
                 ui.label(
@@ -528,6 +529,29 @@ fn preview(ui: &mut egui::Ui) {
             });
         },
     );
+}
+
+/// Réglages de l'onglet Blueprint.
+fn blueprint(ui: &mut egui::Ui, prefs: &mut Prefs) {
+    widgets::card(ui, "Blueprint", 0.0, |ui| {
+        let b = &mut prefs.blueprint;
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(200.0);
+                ui.label(t!("Opacité de la grille", "Grid opacity"));
+                ui.label(RichText::new(t!("Lignes du quadrillage en arrière-plan des graphs", "Background grid lines of the graphs")).small().color(theme::TEXT_FAINT()));
+            });
+            let mut pct = (b.grid_opacity * 100.0).round();
+            if ui.add(egui::Slider::new(&mut pct, 0.0..=100.0).suffix(" %").step_by(5.0).fixed_decimals(0)).changed() {
+                b.grid_opacity = pct / 100.0;
+            }
+        });
+        ui.add_space(6.0);
+        if ui.button(t!("Réinitialiser", "Reset")).clicked() {
+            *b = crate::prefs::BlueprintPrefs::default();
+        }
+    });
+    ui.add_space(12.0);
 }
 
 /// Couleurs des mails reçus via une adresse de groupe (liste de diffusion, alias).

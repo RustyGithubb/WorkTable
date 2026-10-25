@@ -453,6 +453,7 @@ fn commands() -> Vec<Hit> {
         c("💬", "Messages", "Google Chat", Target::Tab(Tab::Messages)),
         c("📝", t!("Prise de notes", "Notes"), t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Notes)),
         c("📁", t!("Fichiers", "Files"), t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Files)),
+        c("🧩", "Blueprint", t!("Automatisations · graphs de nodes", "Automations · node graphs"), Target::Tab(Tab::Blueprint)),
         c("⚙️", t!("Réglages", "Settings"), t!("Compte Google, animations…", "Google account, animations…"), Target::Tab(Tab::Settings)),
     ]
 }

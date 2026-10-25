@@ -14,7 +14,7 @@
     "opacity": 0.7,
     "curve": "Elastic"
   },
-  "categories_collapsed": true,
+  "categories_collapsed": false,
   "mail_list_hidden": false,
   "groups_collapsed": true,
   "hidden_calendars": [
@@ -77,7 +77,12 @@
     "🖥️",
     "🏥"
   ],
+  "emoji_tone": 0,
   "files_side_hidden": false,
+  "blueprint_side_hidden": true,
+  "blueprint": {
+    "grid_opacity": 0.6
+  },
   "fonts": {
     "titles": {
       "font": "Inter",
@@ -96,7 +101,7 @@
       "scale": 1.0
     }
   },
-  "theme": "Discord",
+  "theme": "Monochrome",
   "notif_no_mail": false,
   "notif_no_chat": false,
   "notif_no_share": false,

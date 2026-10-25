@@ -1,3 +1,4 @@
+pub mod blueprint;
 pub mod calendar;
 pub mod dashboard;
 pub mod files;

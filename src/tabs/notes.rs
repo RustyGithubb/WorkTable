@@ -145,13 +145,25 @@ impl NotesState {
         self.focus_title = true;
     }
 
+    /// Note créée par un graph du Blueprint (titre, contenu en Markdown), enregistrée tout de suite.
+    pub fn create(&mut self, title: &str, body: &str) {
+        self.ensure_loaded();
+        let mut n = Note::new();
+        n.title = title.trim().to_string();
+        n.set_markdown(body);
+        if let Err(e) = n.save() {
+            self.notice = Some((tf!("Enregistrement impossible : {e}", "Could not save: {e}"), Instant::now()));
+        }
+        self.notes.insert(0, n);
+    }
+
     /// Entrées pour la recherche globale : (id, titre, extrait, modifiée, protégée).
     pub fn entries(&self) -> Vec<(String, String, String, i64, bool)> {
         self.notes.iter().map(|n| (n.id.clone(), n.display_title(), inline::strip(&n.plain_text()), n.updated, n.protected)).collect()
     }
 }
 
-fn ago(ms: i64) -> String {
+pub(crate) fn ago(ms: i64) -> String {
     let Some(t) = Local.timestamp_millis_opt(ms).single() else { return String::new() };
     let now = Local::now();
     if t.date_naive() == now.date_naive() {

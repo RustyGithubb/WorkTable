@@ -13,11 +13,12 @@ pub enum Tab {
     Messages,
     Notes,
     Files,
+    Blueprint,
     Settings,
 }
 
 impl Tab {
-    /// Onglets de la barre principale (Réglages a son propre bouton).
+    /// Onglets de la barre principale (Blueprint et Réglages ont leur pilule en bas à gauche).
     pub const ALL: [Tab; 6] = [Tab::Dashboard, Tab::Calendar, Tab::Mail, Tab::Messages, Tab::Notes, Tab::Files];
 
     pub fn label(self) -> &'static str {
@@ -28,6 +29,7 @@ impl Tab {
             Tab::Messages => "Messages",
             Tab::Notes => t!("Prise de notes", "Notes"),
             Tab::Files => t!("Fichiers", "Files"),
+            Tab::Blueprint => "Blueprint",
             Tab::Settings => t!("Réglages", "Settings"),
         }
     }
@@ -43,6 +45,7 @@ pub struct WorkTableApp {
     search: crate::search::Palette,
     drive: tabs::files::DriveState,
     notes: tabs::notes::NotesState,
+    blueprint: tabs::blueprint::BlueprintState,
     links: crate::links::Links,
     notify: crate::notify::Notifier,
     /// Fiches contact (annuaire caché, chiffré) et leur overlay.
@@ -110,6 +113,7 @@ impl WorkTableApp {
             search: Default::default(),
             drive: Default::default(),
             notes: Default::default(),
+            blueprint: Default::default(),
             links: crate::links::Links::load(),
             notify: Default::default(),
             people: Default::default(),
@@ -149,6 +153,140 @@ impl WorkTableApp {
 }
 
 impl WorkTableApp {
+    /// Applique pour de vrai une action d'un graph actif du Blueprint.
+    fn apply_blueprint(&mut self, a: tabs::blueprint::runtime::Applied) {
+        use crate::notify::Target as N;
+        use tabs::blueprint::runtime::Origin;
+        use tabs::blueprint::sim::{Effect, Item};
+        // Mail reçu (par son identifiant) : celui qui a déclenché le graph, sinon dans la boîte.
+        let summary = |app: &Self, id: &str| -> Option<crate::google::gmail::Summary> {
+            if let Origin::Mail(m) = &a.origin
+                && m.id == id
+            {
+                return Some((**m).clone());
+            }
+            app.mail.messages.iter().find(|m| m.id == id).cloned()
+        };
+        let message = |app: &Self, name: &str| -> Option<crate::google::chat::ChatMessage> {
+            if let Origin::Chat(m) = &a.origin
+                && m.name == name
+            {
+                return Some((**m).clone());
+            }
+            app.chat.msgs.values().flatten().find(|m| m.name == name).cloned()
+        };
+        match a.effect.clone() {
+            Effect::Notify { icon, title, body, dnd } => {
+                let then = match &a.origin {
+                    Origin::Mail(m) => N::Mail(m.id.clone()),
+                    Origin::Chat(m) => N::Space(m.space.clone()),
+                    Origin::Event(e) => N::Event((**e).clone()),
+                    Origin::Reminder(t) => N::Reminder(t.id),
+                };
+                self.notify.on_blueprint(&self.prefs, &title, &body, tabs::blueprint::icon_tab(&icon), Some(then), dnd);
+            }
+            Effect::Task { title, doing } => {
+                if let Some(id) = self.tasks.add_task(&title)
+                    && doing
+                {
+                    self.tasks.set_status(id, crate::tasks::Status::Doing);
+                }
+            }
+            Effect::Event { title, in_minutes, duration } => {
+                // Début à la minute près.
+                let start = (chrono::Local::now().timestamp_millis() + in_minutes * 60_000) / 60_000 * 60_000;
+                let ev = crate::google::calendar::CalEvent { calendar: "primary".into(), title, start, end: start + duration * 60_000, ..Default::default() };
+                self.account.run(move |s| {
+                    Ok(match crate::google::calendar::create(s, &ev, false) {
+                        Ok(event) => Event::CalSaved { event, previous: None },
+                        Err(e) => Event::CalError(e),
+                    })
+                });
+            }
+            Effect::Pin(Item::Mail(id)) => {
+                if !self.mail.pinned.contains(&id)
+                    && let Some(m) = summary(self, &id)
+                {
+                    self.mail.toggle_pin(&m);
+                }
+            }
+            Effect::Pin(Item::Message(name)) => {
+                if !self.chat.pins.contains(&name)
+                    && let Some(m) = message(self, &name)
+                {
+                    let sender = self.chat.name_of(&m.sender);
+                    let title = self.chat.space(&m.space).map(|s| self.chat.title(s)).unwrap_or_default();
+                    self.chat.pins.toggle(&m, sender, title);
+                }
+            }
+            Effect::Star(Item::Mail(id)) => {
+                if let Some(m) = summary(self, &id)
+                    && !m.starred()
+                {
+                    self.mail.toggle_star(&self.account, &m);
+                }
+            }
+            // Message : sa conversation passe en favoris.
+            Effect::Star(Item::Message(name)) => {
+                let space = name.split("/messages/").next().unwrap_or_default().to_string();
+                if !space.is_empty() && !self.prefs.chat_favorites.contains(&space) {
+                    self.prefs.chat_favorites.push(space);
+                }
+            }
+            Effect::Trash(id) => self.mail.trash(&self.account, &id, true),
+            Effect::Group { mail, group } => match self.mail.labels.iter().find(|l| l.user && l.name.eq_ignore_ascii_case(&group)).cloned() {
+                Some(label) => self.mail.move_to(&self.account, &mail, &label),
+                // Groupe inconnu : créé dans Gmail, puis le mail y est rangé.
+                None => self.account.run(move |s| {
+                    let label = crate::google::gmail::create_label(s, &group)?;
+                    let labels = crate::google::gmail::modify(s, &mail, &[label.id], &["INBOX".to_string()])?;
+                    Ok(Event::Modified { id: mail, labels })
+                }),
+            },
+            // Catégorie Gmail : on ajoute la nouvelle, on retire les autres.
+            Effect::Category { mail, label } => {
+                let remove: Vec<String> = tabs::blueprint::CATEGORIES.iter().map(|c| c.0.to_string()).filter(|c| *c != label).collect();
+                self.account.run(move |s| {
+                    let labels = crate::google::gmail::modify(s, &mail, &[label], &remove)?;
+                    Ok(Event::Modified { id: mail, labels })
+                });
+            }
+            Effect::Note { title, body } => self.notes.create(&title, &body),
+            // Rappel : une tâche « À faire » avec son rappel minuté (comme le panneau Rappels).
+            Effect::Reminder { title, in_minutes, at } => {
+                let now = chrono::Local::now();
+                let due = match (in_minutes, at) {
+                    (Some(m), _) => Some(now.timestamp_millis() + m * 60_000),
+                    (None, Some(at)) => tabs::blueprint::next_time(&at, now),
+                    _ => None,
+                };
+                if let Some(due) = due
+                    && let Some(task) = self.tasks.add_task(&title)
+                {
+                    self.tasks.add_timer(task, due);
+                }
+            }
+            Effect::Snooze { reminder, minutes } => self.tasks.snooze(reminder, minutes),
+            Effect::Unremind(id) => self.tasks.remove_timer(id),
+        }
+    }
+
+    /// Clic sur une notification : y aller.
+    fn open_notification(&mut self, ctx: &egui::Context, t: crate::notify::Target) {
+        use crate::notify::Target as N;
+        use crate::search::Target;
+        match t {
+            N::Mail(id) => self.go_to(Target::Mail(id)),
+            N::Space(s) => self.go_to(Target::Space(s)),
+            N::Drive(f) => self.go_to(Target::Drive(f)),
+            N::Event(e) => self.go_to(Target::Event(e)),
+            N::Reminder(id) => self.show_timer(ctx, id),
+            // Notification d'un graph : ce qui l'a déclenchée, sinon l'onglet Blueprint.
+            N::Blueprint { then: Some(t), .. } => self.open_notification(ctx, *t),
+            N::Blueprint { then: None, .. } => self.current = Tab::Blueprint,
+        }
+    }
+
     /// Rappel minuté : panneau Rappels du tableau de bord, carte mise en évidence.
     fn show_timer(&mut self, ctx: &egui::Context, id: u64) {
         self.current = Tab::Dashboard;
@@ -211,22 +349,28 @@ impl eframe::App for WorkTableApp {
                 Event::Chat(e) => {
                     if let crate::google::chat::ChatEvent::Messages { space, list, .. } = &e {
                         self.notify.on_chat_messages(space, list, &self.chat, &self.prefs);
+                        self.blueprint.on_chat_messages(space, list, &self.chat, self.prefs.do_not_disturb);
                     }
                     let spaces = matches!(e, crate::google::chat::ChatEvent::Spaces(_));
                     self.chat.handle(e, &self.account);
                     if spaces {
                         self.notify.on_chat_spaces(&self.chat, &self.account, &self.prefs);
+                        self.blueprint.on_chat_spaces(&self.chat, &self.account);
                     }
                 }
-                // Mails : chargement complet (référence) ou relève (nouveaux mails à notifier).
+                // Mails : chargement complet (référence) ou relève (nouveaux mails à notifier, et
+                // à donner aux graphs actifs du Blueprint).
                 Event::Messages { label, list } => {
                     self.notify.on_mails(&list, &self.prefs, true);
+                    self.blueprint.on_mails(&list, true, &self.account);
                     self.mail.handle(Event::Messages { label, list }, &self.account);
                 }
                 Event::Delta { changed, deleted } => {
                     self.notify.on_mails(&changed, &self.prefs, false);
+                    self.blueprint.on_mails(&changed, false, &self.account);
                     self.mail.handle(Event::Delta { changed, deleted }, &self.account);
                 }
+                Event::BlueprintMail(full) => self.blueprint.on_full_mail(&full, &self.mail.labels, self.prefs.do_not_disturb),
                 Event::MailSearch { query, list } => {
                     if let Some(list) = self.notes.on_mail(&query, list) {
                         self.search.on_remote(query, list);
@@ -258,10 +402,17 @@ impl eframe::App for WorkTableApp {
         self.notes.background(ui.ctx());
         self.people.background(ui.ctx(), &self.account, &self.mail, &self.chat, &self.calendar, &self.drive);
         self.notify.background(ui.ctx(), &self.account, &self.calendar, &self.prefs);
+        // Graphs actifs du Blueprint : rendez-vous qui commencent, puis effets de toutes les
+        // exécutions de cette image (notification, tâche, corbeille…).
+        for fx in self.blueprint.background(&self.calendar, &self.prefs) {
+            self.apply_blueprint(fx);
+        }
         // Rappels minutés : notification à l'échéance, pastilles dans le calendrier.
         let now = chrono::Local::now().timestamp_millis();
         for t in self.tasks.fire_due(now) {
-            self.notify.on_timer(&self.prefs, &t, t.due < now - 60_000);
+            let late = t.due < now - 60_000;
+            self.notify.on_timer(&self.prefs, &t, late);
+            self.blueprint.on_timer(&t, late, self.prefs.do_not_disturb);
         }
         self.tasks.save_if_needed();
         if let Some(next) = self.tasks.timers.iter().filter(|t| !t.fired).map(|t| t.due).min() {
@@ -303,6 +454,7 @@ impl eframe::App for WorkTableApp {
                         self.drive_action(a);
                     }
                 }
+                Tab::Blueprint => tabs::blueprint::show(ui, &mut self.blueprint, &mut self.prefs),
                 Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.prefs, &self.update),
             },
         );
@@ -356,20 +508,12 @@ impl eframe::App for WorkTableApp {
 
         // Notifications (mail, message, document partagé, rendez-vous proche) : clic = y aller.
         if let Some(t) = self.notify.show(ui.ctx(), window_rect) {
-            use crate::notify::Target as N;
-            use crate::search::Target;
-            match t {
-                N::Mail(id) => self.go_to(Target::Mail(id)),
-                N::Space(s) => self.go_to(Target::Space(s)),
-                N::Drive(f) => self.go_to(Target::Drive(f)),
-                N::Event(e) => self.go_to(Target::Event(e)),
-                N::Reminder(id) => self.show_timer(ui.ctx(), id),
-            }
+            self.open_notification(ui.ctx(), t);
         }
 
-        // 3. Bouton Réglages, ancré en bas à gauche, toujours visible.
-        if sidebar::settings_button(ui.ctx(), window_rect, self.current == Tab::Settings, self.update.badge()) {
-            self.current = Tab::Settings;
+        // 3. Pilule Blueprint + Réglages, ancrée en bas à gauche, toujours visible.
+        if let Some(tab) = sidebar::bottom_buttons(ui.ctx(), window_rect, self.current, self.update.badge()) {
+            self.current = tab;
         }
 
         // Barre de titre intégrée : déplacement, réduire / agrandir / fermer, redimensionnement.

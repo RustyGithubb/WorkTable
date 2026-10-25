@@ -61,8 +61,8 @@ pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usi
     let n = Tab::ALL.len() as f32;
     let inner_h = BUTTON + 17.0 + n * BUTTON + (n - 1.0) * 8.0;
     let pill_h = inner_h + 16.0;
-    // Centrée, mais sans jamais chevaucher le bouton Réglages en bas.
-    let max_y = window.bottom() - 2.0 * SCREEN_MARGIN - (BUTTON + 16.0) - pill_h;
+    // Centrée, mais sans jamais chevaucher la pilule Blueprint + Réglages en bas.
+    let max_y = window.bottom() - 2.0 * SCREEN_MARGIN - BOTTOM_H - pill_h;
     let y = (window.center().y - pill_h / 2.0).min(max_y).max(window.top() + SCREEN_MARGIN);
     let pos = Pos2::new(window.left() + SCREEN_MARGIN, y);
 
@@ -514,28 +514,36 @@ fn magnify(ui: &egui::Ui, key: &str, rect: Rect) -> f32 {
     1.0 + ui.ctx().animate_value_with_time(egui::Id::unique(("wt_icon_zoom", key)), target, HOVER_ANIM)
 }
 
-/// Bouton rond « Réglages », ancré en bas à gauche, au premier plan sur tous les onglets.
-/// `dot` : pastille (mise à jour disponible). Renvoie `true` s'il a été cliqué.
-pub fn settings_button(ctx: &egui::Context, window: Rect, active: bool, dot: bool) -> bool {
-    let size = BUTTON + 16.0; // même diamètre que la pilule
-    let pos = Pos2::new(window.left() + SCREEN_MARGIN, window.bottom() - SCREEN_MARGIN - size);
-    let mut clicked = false;
+/// Onglets de la pilule du bas, de haut en bas.
+const BOTTOM: [Tab; 2] = [Tab::Blueprint, Tab::Settings];
+/// Hauteur de la pilule du bas (boutons + espacement + marges).
+const BOTTOM_H: f32 = BOTTOM.len() as f32 * BUTTON + (BOTTOM.len() as f32 - 1.0) * 8.0 + 16.0;
+
+/// Pilule Blueprint + Réglages, ancrée en bas à gauche, au premier plan sur tous les onglets.
+/// La sélection liquide passe de l'un à l'autre. `dot` : pastille sur Réglages (mise à jour
+/// disponible). Renvoie l'onglet cliqué.
+pub fn bottom_buttons(ctx: &egui::Context, window: Rect, current: Tab, dot: bool) -> Option<Tab> {
+    let pos = Pos2::new(window.left() + SCREEN_MARGIN, window.bottom() - SCREEN_MARGIN - BOTTOM_H);
+    let mut clicked = None;
     egui::Area::new(egui::Id::unique("worktable_settings")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         pill_frame().show(ui, |ui| {
-            let (rect, resp) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click());
-            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(Tab::Settings.label());
+            ui.set_width(BUTTON);
+            ui.spacing_mut().item_spacing.y = 8.0;
             let mut hl = Liquid::begin(ui, "sidebar_settings");
-            if active {
-                hl.target(rect, "settings");
+            let mut dot_rect = None;
+            for tab in BOTTOM {
+                let r = nav_button(ui, tab, tab == current, &mut hl, true);
+                if r.clicked() {
+                    clicked = Some(tab);
+                }
+                if tab == Tab::Settings && dot {
+                    dot_rect = Some(r.rect);
+                }
             }
-            let phase = click_phase(ui, "settings", resp.clicked());
-            let zoom = magnify(ui, "settings", rect);
-            paint_button(ui, rect, &resp, hl.coverage(rect), zoom, phase, draw_gear);
             hl.end(ui, theme::TEXT(), BUTTON / 2.0);
-            if dot {
-                update_dot(ui.painter(), rect);
+            if let Some(r) = dot_rect {
+                update_dot(ui.painter(), r);
             }
-            clicked = resp.clicked();
         });
     });
     clicked
@@ -596,6 +604,30 @@ fn draw_gear(p: &Painter, r: Rect, c: Color32, phase: f32) {
     }
 }
 
+/// Blueprint : deux nodes (en-tête plein, comme dans Unreal) reliées par un fil ; au clic, une
+/// impulsion d'exécution parcourt le fil.
+fn draw_blueprint(p: &Painter, r: Rect, c: Color32, phase: f32, w: f32) {
+    let s = Stroke::new(1.6 * w.sqrt(), c);
+    let (nw, nh) = (r.width() * 0.42, r.height() * 0.36);
+    let a = Rect::from_min_size(r.min + vec2(0.0, 0.5 * w), vec2(nw, nh));
+    let b = Rect::from_min_size(Pos2::new(r.right() - nw, r.bottom() - nh - 0.5 * w), vec2(nw, nh));
+    let k = (2.5 * w) as u8;
+    for n in [a, b] {
+        p.rect_stroke(n, CornerRadius::same(k), s, egui::StrokeKind::Inside);
+        p.rect_filled(Rect::from_min_size(n.min, vec2(n.width(), n.height() * 0.4)), CornerRadius { nw: k, ne: k, sw: 0, se: 0 }, c);
+    }
+    let p0 = Pos2::new(a.right(), a.bottom() - nh * 0.28);
+    let p3 = Pos2::new(b.left(), b.bottom() - nh * 0.28);
+    let dx = (p3.x - p0.x).abs().max(4.0 * w);
+    let wire = egui::epaint::CubicBezierShape::from_points_stroke([p0, p0 + vec2(dx, 0.0), p3 - vec2(dx, 0.0), p3], false, Color32::TRANSPARENT, s);
+    if phase < 1.0 {
+        p.circle_filled(wire.sample(ease(phase)), 1.9 * w, c);
+    }
+    p.add(wire);
+    p.circle_filled(p0, 1.2 * w, c);
+    p.circle_filled(p3, 1.2 * w, c);
+}
+
 /// Icônes vectorielles minimalistes (pas de dépendance à une police d'icônes).
 /// Icônes vectorielles ; `phase` (0 → 1) anime l'icône juste après un clic :
 /// tableau de bord = les tuiles s'écartent, calendrier = saut + page qui se tourne,
@@ -607,6 +639,7 @@ pub(crate) fn draw_icon(p: &Painter, r: Rect, tab: Tab, c: Color32, phase: f32) 
     let k = CornerRadius::same(2);
     match tab {
         Tab::Settings => draw_gear(p, r, c, phase),
+        Tab::Blueprint => draw_blueprint(p, r, c, phase, w),
         Tab::Dashboard => {
             let g = 3.0 * w;
             let side = (r.width() - g) / 2.0;

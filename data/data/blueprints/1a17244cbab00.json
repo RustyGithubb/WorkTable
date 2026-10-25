@@ -1,0 +1,109 @@
+{
+  "id": "1a17244cbab00",
+  "name": "Mise en groupe",
+  "favorite": true,
+  "active": true,
+  "created": 1792918473643,
+  "updated": 1792922677574,
+  "view": {
+    "pan": [
+      212.41055,
+      262.1832
+    ],
+    "zoom": 0.6976765
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "kind": "ev_mail",
+      "pos": [
+        -16.0,
+        -240.0
+      ],
+      "values": {
+        "dnd": true,
+        "keywords": "@linkedin, @pinterest",
+        "value": "@linkedin"
+      }
+    },
+    {
+      "id": 2,
+      "kind": "act_category",
+      "pos": [
+        352.0,
+        -114.0
+      ],
+      "values": {
+        "category": "CATEGORY_SOCIAL"
+      }
+    },
+    {
+      "id": 4,
+      "kind": "act_category",
+      "pos": [
+        352.0,
+        208.0
+      ],
+      "values": {
+        "category": "CATEGORY_PROMOTIONS"
+      }
+    },
+    {
+      "id": 3,
+      "kind": "ev_mail",
+      "pos": [
+        -16.0,
+        128.0
+      ],
+      "values": {
+        "dnd": true,
+        "keywords": "@apple",
+        "value": "@linkedin"
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": 1,
+      "out": "then",
+      "to": 2,
+      "input": "exec"
+    },
+    {
+      "from": 1,
+      "out": "mail",
+      "to": 2,
+      "input": "mail"
+    },
+    {
+      "from": 3,
+      "out": "then",
+      "to": 4,
+      "input": "exec"
+    },
+    {
+      "from": 3,
+      "out": "mail",
+      "to": 4,
+      "input": "mail"
+    }
+  ],
+  "sample": {
+    "mail_from_name": "Camille Martin",
+    "mail_from_email": "camille.martin@exemple.fr",
+    "mail_via": "",
+    "mail_subject": "Urgent : réunion de projet demain",
+    "mail_body": "Bonjour, peux-tu confirmer ta présence à la réunion de demain ? Merci !",
+    "mail_to": "moi@exemple.fr, equipe@exemple.fr",
+    "chat_author": "Léo Bernard",
+    "chat_author_email": "leo.bernard@exemple.fr",
+    "chat_space": "Projet WorkTable",
+    "chat_text": "Tu as vu le dernier build ?",
+    "event_title": "Point hebdo",
+    "event_start": "lundi 10:00",
+    "event_location": "Salle 2",
+    "reminder_title": "Appeler le fournisseur",
+    "reminder_due": "15:30"
+  },
+  "memory": {}
+}

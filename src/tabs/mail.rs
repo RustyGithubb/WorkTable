@@ -308,7 +308,7 @@ impl MailState {
             // Événements de l'onglet Calendrier : traités ailleurs.
             Event::Calendars(_) | Event::CalEvents { .. } | Event::CalSaved { .. } | Event::CalDeleted { .. } | Event::CalError(_) | Event::Chat(_) | Event::Connected(_) => {}
             Event::SharedFiles(list) => self.shared_files = list,
-            Event::MailSearch { .. } | Event::PersonMails { .. } | Event::Drive(_) => {}
+            Event::MailSearch { .. } | Event::PersonMails { .. } | Event::Drive(_) | Event::BlueprintMail(_) => {}
         }
     }
 

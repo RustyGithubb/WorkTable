@@ -20,7 +20,8 @@ pub struct CalendarInfo {
     pub selected: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct CalEvent {
     pub id: String,
     pub calendar: String,

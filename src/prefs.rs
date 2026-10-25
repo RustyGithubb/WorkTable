@@ -66,6 +66,20 @@ impl Default for Animation {
     }
 }
 
+/// Réglages de l'onglet Blueprint.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BlueprintPrefs {
+    /// Opacité de la grille du graph (0 = invisible, 1 = normale).
+    pub grid_opacity: f32,
+}
+
+impl Default for BlueprintPrefs {
+    fn default() -> Self {
+        BlueprintPrefs { grid_opacity: 1.0 }
+    }
+}
+
 /// Couleur associée à une adresse intermédiaire (liste de diffusion, adresse de groupe).
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct GroupColor {
@@ -107,6 +121,10 @@ pub struct Prefs {
     pub emoji_tone: u8,
     /// Navigation de l'onglet Fichiers masquée.
     pub files_side_hidden: bool,
+    /// Liste des graphs de l'onglet Blueprint masquée.
+    pub blueprint_side_hidden: bool,
+    /// Réglages de l'onglet Blueprint (Réglages › Blueprint).
+    pub blueprint: BlueprintPrefs,
     /// Polices et tailles par groupe (titres, interface, texte, code).
     pub fonts: crate::theme::FontPrefs,
     /// Thème de couleurs (Réglages › Apparence).

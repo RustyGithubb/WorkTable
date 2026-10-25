@@ -237,6 +237,8 @@ pub enum Event {
     /// L'historique Gmail est trop ancien : il faut tout recharger.
     Resync,
     Opened(FullMessage),
+    /// Mail complet demandé par le Blueprint (exécution des graphs actifs).
+    BlueprintMail(Box<FullMessage>),
     /// Conversation complète ; `open_id` = message à afficher en premier plan.
     Thread {
         open_id: String,

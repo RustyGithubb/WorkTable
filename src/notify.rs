@@ -42,6 +42,13 @@ pub enum Target {
     Event(CalEvent),
     /// Rappel minuté (identifiant) : ouvre le panneau Rappels du tableau de bord.
     Reminder(u64),
+    /// Notification envoyée par un graph du Blueprint : son logo (icône d'onglet) et ce qu'un
+    /// clic ouvre (le mail ou le message qui l'a déclenchée ; sinon l'onglet Blueprint).
+    Blueprint {
+        /// `None` : logo du réveil (rappel).
+        icon: Option<crate::app::Tab>,
+        then: Option<Box<Target>>,
+    },
 }
 
 /// Bandeau animé.
@@ -108,13 +115,18 @@ impl Notifier {
     }
 
     fn push_full(&mut self, prefs: &Prefs, head: String, text: String, body: Option<String>, target: Target) {
+        self.push_with(prefs, head, text, body, target, false);
+    }
+
+    /// `override_dnd` : affichée même en « Ne pas déranger » (graph du Blueprint qui le demande).
+    fn push_with(&mut self, prefs: &Prefs, head: String, text: String, body: Option<String>, target: Target, override_dnd: bool) {
         // Ne pas déranger : la notification n'est pas affichée (ni plus tard) — sauf les rappels
         // minutés, programmés exprès.
-        if prefs.do_not_disturb && !matches!(target, Target::Reminder(_)) {
+        if prefs.do_not_disturb && !override_dnd && !matches!(target, Target::Reminder(_)) {
             return;
         }
         let sound = (!prefs.notif_no_sound).then_some(match target {
-            Target::Mail(_) | Target::Event(_) | Target::Reminder(_) => crate::sound::Sound::Mail,
+            Target::Mail(_) | Target::Event(_) | Target::Reminder(_) | Target::Blueprint { .. } => crate::sound::Sound::Mail,
             Target::Space(_) | Target::Drive(_) => crate::sound::Sound::Message,
         });
         self.achievements.push_back(Achievement { head, text, target, body, start: None, frames: 0, sound });
@@ -122,6 +134,14 @@ impl Notifier {
             // On garde celui en cours et les plus récents.
             self.achievements.remove(1);
         }
+    }
+
+    /// Notification demandée par un graph du Blueprint (node « Envoyer une notification »).
+    pub fn on_blueprint(&mut self, prefs: &Prefs, title: &str, body: &str, icon: Option<crate::app::Tab>, then: Option<Target>, override_dnd: bool) {
+        let head = if title.trim().is_empty() { "Blueprint".to_string() } else { short(title, 80) };
+        let text = if body.trim().is_empty() { head.clone() } else { short(body, 160) };
+        let head = if title.trim().is_empty() || body.trim().is_empty() { "Blueprint".to_string() } else { head };
+        self.push_with(prefs, head, text, None, Target::Blueprint { icon, then: then.map(Box::new) }, override_dnd);
     }
 
     /// Rappel minuté arrivé à échéance (`late` : l'app était fermée à l'heure prévue).
@@ -723,6 +743,7 @@ fn paint_achievement(ui: &mut egui::Ui, origin: Pos2, full: f32, extra: f32, a: 
             Target::Space(_) => Some(crate::app::Tab::Messages),
             Target::Drive(_) => Some(crate::app::Tab::Files),
             Target::Event(_) => Some(crate::app::Tab::Calendar),
+            Target::Blueprint { icon, .. } => icon,
             // Rappel minuté : logo dédié (réveil qui sonne).
             Target::Reminder(_) => None,
         };

@@ -1,0 +1,35 @@
+{
+  "id": "1a16fe95df101",
+  "name": "Graph test",
+  "favorite": false,
+  "active": false,
+  "created": 1792878927345,
+  "updated": 1792918470545,
+  "view": {
+    "pan": [
+      605.2265,
+      36.101624
+    ],
+    "zoom": 0.90210545
+  },
+  "nodes": [],
+  "links": [],
+  "sample": {
+    "mail_from_name": "Dorian",
+    "mail_from_email": "Dnoirel@artfx.fr",
+    "mail_via": "",
+    "mail_subject": "Urgent : réunion de projet demain",
+    "mail_body": "Bonjour, peux-tu confirmer ta présence à la réunion de demain ? Merci !",
+    "mail_to": "moi@exemple.fr, equipe@exemple.fr",
+    "chat_author": "Léo Bernard",
+    "chat_author_email": "leo.bernard@exemple.fr",
+    "chat_space": "Projet WorkTable",
+    "chat_text": "Tu as vu le dernier build ?",
+    "event_title": "Point hebdo",
+    "event_start": "lundi 10:00",
+    "event_location": "Salle 2",
+    "reminder_title": "Appeler le fournisseur",
+    "reminder_due": "15:30"
+  },
+  "memory": {}
+}
