@@ -35,6 +35,16 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs) {
         if d.month() != month {
             p.rect_filled(cell, CornerRadius::ZERO, Color32::from_black_alpha(45));
         }
+        let holiday = crate::tabs::timeline::holiday_on(&prefs.timeline, *d);
+        if holiday.is_some() {
+            p.rect_filled(cell, CornerRadius::ZERO, Color32::from_black_alpha(40));
+        }
+        if let Some(name) = holiday.as_deref() {
+            let label = if name.is_empty() { t!("Vacances", "Holidays") } else { name };
+            let tp = p.with_clip_rect(cell.shrink(2.0));
+            tp.text(cell.left_top() + vec2(32.0, 14.0), Align2::LEFT_CENTER, label, FontId::proportional(10.0), theme::TEXT_FAINT());
+        }
+        resp.context_menu(|ui| crate::tabs::timeline::day_menu(ui, &prefs.timeline, *d));
         p.rect_stroke(cell, CornerRadius::ZERO, Stroke::new(1.0, crate::theme::overlay(12)), egui::StrokeKind::Inside);
 
         // Numéro du jour (aujourd'hui en pastille blanche) : clic = vue Jour.

@@ -9,14 +9,14 @@ use crate::theme;
 
 pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &mut Prefs) {
     let w = ui.available_width();
-    if ui.add_sized([w, 32.0], egui::Button::new(t!("+  Nouvel événement", "+  New event"))).on_hover_text("C").clicked() {
+    if crate::widgets::new_button(ui, t!("Nouvel événement", "New event"), Some(w)).on_hover_text(t!("Raccourci : C", "Shortcut: C")).clicked() {
         let now = Local::now();
         let d = cal.days().into_iter().find(|d| *d == now.date_naive()).unwrap_or(cal.anchor);
         let m = snap((now.hour() * 60 + now.minute()) as i32 + 15, 30).min(23 * 60);
         cal.new_event(prefs, at(d, m), at(d, m + 60), false);
     }
     ui.add_space(14.0);
-    mini_month(ui, cal);
+    mini_month(ui, cal, prefs);
     ui.add_space(16.0);
 
     egui::ScrollArea::vertical().id_salt("cal_list").auto_shrink([false, false]).show(ui, |ui| {
@@ -101,7 +101,7 @@ fn calendar_row(ui: &mut egui::Ui, name: &str, color: Color32, visible: bool, pr
 }
 
 /// Mini-calendrier du mois : clic sur un jour = s'y rendre ; la plage affichée est surlignée.
-fn mini_month(ui: &mut egui::Ui, cal: &mut CalendarState) {
+fn mini_month(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &mut Prefs) {
     let m = cal.mini_month;
     ui.horizontal(|ui| {
         ui.label(RichText::new(month_title(m)).strong());
@@ -138,6 +138,12 @@ fn mini_month(ui: &mut egui::Ui, cal: &mut CalendarState) {
         if shown.contains(&d) {
             p.rect_filled(r.shrink2(vec2(0.0, 2.0)), CornerRadius::same(5), crate::theme::overlay(12));
         }
+        let holiday = crate::tabs::timeline::holiday_on(&prefs.timeline, d).is_some();
+        if holiday {
+            // Vacances : petit trait sous le numéro.
+            p.hline(r.center().x - 4.0..=r.center().x + 4.0, r.bottom() - 3.0, egui::Stroke::new(2.0, theme::TEXT_MUTED()));
+        }
+        resp.context_menu(|ui| crate::tabs::timeline::day_menu(ui, &prefs.timeline, d));
         let in_month = d.month() == m.month();
         let color = if d == today {
             p.circle_filled(r.center(), row_h * 0.42, theme::TODAY());

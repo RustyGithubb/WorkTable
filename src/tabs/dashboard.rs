@@ -19,11 +19,12 @@ use crate::{liquid, theme, widgets};
 pub enum DashAction {
     Mail(String),
     Event(CalEvent),
+    /// Jour ou événement du quadrillage : ouverts dans le calendrier sans changer sa vue.
+    Day(chrono::NaiveDate),
+    GridEvent(CalEvent),
     /// Conversation Google Chat (espace) d'un message épinglé.
     Chat(String),
 }
-
-const GAP: f32 = 12.0;
 
 #[allow(clippy::too_many_arguments)]
 pub fn show(
@@ -32,99 +33,65 @@ pub fn show(
     mail: &mut MailState,
     pins: &mut Pins,
     acc: &Account,
-    prefs: &Prefs,
+    prefs: &mut Prefs,
     tasks: &mut Tasks,
     links: &mut crate::links::Links,
 ) -> Option<DashAction> {
     let mut out = None;
     tasks.roll_over(Local::now().timestamp_millis());
-    mail.refresh_shared_files(acc);
+    let file_count = crate::tabs::mail::shared_files_count(prefs);
+    mail.refresh_shared_files(acc, file_count);
     ui.ctx().request_repaint_after(std::time::Duration::from_secs(30));
 
     let greeting = greeting();
     let today = super::today_long();
     widgets::page_header_with(ui, t!("Tableau de bord", "Dashboard"), greeting, |ui| widgets::header_badge(ui, &today, false));
+    // Panneaux dans une grille : déplaçables (barre de titre) et redimensionnables (coin en bas
+    // à droite), voir `dash_layout`.
+    let pinned_badge = if pins.list.is_empty() { String::new() } else { pins.list.len().to_string() };
+    let unread = inbox_unread(mail).len();
+    let mail_badge = if unread == 0 {
+        String::new()
+    } else if crate::i18n::en() {
+        format!("{unread} unread")
+    } else {
+        format!("{unread} non lu{}", if unread > 1 { "s" } else { "" })
+    };
+    let doing = tf!("{} en cours", "{} in progress", tasks.column(Status::Doing).len());
+    let grid_badge = super::timeline::badge(&prefs.timeline);
+    // Titre réglable : raccourci pour tenir dans le panneau.
+    let grid_title = {
+        let t = super::timeline::title(&prefs.timeline);
+        if t.chars().count() > 22 { format!("{}…", t.chars().take(21).collect::<String>()) } else { t }
+    };
+    let mut slots = std::mem::take(&mut prefs.dashboard_rows);
+    let view: &Prefs = prefs;
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        let w = ui.available_width() - 12.0;
-        let wide = w > 1050.0;
-        // Ligne 1 : liens importants (en premier) | planning | mails | messages épinglés.
-        let h1 = 360.0;
-        let total = ui.available_width() - 12.0;
-        if !wide {
-            // Écran étroit : la galerie seule sur sa ligne.
-            row(ui, &[1.0], h1, |_, ui| links_panel(ui, links));
-            ui.add_space(GAP);
-        }
-        // Galerie à peu près carrée (3 × 3), le reste partagé entre planning et mails.
-        let lw = (h1 - 20.0) / total;
-        let rest = 1.0 - lw;
-        let ratios: Vec<f32> = if wide { vec![lw, rest / 3.0, rest / 3.0, rest / 3.0] } else { vec![0.5, 0.5] };
-        let shift = if wide { 0 } else { 1 };
-        let pinned_badge = if pins.list.is_empty() { String::new() } else { pins.list.len().to_string() };
-        row(ui, &ratios, h1, |i, ui| match i + shift {
-            0 => links_panel(ui, links),
-            1 => panel(ui, t!("Planning du jour", "Today's schedule"), "", |ui| planning(ui, cal, prefs, &mut out)),
-            3 => panel(ui, t!("Messages épinglés", "Pinned messages"), &pinned_badge, |ui| pinned_messages(ui, pins, &mut out)),
-            _ => {
-                let unread = inbox_unread(mail).len();
-                let badge = if unread == 0 {
-                    String::new()
-                } else if crate::i18n::en() {
-                    format!("{unread} unread")
-                } else {
-                    format!("{unread} non lu{}", if unread > 1 { "s" } else { "" })
+        super::dash_layout::show(ui, &mut slots, |id, ui| match id {
+            "links" => links_panel(ui, links),
+            "planning" => panel(ui, t!("Planning du jour", "Today's schedule"), "", |ui| planning(ui, cal, view, &mut out)),
+            "timeline" => panel(ui, &grid_title, &grid_badge, |ui| {
+                out = match super::timeline::show(ui, cal, view) {
+                    Some(super::timeline::Pick::Day(d)) => Some(DashAction::Day(d)),
+                    Some(super::timeline::Pick::Event(e)) => Some(DashAction::GridEvent(*e)),
+                    None => out.take(),
                 };
-                panel(ui, "Mails", &badge, |ui| mails(ui, mail, &mut out))
+            }),
+            "mails" => panel(ui, "Mails", &mail_badge, |ui| mails(ui, mail, &mut out)),
+            "pinned" => panel(ui, t!("Messages épinglés", "Pinned messages"), &pinned_badge, |ui| pinned_messages(ui, pins, &mut out)),
+            "reminders" => panel(ui, t!("Rappels", "Reminders"), "", |ui| reminders(ui, tasks)),
+            "tasks" => tasks_panel(ui, tasks, &doing),
+            "files" => {
+                let two = ui.available_width() > 700.0;
+                panel(ui, t!("Fichiers reçus", "Received files"), "", |ui| files(ui, mail, acc, two, file_count, &mut out))
             }
+            _ => {}
         });
-        if !wide {
-            // Écran étroit : les messages épinglés sur leur propre ligne, sous les mails.
-            ui.add_space(GAP);
-            let badge = if pins.list.is_empty() { String::new() } else { pins.list.len().to_string() };
-            row(ui, &[1.0], 260.0, |_, ui| panel(ui, t!("Messages épinglés", "Pinned messages"), &badge, |ui| pinned_messages(ui, pins, &mut out)));
-        }
-        ui.add_space(GAP);
-        // Ligne 2 : rappels | tâches (Kanban).
-        let h2 = 400.0;
-        let doing = tf!("{} en cours", "{} in progress", tasks.column(Status::Doing).len());
-        if wide {
-            row(ui, &[0.28, 0.72], h2, |i, ui| match i {
-                0 => panel(ui, t!("Rappels", "Reminders"), "", |ui| reminders(ui, tasks)),
-                _ => tasks_panel(ui, tasks, &doing),
-            });
-        } else {
-            row(ui, &[1.0], 220.0, |_, ui| panel(ui, t!("Rappels", "Reminders"), "", |ui| reminders(ui, tasks)));
-            ui.add_space(GAP);
-            row(ui, &[1.0], h2, |_, ui| tasks_panel(ui, tasks, &doing));
-        }
-        ui.add_space(GAP);
-        // Ligne 3 : fichiers reçus, sur deux colonnes.
-        let rows = crate::tabs::mail::SHARED_FILES.div_ceil(if wide { 2 } else { 1 });
-        let h3 = rows as f32 * FILE_ROW + 84.0;
-        row(ui, &[1.0], h3, |_, ui| panel(ui, t!("Fichiers reçus", "Received files"), "", |ui| files(ui, mail, acc, wide, &mut out)));
         ui.add_space(24.0);
     });
+    prefs.dashboard_rows = slots;
     tasks.save_if_needed();
     out
-}
-
-/// Ligne de panneaux de largeurs relatives et de hauteur fixe.
-fn row(ui: &mut egui::Ui, ratios: &[f32], h: f32, mut body: impl FnMut(usize, &mut egui::Ui)) {
-    let total = ui.available_width() - 12.0 - GAP * (ratios.len() as f32 - 1.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = GAP;
-        for (i, r) in ratios.iter().enumerate() {
-            ui.allocate_ui_with_layout(vec2(total * r, h), Layout::top_down(Align::Min), |ui| {
-                ui.set_min_size(vec2(total * r, h));
-                ui.set_max_size(vec2(total * r, h));
-                // Vague « Ne pas déranger » (le panneau vibre quand l'onde l'atteint) et tremblement
-                // pendant que le logo de la barre tourne.
-                let rect = egui::Rect::from_min_size(ui.max_rect().min, vec2(total * r, h));
-                let off = widgets::wave_offset(ui.ctx(), rect) + widgets::shake_offset(ui.ctx(), rect.left() * 0.011 + rect.top() * 0.007);
-                widgets::shifted(ui, off, |ui| body(i, ui));
-            });
-        }
-    });
 }
 
 fn panel(ui: &mut egui::Ui, title: &str, badge: &str, body: impl FnOnce(&mut egui::Ui)) {
@@ -1192,7 +1159,7 @@ fn archives_list(ui: &mut egui::Ui, tasks: &mut Tasks) {
 /// Hauteur d'une ligne de la liste des fichiers reçus.
 const FILE_ROW: f32 = 46.0;
 
-fn files(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, two_cols: bool, out: &mut Option<DashAction>) {
+fn files(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, two_cols: bool, count: usize, out: &mut Option<DashAction>) {
     let list: Vec<(Summary, SharedFile)> = mail.shared_files.clone();
     if list.is_empty() {
         ui.add_space(30.0);
@@ -1207,8 +1174,13 @@ fn files(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, two_cols: bool,
         );
         return;
     }
+    // Plus de fichiers que de place : la liste défile dans le panneau.
+    egui::ScrollArea::vertical().id_salt("wt_dash_files").auto_shrink([false, false]).show(ui, |ui| files_grid(ui, mail, acc, &list, two_cols, count, out));
+}
+
+fn files_grid(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, list: &[(Summary, SharedFile)], two_cols: bool, count: usize, out: &mut Option<DashAction>) {
     let cols = if two_cols { 2 } else { 1 };
-    let n = list.len().min(crate::tabs::mail::SHARED_FILES);
+    let n = list.len().min(count);
     let gap = 16.0;
     let col_w = (ui.available_width() - gap * (cols - 1) as f32) / cols as f32;
     let (area, _) = ui.allocate_exact_size(vec2(ui.available_width(), n.div_ceil(cols) as f32 * FILE_ROW), Sense::hover());

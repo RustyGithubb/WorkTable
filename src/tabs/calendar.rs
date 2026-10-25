@@ -401,6 +401,31 @@ impl CalendarState {
         self.scroll_to_now = true;
     }
 
+    /// Vue enregistrée dans les réglages (1 à 7 = nombre de jours, 8 = mois, 0 = semaine).
+    fn load_view(&mut self, prefs: &Prefs) {
+        self.view = match prefs.calendar_days {
+            n @ 1..=7 => View::Days(n),
+            8 => View::Month,
+            _ => View::Days(7),
+        };
+        self.view_loaded_from_prefs = true;
+    }
+
+    /// Va à un jour depuis un autre onglet en gardant la vue en cours (semaine, mois…).
+    pub fn reveal_date(&mut self, prefs: &Prefs, d: NaiveDate) {
+        if !self.view_loaded_from_prefs {
+            self.load_view(prefs);
+        }
+        self.go_to(d);
+        self.scroll_to_now = true;
+    }
+
+    /// Ouvre un événement depuis un autre onglet en gardant la vue en cours.
+    pub fn reveal_event(&mut self, prefs: &Prefs, e: &CalEvent) {
+        self.reveal_date(prefs, date_of(e.start));
+        self.open_event(e);
+    }
+
     /// Ouvre un événement depuis un autre onglet : vue Jour sur sa date, panneau de détail.
     pub fn show_event(&mut self, e: &CalEvent) {
         self.view_loaded_from_prefs = true;
@@ -544,16 +569,11 @@ impl Editor {
 // --- Affichage ----------------------------------------------------------------------
 
 pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &mut Account, prefs: &mut Prefs, book: &Contacts) {
+    // Jours marqués / retirés des vacances au clic droit (image précédente).
+    crate::tabs::timeline::apply_requests(ui.ctx(), &mut prefs.timeline);
     if !cal.view_loaded_from_prefs {
-        // 1 à 7 = nombre de jours, 8 = mois, 0 (jamais réglé) = semaine.
-        cal.view = match prefs.calendar_days {
-            n @ 1..=7 => View::Days(n),
-            8 => View::Month,
-            _ => View::Days(7),
-        };
-        let today = Local::now().date_naive();
-        cal.go_to(today);
-        cal.view_loaded_from_prefs = true;
+        cal.load_view(prefs);
+        cal.go_to(Local::now().date_naive());
     }
 
     calendar_header(ui, cal);
@@ -625,9 +645,11 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &mut Account, prefs
         1 => center(ui, cal, prefs, acc_ref, side_hidden, &mut toggle_side),
         _ => widgets::animated_column(ui, panel_w, PANEL_W, kp, |ui| {
             if cal.editor.is_some() {
-                panel::show(ui, cal, acc_ref, book);
+                panel::show(ui, cal, acc_ref, book, prefs);
             } else if let Some(e) = cal.panel_last.clone() {
-                panel::view(ui, cal, &e, book);
+                // Panneau qui se referme (animation) : affichage seul.
+                let hl = crate::tabs::timeline::is_highlighted(&prefs.timeline, &e);
+                panel::view(ui, cal, &e, book, hl);
             }
         }),
     });

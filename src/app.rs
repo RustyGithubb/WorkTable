@@ -338,6 +338,8 @@ impl eframe::App for WorkTableApp {
         let window_rect = ui.max_rect();
         crate::liquid::set_settings(ui.ctx(), self.prefs.animation);
         let prefs_before = self.prefs.clone();
+        // Événements mis en évidence dans le quadrillage : copies tenues à jour (enregistrées).
+        tabs::timeline::sync(&self.calendar, &mut self.prefs.timeline);
         // Visionneuse d'images (avant les onglets : elle prend Échap pour elle).
         crate::lightbox::show(ui.ctx());
 
@@ -437,13 +439,21 @@ impl eframe::App for WorkTableApp {
             ui,
             |ui| match self.current {
                 Tab::Dashboard => {
-                    match tabs::dashboard::show(ui, &self.calendar, &mut self.mail, &mut self.chat.pins, &self.account, &self.prefs, &mut self.tasks, &mut self.links) {
+                    match tabs::dashboard::show(ui, &self.calendar, &mut self.mail, &mut self.chat.pins, &self.account, &mut self.prefs, &mut self.tasks, &mut self.links) {
                         Some(tabs::dashboard::DashAction::Mail(id)) => {
                             self.mail.open_from_elsewhere(&self.account, &id);
                             self.current = Tab::Mail;
                         }
                         Some(tabs::dashboard::DashAction::Event(e)) => {
                             self.calendar.show_event(&e);
+                            self.current = Tab::Calendar;
+                        }
+                        Some(tabs::dashboard::DashAction::Day(d)) => {
+                            self.calendar.reveal_date(&self.prefs, d);
+                            self.current = Tab::Calendar;
+                        }
+                        Some(tabs::dashboard::DashAction::GridEvent(e)) => {
+                            self.calendar.reveal_event(&self.prefs, &e);
                             self.current = Tab::Calendar;
                         }
                         Some(tabs::dashboard::DashAction::Chat(space)) => self.go_to(crate::search::Target::Space(space)),

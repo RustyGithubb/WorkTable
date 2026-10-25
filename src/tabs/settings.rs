@@ -18,6 +18,8 @@ pub fn show(ui: &mut egui::Ui, acc: &mut Account, prefs: &mut Prefs, update: &cr
             fonts(ui, prefs);
             animations(ui, prefs);
             blueprint(ui, prefs);
+            dashboard_card(ui, prefs);
+            crate::tabs::timeline::settings(ui, prefs);
             group_colors(ui, prefs);
             widgets::card(ui, t!("Compte Google", "Google account"), 0.0, |ui| {
                 ui.label(
@@ -529,6 +531,37 @@ fn preview(ui: &mut egui::Ui) {
             });
         },
     );
+}
+
+/// Disposition du tableau de bord.
+fn dashboard_card(ui: &mut egui::Ui, prefs: &mut Prefs) {
+    widgets::card(ui, t!("Tableau de bord", "Dashboard"), 0.0, |ui| {
+        ui.label(
+            RichText::new(t!(
+                "Glisse un panneau par sa barre de titre pour le déplacer ; tire son coin en bas à droite pour l'agrandir ou le rétrécir.",
+                "Drag a panel by its title bar to move it; pull its bottom-right corner to make it bigger or smaller."
+            ))
+            .small()
+            .color(theme::TEXT_FAINT()),
+        );
+        ui.add_space(6.0);
+        if ui.button(t!("Disposition par défaut", "Default layout")).clicked() {
+            prefs.dashboard_rows.clear();
+        }
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(200.0);
+                ui.label(t!("Fichiers reçus", "Received files"));
+                ui.label(RichText::new(t!("Nombre de fichiers affichés dans le panneau", "Number of files shown in the panel")).small().color(theme::TEXT_FAINT()));
+            });
+            let mut n = crate::tabs::mail::shared_files_count(prefs) as u32;
+            if ui.add(egui::Slider::new(&mut n, 1..=crate::tabs::mail::SHARED_FILES_MAX as u32)).changed() {
+                prefs.shared_files = n as u8;
+            }
+        });
+    });
+    ui.add_space(12.0);
 }
 
 /// Réglages de l'onglet Blueprint.

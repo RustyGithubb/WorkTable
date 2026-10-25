@@ -265,7 +265,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut NotesState, cal: &CalendarState, mail: &
 // --- Colonne de gauche -------------------------------------------------------------------
 
 fn list(ui: &mut egui::Ui, st: &mut NotesState) {
-    let new = ui.add_sized([ui.available_width(), 34.0], egui::Button::new(RichText::new(t!("＋  Nouvelle note", "＋  New note")).strong()).corner_radius(CornerRadius::same(10)));
+    let new = widgets::new_button(ui, t!("Nouvelle note", "New note"), None);
     if new.clicked() {
         st.new_note();
     }
@@ -432,7 +432,7 @@ fn main(ui: &mut egui::Ui, st: &mut NotesState, cal: &CalendarState, mail: &Mail
         ui.vertical_centered(|ui| {
             ui.label(RichText::new(t!("Aucune note ouverte", "No note open")).size(18.0).color(theme::TEXT_MUTED()));
             ui.add_space(8.0);
-            if ui.button(t!("＋  Nouvelle note", "＋  New note")).clicked() {
+            if widgets::new_button(ui, t!("Nouvelle note", "New note"), Some(180.0)).clicked() {
                 st.new_note();
             }
         });

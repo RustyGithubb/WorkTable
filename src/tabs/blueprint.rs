@@ -419,7 +419,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut BlueprintState, prefs: &mut crate::prefs
 fn list(ui: &mut egui::Ui, st: &mut BlueprintState) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        let new = new_graph_button(ui, Some(vec2(ui.available_width() - 40.0, 34.0)));
+        let new = new_graph_button(ui, Some(ui.available_width() - 40.0));
         if new.clicked() {
             st.create();
         }
@@ -500,23 +500,9 @@ enum Act {
     Delete,
 }
 
-/// Bouton « + Nouveau graph » : le « + » est dessiné (le caractère « ＋ » manque dans certaines
-/// polices et s'affiche alors en carré vide).
-fn new_graph_button(ui: &mut egui::Ui, size: Option<egui::Vec2>) -> egui::Response {
-    let text = format!("        {}", t!("Nouveau graph", "New graph"));
-    let button = egui::Button::new(RichText::new(&text).strong()).corner_radius(CornerRadius::same(10));
-    let resp = match size {
-        Some(s) => ui.add_sized(s, button),
-        None => ui.add(button),
-    };
-    let color = ui.style().interact(&resp).text_color();
-    let font = egui::TextStyle::Button.resolve(ui.style());
-    let w = ui.painter().layout_no_wrap(text, font, color).size().x;
-    let c = Pos2::new(resp.rect.center().x - w / 2.0 + 6.0, resp.rect.center().y);
-    let stroke = Stroke::new(1.8, color);
-    ui.painter().hline(c.x - 5.0..=c.x + 5.0, c.y, stroke);
-    ui.painter().vline(c.x, c.y - 5.0..=c.y + 5.0, stroke);
-    resp
+/// Bouton « + Nouveau graph » (commun aux onglets, voir `widgets::new_button`).
+fn new_graph_button(ui: &mut egui::Ui, width: Option<f32>) -> egui::Response {
+    widgets::new_button(ui, t!("Nouveau graph", "New graph"), width)
 }
 
 fn section(ui: &mut egui::Ui, title: &str, n: usize) {
@@ -753,7 +739,7 @@ fn workspace(ui: &mut egui::Ui, st: &mut BlueprintState, rect: Rect, window: Rec
                 if side_hidden && ui.button(t!("»  Afficher la liste", "»  Show the list")).clicked() {
                     *toggle_side = true;
                 }
-                if new_graph_button(ui, None).clicked() {
+                if new_graph_button(ui, Some(180.0)).clicked() {
                     st.create();
                 }
             });

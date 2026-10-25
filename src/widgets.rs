@@ -491,6 +491,25 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, salt: &str, options: &[
     changed
 }
 
+/// Bouton « + Nouveau … » des colonnes de gauche (même aspect dans tous les onglets) : pleine
+/// largeur, 34 px de haut, coins arrondis, texte en gras. Le « + » est dessiné (le caractère
+/// « ＋ » manque dans certaines polices et s'afficherait en carré vide). `width` : `None` pour
+/// toute la largeur disponible.
+pub fn new_button(ui: &mut egui::Ui, label: &str, width: Option<f32>) -> egui::Response {
+    let text = format!("        {label}");
+    let button = egui::Button::new(egui::RichText::new(&text).strong()).corner_radius(egui::CornerRadius::same(10));
+    let w = width.unwrap_or_else(|| ui.available_width());
+    let resp = ui.add_sized(egui::vec2(w, 34.0), button);
+    let color = ui.style().interact(&resp).text_color();
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let tw = ui.painter().layout_no_wrap(text, font, color).size().x;
+    let c = egui::pos2(resp.rect.center().x - tw / 2.0 + 6.0, resp.rect.center().y);
+    let stroke = egui::Stroke::new(1.8, color);
+    ui.painter().hline(c.x - 5.0..=c.x + 5.0, c.y, stroke);
+    ui.painter().vline(c.x, c.y - 5.0..=c.y + 5.0, stroke);
+    resp
+}
+
 #[cfg(test)]
 mod tests {
     use super::liquid_edges;

@@ -1,11 +1,13 @@
 pub mod blueprint;
 pub mod calendar;
+mod dash_layout;
 pub mod dashboard;
 pub mod files;
 pub mod mail;
 pub mod messages;
 pub mod notes;
 pub mod settings;
+pub mod timeline;
 
 use chrono::{Datelike, Weekday};
 

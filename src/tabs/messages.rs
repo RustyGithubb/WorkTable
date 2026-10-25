@@ -10,6 +10,8 @@
 
 pub mod emoji;
 pub mod format;
+mod manage;
+mod new_group;
 pub mod pins;
 pub mod store;
 mod view;
@@ -112,6 +114,10 @@ pub struct ChatState {
     pub editing: Option<(String, String)>,
     pub query: String,
     pub new_dm: Option<String>,
+    /// Panneau de création de groupe (ouvert tant que `new_group` est `Some`).
+    pub group_panel: new_group::Panel,
+    /// Panneau de gestion d'un groupe (renommer, membres, supprimer).
+    pub manage: Option<manage::Panel>,
     pub suggest: crate::tabs::mail::recipients::Suggest,
     pub need_consent: bool,
     pub api_disabled: bool,
@@ -542,6 +548,50 @@ impl ChatState {
                 }
                 Err(e) => self.sections_error = Some(e),
             },
+            ChatEvent::Memberships { space, list } => {
+                if let Ok(list) = &list {
+                    self.members.insert(space.clone(), list.iter().map(|m| m.user.clone()).collect());
+                    self.titles.remove(&space);
+                }
+                if let Some(p) = self.manage.as_mut().filter(|p| p.space == space) {
+                    p.members = Some(list);
+                    p.busy = false;
+                }
+            }
+            ChatEvent::MembersChanged { space, error } => {
+                if let Some(p) = self.manage.as_mut().filter(|p| p.space == space) {
+                    p.error = error.map(|e| manage_error(&e));
+                    p.busy = true;
+                }
+                self.fetch_memberships(acc, &space);
+            }
+            ChatEvent::SpaceRenamed(sp) => {
+                if let Some(s) = self.spaces.iter_mut().find(|s| s.name == sp.name) {
+                    s.display_name = sp.display_name.clone();
+                }
+                self.titles.remove(&sp.name);
+                self.manage = None;
+                self.info(t!("Groupe renommé", "Group renamed"));
+            }
+            ChatEvent::SpaceDeleted(name) => {
+                self.spaces.retain(|s| s.name != name);
+                self.msgs.remove(&name);
+                self.members.remove(&name);
+                if self.open.as_deref() == Some(name.as_str()) {
+                    self.open = None;
+                    self.thread = None;
+                }
+                self.manage = None;
+                self.info(t!("Groupe supprimé", "Group deleted"));
+            }
+            ChatEvent::ManageFailed(e) => {
+                if let Some(p) = self.manage.as_mut() {
+                    p.busy = false;
+                    p.error = Some(manage_error(&e));
+                } else {
+                    self.error(manage_error(&e));
+                }
+            }
             ChatEvent::MoveFailed(e) => {
                 let low = e.to_lowercase();
                 let msg = if low.contains("scope") || low.contains("insufficient") {
@@ -646,6 +696,46 @@ impl ChatState {
         self.info(t!("Création du groupe…", "Creating the group…"));
         let name = if g.space { g.name } else { String::new() };
         run(acc, move |s| chat::create_space(s, &name, &emails).map(ChatEvent::Dm));
+    }
+
+    // --- Gestion d'un groupe (renommer, membres, supprimer) --------------------------
+
+    pub fn open_manage(&mut self, ctx: &eframe::egui::Context, acc: &Account, space: &str, mode: manage::Mode) {
+        let title = self.space(space).map(|s| self.title(s)).unwrap_or_default();
+        self.manage = Some(manage::Panel::new(ctx, space, &title, mode));
+        if mode == manage::Mode::Members {
+            self.fetch_memberships(acc, space);
+        }
+    }
+
+    fn fetch_memberships(&self, acc: &Account, space: &str) {
+        let space = space.to_string();
+        run(acc, move |s| Ok(ChatEvent::Memberships { list: chat::memberships(s, &space), space }));
+    }
+
+    pub fn manage_request(&mut self, acc: &Account, req: manage::Request) {
+        let Some(p) = self.manage.as_mut() else { return };
+        let space = p.space.clone();
+        p.error = None;
+        match req {
+            manage::Request::Close => self.manage = None,
+            manage::Request::Rename(name) => {
+                p.busy = true;
+                run(acc, move |s| Ok(chat::rename_space(s, &space, &name).map(ChatEvent::SpaceRenamed).unwrap_or_else(ChatEvent::ManageFailed)));
+            }
+            manage::Request::Delete => {
+                p.busy = true;
+                run(acc, move |s| Ok(chat::delete_space(s, &space).map(|_| ChatEvent::SpaceDeleted(space.clone())).unwrap_or_else(ChatEvent::ManageFailed)));
+            }
+            manage::Request::Add(email) => {
+                p.busy = true;
+                run(acc, move |s| Ok(ChatEvent::MembersChanged { error: chat::add_member(s, &space, &email).err(), space }));
+            }
+            manage::Request::Remove(membership) => {
+                p.busy = true;
+                run(acc, move |s| Ok(ChatEvent::MembersChanged { error: chat::remove_member(s, &membership).err(), space }));
+            }
+        }
     }
 
     pub fn retry_sections(&mut self) {
@@ -1288,6 +1378,22 @@ fn sanitize(name: &str) -> String {
 }
 
 /// Tâche Chat en arrière-plan : les erreurs restent dans l'onglet Messages.
+/// Message clair pour un refus de Google lors de la gestion d'un groupe.
+fn manage_error(e: &str) -> String {
+    let low = e.to_lowercase();
+    if low.contains("scope") || low.contains("insufficient") {
+        t!(
+            "Autorisation manquante : reconnecte ton compte Google (Réglages › Google) pour autoriser la gestion des groupes.",
+            "Missing permission: sign in to Google again (Settings › Google) to allow managing groups."
+        )
+        .to_string()
+    } else if low.contains("permission") || low.contains("403") || low.contains("forbidden") {
+        t!("Refusé par Google : seul un gestionnaire du groupe peut faire ça.", "Refused by Google: only a group manager can do this.").to_string()
+    } else {
+        tf!("Refusé par Google : {e}", "Refused by Google: {e}")
+    }
+}
+
 fn run(acc: &Account, f: impl FnOnce(&crate::google::Session) -> Result<ChatEvent, String> + Send + 'static) {
     acc.run(move |s| Ok(Event::Chat(f(s).unwrap_or_else(ChatEvent::Error))));
 }

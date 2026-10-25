@@ -220,7 +220,7 @@ fn connect_screen(ui: &mut egui::Ui, acc: &mut Account) {
 
 fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats: &mut bool, actions: &mut Vec<Action>) {
     let full_w = ui.available_width();
-    if ui.add_sized([full_w, 32.0], egui::Button::new(t!("Nouveau message", "New message"))).clicked() {
+    if widgets::new_button(ui, t!("Nouveau message", "New message"), Some(full_w)).clicked() {
         actions.push(Action::Compose);
     }
     ui.add_space(12.0);

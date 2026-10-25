@@ -12,13 +12,15 @@ use crate::tabs::mail::contacts::Contacts;
 use crate::tabs::mail::recipients;
 use crate::theme;
 
-pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Contacts) {
+pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Contacts, prefs: &mut crate::prefs::Prefs) {
     // Événement existant : affichage en lecture, modification seulement après « Modifier ».
     if let Some(ed) = &cal.editor
         && !ed.editing
     {
         let ev = ed.ev.clone();
-        match view(ui, cal, &ev, book) {
+        let highlighted = crate::tabs::timeline::is_highlighted(&prefs.timeline, &ev);
+        match view(ui, cal, &ev, book, highlighted) {
+            Some(ViewAction::Highlight) => crate::tabs::timeline::toggle(&mut prefs.timeline, &ev),
             Some(ViewAction::Edit) => {
                 if let Some(ed) = &mut cal.editor {
                     ed.editing = true;
@@ -242,10 +244,12 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
 pub enum ViewAction {
     Edit,
     Close,
+    /// Mettre en évidence dans le quadrillage du tableau de bord (ou retirer).
+    Highlight,
 }
 
 /// Affichage en lecture d'un événement (aucun champ modifiable).
-pub fn view(ui: &mut egui::Ui, cal: &CalendarState, e: &CalEvent, book: &Contacts) -> Option<ViewAction> {
+pub fn view(ui: &mut egui::Ui, cal: &CalendarState, e: &CalEvent, book: &Contacts, highlighted: bool) -> Option<ViewAction> {
     let writable = cal.calendar(&e.calendar).is_none_or(|c| c.writable);
     let mut act = None;
     ui.horizontal(|ui| {
@@ -268,6 +272,27 @@ pub fn view(ui: &mut egui::Ui, cal: &CalendarState, e: &CalEvent, book: &Contact
         });
         ui.add_space(4.0);
         ui.label(RichText::new(when(e)).color(theme::TEXT_MUTED()));
+        // Mise en évidence : le jour est coloré dans le quadrillage du tableau de bord.
+        ui.add_space(6.0);
+        let accent = crate::tabs::timeline::ACCENT;
+        let (label, tip) = if highlighted {
+            (
+                t!("Mis en évidence dans le quadrillage · retirer", "Highlighted in the day grid · remove"),
+                t!("Le jour n'est plus coloré dans le quadrillage du tableau de bord", "The day is no longer coloured in the dashboard day grid"),
+            )
+        } else {
+            (
+                t!("Mettre en évidence dans le quadrillage", "Highlight in the day grid"),
+                t!("Colore ce jour dans le quadrillage du tableau de bord", "Colours this day in the dashboard day grid"),
+            )
+        };
+        let button = egui::Button::new(RichText::new(label).small().color(if highlighted { Color32::WHITE } else { accent }))
+            .fill(if highlighted { accent.gamma_multiply(0.8) } else { accent.gamma_multiply(0.15) })
+            .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.7)))
+            .corner_radius(egui::CornerRadius::same(255));
+        if ui.add(button).on_hover_text(tip).clicked() {
+            act = Some(ViewAction::Highlight);
+        }
         ui.add_space(10.0);
         if let Some(c) = cal.calendar(&e.calendar) {
             info_row(ui, t!("Agenda", "Calendar"), |ui| {

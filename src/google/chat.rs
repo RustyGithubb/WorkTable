@@ -169,7 +169,33 @@ pub enum ChatEvent {
     Sections(Result<Vec<Section>, String>),
     /// Déplacement refusé : message, puis les sections sont relues.
     MoveFailed(String),
+    /// Membres d'un groupe (panneau « Gérer les membres ») ; `Err` : lecture impossible.
+    Memberships {
+        space: String,
+        list: Result<Vec<Member>, String>,
+    },
+    /// Membre ajouté ou retiré (`error` : refusé) : la liste est relue.
+    MembersChanged {
+        space: String,
+        error: Option<String>,
+    },
+    SpaceRenamed(Space),
+    SpaceDeleted(String),
+    /// Renommage ou suppression refusés.
+    ManageFailed(String),
     Error(String),
+}
+
+/// Adhésion d'une personne à un groupe.
+#[derive(Clone, Debug, Default)]
+pub struct Member {
+    /// « spaces/…/members/… » (pour la retirer).
+    pub membership: String,
+    /// « users/… »
+    pub user: String,
+    pub name: String,
+    /// Gestionnaire de l'espace.
+    pub manager: bool,
 }
 
 // --- Conversions ----------------------------------------------------------------
@@ -525,6 +551,49 @@ pub fn create_space(s: &Session, name: &str, emails: &[String]) -> Result<Space,
     let members: Vec<Value> = emails.iter().map(|e| json!({ "member": { "name": format!("users/{e}"), "type": "HUMAN" } })).collect();
     let space = if name.trim().is_empty() { json!({ "spaceType": "GROUP_CHAT" }) } else { json!({ "spaceType": "SPACE", "displayName": name.trim() }) };
     Ok(parse_space(&s.post(&format!("{API}/spaces:setup"), json!({ "space": space, "memberships": members }))?))
+}
+
+/// Membres d'un groupe, avec leur adhésion (pour les retirer) et leur rôle.
+pub fn memberships(s: &Session, space: &str) -> Result<Vec<Member>, String> {
+    let v = s.get(&format!("{API}/{space}/members"), &[("pageSize", "200")])?;
+    Ok(v["memberships"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|m| m["member"]["type"].as_str() != Some("BOT"))
+        .filter_map(|m| {
+            Some(Member {
+                membership: m["name"].as_str()?.to_string(),
+                user: m["member"]["name"].as_str()?.to_string(),
+                name: m["member"]["displayName"].as_str().unwrap_or_default().to_string(),
+                manager: m["role"].as_str() == Some("ROLE_MANAGER"),
+            })
+        })
+        .collect())
+}
+
+/// Ajoute une personne (adresse) au groupe.
+pub fn add_member(s: &Session, space: &str, email: &str) -> Result<(), String> {
+    s.post(&format!("{API}/{space}/members"), json!({ "member": { "name": format!("users/{email}"), "type": "HUMAN" } }))?;
+    Ok(())
+}
+
+/// Retire une personne du groupe (`membership` : « spaces/…/members/… »).
+pub fn remove_member(s: &Session, membership: &str) -> Result<(), String> {
+    s.send("DELETE", &format!("{API}/{membership}"), &[], None)?;
+    Ok(())
+}
+
+/// Renomme un espace.
+pub fn rename_space(s: &Session, space: &str, name: &str) -> Result<Space, String> {
+    let v = s.send("PATCH", &format!("{API}/{space}"), &[("updateMask", "displayName")], Some(json!({ "displayName": name.trim() })))?;
+    Ok(parse_space(&v))
+}
+
+/// Supprime un espace, ses messages et ses fichiers, pour tous ses membres.
+pub fn delete_space(s: &Session, space: &str) -> Result<(), String> {
+    s.send("DELETE", &format!("{API}/{space}"), &[], None)?;
+    Ok(())
 }
 
 /// Demande une taille donnée à l'hébergement des photos Google (« …=s100 » → « …=s96 »).

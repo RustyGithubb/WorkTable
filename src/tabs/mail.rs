@@ -42,7 +42,14 @@ pub struct Notice {
 }
 
 /// Fichiers reçus par mail montrés au tableau de bord.
+/// Fichiers du panneau « Fichiers reçus » : par défaut, et bornes du réglage.
 pub const SHARED_FILES: usize = 13;
+pub const SHARED_FILES_MAX: usize = 40;
+
+/// Nombre de fichiers réglé (Réglages › Tableau de bord), borné.
+pub fn shared_files_count(prefs: &crate::prefs::Prefs) -> usize {
+    if prefs.shared_files == 0 { SHARED_FILES } else { (prefs.shared_files as usize).clamp(1, SHARED_FILES_MAX) }
+}
 
 pub struct MailState {
     pub labels: Vec<Label>,
@@ -69,6 +76,8 @@ pub struct MailState {
     /// Derniers fichiers reçus par mail (tableau de bord) et date de la dernière relève.
     pub shared_files: Vec<(Summary, gmail::SharedFile)>,
     shared_at: Option<Instant>,
+    /// Nombre de fichiers demandés à la dernière relève (un réglage plus grand relance la relève).
+    shared_n: usize,
     pub opening: Option<String>,
     pub draft: Option<Draft>,
     pub sending: bool,
@@ -124,6 +133,7 @@ impl Default for MailState {
             inbox_unread: 0,
             shared_files: Vec::new(),
             shared_at: None,
+            shared_n: 0,
             opening: None,
             draft: None,
             sending: false,
@@ -464,12 +474,16 @@ impl MailState {
 
     /// Relève des derniers fichiers reçus (au plus toutes les 10 minutes).
     /// Nombre de fichiers reçus affichés au tableau de bord.
-    pub fn refresh_shared_files(&mut self, acc: &Account) {
-        if acc.session().is_none() || self.shared_at.is_some_and(|t| t.elapsed() < Duration::from_secs(600)) {
+    /// Relève des derniers fichiers reçus (toutes les 10 minutes, ou tout de suite si le réglage
+    /// en demande plus qu'à la dernière relève).
+    pub fn refresh_shared_files(&mut self, acc: &Account, n: usize) {
+        let more = n > self.shared_n;
+        if acc.session().is_none() || (!more && self.shared_at.is_some_and(|t| t.elapsed() < Duration::from_secs(600))) {
             return;
         }
         self.shared_at = Some(Instant::now());
-        acc.run(|s| Ok(Event::SharedFiles(gmail::recent_shared(s, SHARED_FILES).unwrap_or_default())));
+        self.shared_n = n;
+        acc.run(move |s| Ok(Event::SharedFiles(gmail::recent_shared(s, n).unwrap_or_default())));
     }
 
     /// Ouvre un mail depuis un autre onglet (tableau de bord) : boîte de réception, mail affiché.

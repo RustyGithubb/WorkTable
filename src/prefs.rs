@@ -80,6 +80,59 @@ impl Default for BlueprintPrefs {
     }
 }
 
+/// Rangée du tableau de bord : hauteur (en crans de la grille) et panneaux, de gauche à droite,
+/// chacun avec sa part de la largeur (la somme fait toujours 1, soit 100 %).
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct DashRow {
+    pub h: u8,
+    pub panels: Vec<DashPanel>,
+}
+
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct DashPanel {
+    pub id: String,
+    /// Part de la largeur de la rangée (0 à 1).
+    pub share: f32,
+}
+
+/// Quadrillage du tableau de bord : un carré par jour, du premier au dernier jour réglés
+/// (vides : l'année scolaire française en cours).
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct TimelinePrefs {
+    /// Titre du panneau (vide : « Année scolaire »).
+    pub title: String,
+    /// Premier et dernier jour, « AAAA-MM-JJ ».
+    pub start: String,
+    pub end: String,
+    /// Événements du calendrier mis en évidence (leur jour est coloré).
+    pub highlights: Vec<Highlight>,
+    /// Périodes de vacances déclarées (affichées comme les week-ends dans le quadrillage).
+    pub holidays: Vec<Holiday>,
+}
+
+/// Période de vacances : du `start` au `end` inclus (« AAAA-MM-JJ »), avec un nom facultatif.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Holiday {
+    pub start: String,
+    pub end: String,
+    pub name: String,
+}
+
+/// Événement mis en évidence dans le quadrillage (copie tenue à jour quand l'événement est chargé).
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Highlight {
+    pub calendar: String,
+    pub id: String,
+    pub title: String,
+    /// Début et fin (ms ; fin exclue).
+    pub start: i64,
+    pub end: i64,
+    pub all_day: bool,
+}
+
 /// Couleur associée à une adresse intermédiaire (liste de diffusion, adresse de groupe).
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct GroupColor {
@@ -125,6 +178,12 @@ pub struct Prefs {
     pub blueprint_side_hidden: bool,
     /// Réglages de l'onglet Blueprint (Réglages › Blueprint).
     pub blueprint: BlueprintPrefs,
+    /// Quadrillage des jours du tableau de bord (Réglages › Quadrillage).
+    pub timeline: TimelinePrefs,
+    /// Disposition du tableau de bord (rangées, ordre et parts des panneaux) ; vide : par défaut.
+    pub dashboard_rows: Vec<DashRow>,
+    /// Nombre de fichiers du panneau « Fichiers reçus » (0 : par défaut).
+    pub shared_files: u8,
     /// Polices et tailles par groupe (titres, interface, texte, code).
     pub fonts: crate::theme::FontPrefs,
     /// Thème de couleurs (Réglages › Apparence).

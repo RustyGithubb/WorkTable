@@ -53,6 +53,8 @@ enum Action {
     ReactPicker(ChatMessage, Pos2),
     MoveSpace(String, String),
     CreateGroup,
+    /// Renommer, gérer les membres ou supprimer un groupe.
+    Manage(String, super::manage::Mode),
     TogglePeople,
     Mute(String),
     PickIcon(String),
@@ -160,7 +162,7 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
     let fixed: Vec<f32> = cols.iter().take(cols.len() - 1).map(|c| c.1).collect();
     let acc_ref: &Account = acc;
     widgets::pane_columns(ui, &fixed, |i, ui| match cols[i].0 {
-        0 => widgets::animated_column(ui, groups_w, SIDE_W, kg, |ui| groups_block(ui, chat, prefs, book, &mut actions)),
+        0 => widgets::animated_column(ui, groups_w, SIDE_W, kg, |ui| groups_block(ui, chat, prefs, &mut actions)),
         1 => widgets::animated_column(ui, people_w, PEOPLE_W, kp, |ui| people_block(ui, chat, prefs, book, &mut actions)),
         2 => center(ui, chat, acc_ref, prefs, &mut actions),
         _ => thread_panel(ui, chat, &mut actions),
@@ -171,6 +173,16 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
         && let Some(a) = chat.viewer.clone()
     {
         chat.open_attachment(acc, &a);
+    }
+    // Panneau de gestion d'un groupe (renommer, membres, supprimer).
+    if let Some(req) = super::manage::show(ui.ctx(), chat, book) {
+        chat.manage_request(acc, req);
+    }
+    // Panneau « Nouveau groupe » (au centre, comme la recherche globale).
+    match super::new_group::show(ui.ctx(), chat, book) {
+        Some(super::new_group::Outcome::Create) => actions.push(Action::CreateGroup),
+        Some(super::new_group::Outcome::Close) => chat.new_group = None,
+        None => {}
     }
 
     for a in actions {
@@ -222,6 +234,7 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
             }
             Action::MoveSpace(space, sec) => chat.move_space(acc, &space, &sec),
             Action::CreateGroup => chat.create_group(acc),
+            Action::Manage(space, mode) => chat.open_manage(ui.ctx(), acc, &space, mode),
             Action::RetrySend(n) => chat.retry_send(acc, &n),
             Action::DiscardFailed(n) => chat.discard_failed(&n),
             Action::TogglePeople => prefs.chat_people_hidden = !prefs.chat_people_hidden,
@@ -323,20 +336,16 @@ fn setup_card(ui: &mut egui::Ui, title: &str, text: &str, body: impl FnOnce(&mut
 // --- Colonne des conversations ----------------------------------------------------------
 
 /// Bloc « Groupes » : espaces et discussions de groupe, rangés selon les sections Google Chat.
-fn groups_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &Contacts, actions: &mut Vec<Action>) {
+fn groups_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, actions: &mut Vec<Action>) {
+    if widgets::new_button(ui, t!("Nouveau groupe", "New group"), None).on_hover_text(t!("Espace nommé ou discussion de groupe", "Named space or group chat")).clicked() {
+        super::new_group::open(ui.ctx(), chat);
+    }
+    ui.add_space(10.0);
     ui.horizontal(|ui| {
         ui.label(widgets::section_title(t!("Groupes", "Groups")));
         ui.label(RichText::new(chat.spaces.iter().filter(|s| !is_person(s)).count().to_string()).small().color(theme::TEXT_FAINT()));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.button("+").on_hover_text(t!("Créer un groupe", "Create a group")).clicked() {
-                chat.new_group = if chat.new_group.is_some() { None } else { Some(super::NewGroup { space: true, ..Default::default() }) };
-            }
-        });
     });
     ui.add_space(8.0);
-    if chat.new_group.is_some() {
-        new_group_form(ui, chat, book, actions);
-    }
     ui.add(egui::TextEdit::singleline(&mut chat.query).hint_text(t!("Rechercher un groupe", "Search a group")).desired_width(f32::INFINITY));
     ui.add_space(10.0);
 
@@ -479,34 +488,6 @@ fn groups_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
     });
 }
 
-/// Création d'un groupe : espace nommé ou discussion de groupe, membres depuis l'annuaire.
-fn new_group_form(ui: &mut egui::Ui, chat: &mut ChatState, book: &Contacts, actions: &mut Vec<Action>) {
-    let mut cancel = false;
-    egui::Frame::new().fill(theme::BG()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(10)).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
-        let Some(g) = chat.new_group.as_mut() else { return };
-        ui.label(RichText::new(t!("NOUVEAU GROUPE", "NEW GROUP")).small().strong().color(theme::TEXT_MUTED()));
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut g.space, true, t!("Espace", "Space")).on_hover_text(t!("Groupe nommé, ouvert à d'autres membres", "Named group, open to other members"));
-            ui.selectable_value(&mut g.space, false, t!("Discussion de groupe", "Group chat"))
-                .on_hover_text(t!("Conversation sans nom (2 personnes minimum)", "Unnamed conversation (2 people minimum)"));
-        });
-        if g.space {
-            ui.add(egui::TextEdit::singleline(&mut g.name).hint_text(t!("Nom de l'espace", "Space name")).desired_width(f32::INFINITY));
-        }
-        let _ = recipients::field(ui, "", &mut g.members, "chat_new_group", t!("Membres (annuaire)", "Members (directory)"), book, &mut chat.suggest);
-        ui.horizontal(|ui| {
-            if ui.button(t!("Créer", "Create")).clicked() {
-                actions.push(Action::CreateGroup);
-            }
-            cancel = ui.button(t!("Annuler", "Cancel")).clicked();
-        });
-    });
-    if cancel {
-        chat.new_group = None;
-    }
-    ui.add_space(10.0);
-}
-
 /// Message privé avec une personne (pas une application).
 fn is_person(s: &Space) -> bool {
     s.kind == SpaceKind::Dm && !s.bot_dm
@@ -523,6 +504,13 @@ fn section_rule(ui: &mut egui::Ui) {
 /// Bloc « Personnes » : grand annuaire de toutes les conversations privées ouvertes.
 fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &Contacts, actions: &mut Vec<Action>) {
     let people: Vec<Space> = chat.spaces.iter().filter(|s| is_person(s)).cloned().collect();
+    if widgets::new_button(ui, t!("Nouvelle conversation", "New conversation"), None)
+        .on_hover_text(t!("Conversation privée avec une personne", "Direct conversation with a person"))
+        .clicked()
+    {
+        chat.new_dm = if chat.new_dm.is_some() { None } else { Some(String::new()) };
+    }
+    ui.add_space(10.0);
     ui.horizontal(|ui| {
         ui.label(widgets::section_title(t!("Personnes", "People")));
         ui.label(RichText::new(people.len().to_string()).small().color(theme::TEXT_FAINT()));
@@ -532,11 +520,6 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
             ui.add(egui::Spinner::new().size(10.0))
                 .on_hover_text(tf!("Identification de {unnamed} conversation(s) en arrière-plan…", "Identifying {unnamed} conversation(s) in the background…"));
         }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.button("+").on_hover_text(t!("Nouvelle conversation privée", "New direct conversation")).clicked() {
-                chat.new_dm = if chat.new_dm.is_some() { None } else { Some(String::new()) };
-            }
-        });
     });
     ui.add_space(8.0);
     if let Some(addr) = &mut chat.new_dm {
@@ -719,6 +702,10 @@ fn recent_row(ui: &mut egui::Ui, chat: &ChatState, s: &Space, actions: &mut Vec<
         match chat.others(&s.name).as_slice() {
             [one] => person_menu(ui, chat, one),
             _ => members_menu(ui, chat, &s.name),
+        }
+        if s.kind != SpaceKind::Dm {
+            ui.separator();
+            manage_menu(ui, s, actions);
         }
         ui.separator();
         if ui.button(t!("Ouvrir", "Open")).clicked() {
@@ -906,11 +893,13 @@ fn space_row(ui: &mut egui::Ui, chat: &ChatState, s: &Space, fav: bool, drag: bo
         }
         members_menu(ui, chat, &s.name);
         ui.separator();
-        if ui.button(t!("Choisir une image…", "Choose an image…")).clicked() {
+        manage_menu(ui, s, actions);
+        ui.separator();
+        if ui.button(t!("Choisir une image locale…", "Choose a local image…")).clicked() {
             actions.push(Action::PickIcon(s.name.clone()));
             ui.close();
         }
-        if has_icon && ui.button(t!("Retirer l'image", "Remove the image")).clicked() {
+        if has_icon && ui.button(t!("Retirer l'image locale", "Remove the local image")).clicked() {
             actions.push(Action::ClearIcon(s.name.clone()));
             ui.close();
         }
@@ -920,6 +909,23 @@ fn space_row(ui: &mut egui::Ui, chat: &ChatState, s: &Space, fav: bool, drag: bo
             ui.close();
         }
     });
+}
+
+/// Entrées de gestion d'un groupe : renommer (espace nommé), membres, supprimer (espace).
+fn manage_menu(ui: &mut egui::Ui, s: &Space, actions: &mut Vec<Action>) {
+    use super::manage::Mode;
+    if s.kind == SpaceKind::Space && ui.button(t!("Renommer…", "Rename…")).clicked() {
+        actions.push(Action::Manage(s.name.clone(), Mode::Rename));
+        ui.close();
+    }
+    if ui.button(t!("Gérer les membres…", "Manage members…")).clicked() {
+        actions.push(Action::Manage(s.name.clone(), Mode::Members));
+        ui.close();
+    }
+    if s.kind == SpaceKind::Space && ui.button(RichText::new(t!("Supprimer le groupe…", "Delete the group…")).color(theme::TODAY())).clicked() {
+        actions.push(Action::Manage(s.name.clone(), Mode::Delete));
+        ui.close();
+    }
 }
 
 fn kind_label(s: &Space) -> String {

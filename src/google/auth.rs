@@ -26,6 +26,9 @@ https://www.googleapis.com/auth/chat.messages \
 https://www.googleapis.com/auth/chat.memberships.readonly \
 https://www.googleapis.com/auth/chat.users.readstate \
 https://www.googleapis.com/auth/chat.users.sections \
+https://www.googleapis.com/auth/chat.spaces \
+https://www.googleapis.com/auth/chat.memberships \
+https://www.googleapis.com/auth/chat.delete \
 https://www.googleapis.com/auth/directory.readonly \
 https://www.googleapis.com/auth/drive.readonly";
 

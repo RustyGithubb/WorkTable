@@ -33,8 +33,14 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Acc
     for (i, d) in days.iter().enumerate() {
         let x = head.left() + GUTTER + i as f32 * col_w;
         let r = Rect::from_min_size(Pos2::new(x, head.top()), vec2(col_w, HEADER_H));
-        let resp =
-            ui.interact(r, ui.scope_id().with(("day_head", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(t!("Afficher ce jour", "Show this day"));
+        let holiday = crate::tabs::timeline::holiday_on(&prefs.timeline, *d);
+        let tip = match holiday.as_deref() {
+            Some("") => t!("Vacances · clic : afficher ce jour", "Holidays · click: show this day").to_string(),
+            Some(name) => tf!("Vacances : {name} · clic : afficher ce jour", "Holidays: {name} · click: show this day"),
+            None => t!("Afficher ce jour (clic droit : vacances)", "Show this day (right-click: holidays)").to_string(),
+        };
+        let resp = ui.interact(r, ui.scope_id().with(("day_head", i)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tip);
+        resp.context_menu(|ui| crate::tabs::timeline::day_menu(ui, &prefs.timeline, *d));
         let p = ui.painter();
         // Jour et numéro côte à côte : « MAR. 20 » (aujourd'hui en terracotta).
         let label = crate::tabs::weekday_short(d.weekday()).to_uppercase();
@@ -90,12 +96,12 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, prefs: &Prefs, acc: &Acc
         let y_of = |min: i32| rect.top() + min as f32 / 60.0 * HOUR_H;
         let col_rect = |i: usize| Rect::from_min_size(Pos2::new(grid_left + i as f32 * col_w, rect.top()), vec2(col_w, rect.height()));
 
-        // Fond : week-end et aujourd'hui légèrement éclairés.
+        // Fond : week-ends et vacances assombris, aujourd'hui légèrement éclairé.
         for (i, d) in days.iter().enumerate() {
             let wd = d.weekday().num_days_from_monday();
             if *d == today {
                 p.rect_filled(col_rect(i), CornerRadius::ZERO, crate::theme::overlay(5));
-            } else if wd >= 5 {
+            } else if wd >= 5 || crate::tabs::timeline::holiday_on(&prefs.timeline, *d).is_some() {
                 p.rect_filled(col_rect(i), CornerRadius::ZERO, Color32::from_black_alpha(40));
             }
         }

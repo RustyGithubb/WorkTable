@@ -5,7 +5,20 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.3.2
+
 ### Ajouté
+- Tableau de bord : panneau « Quadrillage » (un carré par jour, année scolaire française par
+  défaut, dates réglables) ; survol = date, place et événements mis en évidence ; clic sur un
+  jour = ce jour dans le calendrier, sans changer sa vue.
+- Calendrier : « Mettre en évidence » un événement (son jour est coloré dans le quadrillage).
+- Vacances : déclarées depuis le calendrier (clic droit sur un jour ou sa semaine) ou dans
+  Réglages › Quadrillage ; affichées comme les week-ends.
+- Tableau de bord : panneaux déplaçables (effet aimant) et redimensionnables, rangées toujours
+  remplies à 100 % ; disposition par défaut dans les Réglages.
+- Réglages : nombre de fichiers du panneau « Fichiers reçus ».
+- Messages : création de groupe façon palette (`Ctrl+Espace`) ; renommer, gérer les membres et
+  supprimer un groupe.
 - Blueprint : mots-clés des events en pilules, recherche du **mot entier** (sans tenir compte des
   majuscules ni des accents).
 - Blueprint : annuler / rétablir (`Ctrl+Z`, `Ctrl+Y`), copier / couper / coller des nodes, aussi
@@ -21,6 +34,7 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
   push et pull request.
 
 ### Modifié
+- Boutons « + Nouveau » uniformisés (mail, message, calendrier, notes, Blueprint).
 - Blueprint : les champs inutiles selon le choix sont masqués (« Minutes avant », « Dans » /
   « Heure », « Valeur ») ; noms des nodes et largeurs uniformisés.
 - Les images des notes sont lues et décodées en arrière-plan (plus de blocage à l'ouverture).
