@@ -1,6 +1,6 @@
 [package]
 name = "worktable"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Organisation de travail : tableau de bord, calendrier, mail, messages, notes et fichiers Google"
 repository = "https://github.com/RustyGithubb/WorkTable"
