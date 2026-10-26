@@ -130,9 +130,10 @@ pub fn install_blocker() -> Option<&'static str> {
 /// Relance l'application (nouvel exécutable) puis ferme celle-ci.
 pub fn restart(ctx: &egui::Context) {
     if let Ok(exe) = std::env::current_exe() {
-        let _ = std::process::Command::new(exe).spawn();
+        // La nouvelle instance attend que celle-ci soit fermée (instance unique).
+        let _ = std::process::Command::new(exe).arg(crate::background::AFTER_UPDATE).spawn();
     }
-    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    crate::background::quit(ctx);
 }
 
 // --- Réseau -----------------------------------------------------------------------

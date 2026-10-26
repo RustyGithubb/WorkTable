@@ -1221,8 +1221,10 @@ fn message(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, compact: bool, 
             ui.add(egui::Label::new(RichText::new(format!("❝ {}", q.chars().take(160).collect::<String>())).small().italics().color(theme::TEXT_MUTED())).wrap());
         }
         if let Some(mut text) = editing {
-            let r = ui.add(egui::TextEdit::multiline(&mut text).desired_rows(2).desired_width(f32::INFINITY));
-            if r.changed() {
+            let out = egui::TextEdit::multiline(&mut text).desired_rows(2).desired_width(f32::INFINITY).show(ui);
+            let fixed = crate::spell::check(ui, &out, &mut text);
+            let r = out.response.response;
+            if r.changed() || fixed {
                 actions.push(Action::StartEdit(ChatMessage { text: text.clone(), ..m.clone() }));
             }
             ui.horizontal(|ui| {
@@ -1681,7 +1683,9 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
             ui.horizontal(|ui| {
                 let send_w = 84.0;
                 let hint = if in_thread { t!("Répondre dans le fil", "Reply in thread").to_string() } else { tf!("Message à {title}", "Message to {title}") };
-                ui.add(egui::TextEdit::multiline(&mut text).id(id).hint_text(hint).desired_rows(1).frame(egui::Frame::NONE).desired_width(ui.available_width() - send_w));
+                let out =
+                    egui::TextEdit::multiline(&mut text).id(id).hint_text(hint).desired_rows(1).frame(egui::Frame::NONE).desired_width(ui.available_width() - send_w).show(ui);
+                crate::spell::check(ui, &out, &mut text);
                 let can = (!text.trim().is_empty() || (!in_thread && !chat.files.is_empty())) && !chat.sending;
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if chat.sending {

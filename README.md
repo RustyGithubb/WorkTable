@@ -95,6 +95,29 @@ ne laisse jamais un réglage ou une note à moitié écrit. Aucun mail n'est sto
 Pour passer d'une version portable / de développement à la version installée : Réglages ›
 Données › **Importer…** et choisir l'ancien dossier `data`.
 
+## Arrière-plan
+Sous Windows, fermer la fenêtre (✕ ou Alt+F4) ne quitte pas l'app : elle continue de relever les
+mails et les messages, d'afficher les notifications, les rappels et de faire tourner les graphs
+du Blueprint. Pour la rouvrir :
+- le raccourci global **Ctrl+Maj+Espace** (réglable dans Réglages › Arrière-plan ; il cache aussi
+  l'app quand elle est devant) ;
+- un clic sur une notification ;
+- relancer l'app : une seule instance tourne à la fois, la seconde rouvre la première.
+
+**Quitter WorkTable** (en haut des Réglages) l'arrête pour de bon. En développement (`cargo run`),
+fermer la fenêtre la cache aussi : passer par ce bouton pour terminer.
+
+## Orthographe
+Pendant la saisie (mails, notes, messages, tâches, événements, Claude), les mots inconnus sont
+soulignés d'une vague rouge, comme sur Discord ; le mot en cours de frappe ne l'est qu'une fois
+terminé. **Clic droit** sur un mot souligné : corrections proposées (dans la langue du texte
+d'abord), « Ajouter au dictionnaire », « Ignorer ». Liens, adresses, mentions, `code` et sigles ne
+sont pas vérifiés.
+
+Réglages › Orthographe : activer ou non, langues (français, anglais : un mot connu dans l'une
+suffit), dictionnaire personnel (`config\dictionary.txt`). Les dictionnaires Hunspell sont dans
+`assets/dict/` et intégrés à l'exécutable (crate `spellbook`).
+
 ## Installeur Windows
 ```
 powershell -ExecutionPolicy Bypass -File installer\build.ps1
@@ -542,6 +565,8 @@ Pas de suffixe (`-beta`…) : une préversion n'est pas proposée par la vérifi
 - Polices IBM Plex Sans / Serif / Mono : SIL OFL 1.1 — `assets/fonts/LICENSE-IBMPlex.txt`.
 - Police Lato : SIL OFL 1.1 — `assets/fonts/LICENSE-Lato.txt`.
 - Émojis Noto Emoji (3D et 2D), © Google LLC : SIL Open Font License 1.1 — https://github.com/googlefonts/noto-emoji
+- Dictionnaire orthographique français (Grammalecte, Olivier R.) : MPL 2.0 — `assets/dict/fr.license`.
+- Dictionnaire orthographique anglais (SCOWL / en_US Hunspell) : licence libre — `assets/dict/en.license`.
 
 ## Structure
 - `src/app.rs` — état global, mise en page plein écran, routage des événements

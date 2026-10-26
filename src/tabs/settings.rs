@@ -8,11 +8,28 @@ use crate::prefs::{Animation, Curve, Prefs};
 use crate::{theme, widgets};
 
 pub fn show(ui: &mut egui::Ui, acc: &mut Account, prefs: &mut Prefs, update: &crate::update::Updater) {
-    widgets::page_header(ui, t!("Application", "Application"), t!("Réglages", "Settings"));
+    widgets::page_header_with(ui, t!("Application", "Application"), t!("Réglages", "Settings"), |ui| {
+        ui.add_space(8.0);
+        // Icône « marche / arrêt » dessinée (le caractère ⏻ manque dans les polices de Windows).
+        let quit = egui::Button::new(RichText::new(t!("       Quitter WorkTable", "       Quit WorkTable")).strong().color(egui::Color32::WHITE))
+            .fill(theme::TODAY())
+            .corner_radius(egui::CornerRadius::same(10))
+            .min_size(egui::vec2(0.0, 32.0));
+        let resp = ui.add(quit).on_hover_text(t!(
+            "Arrête vraiment l'application (fermer la fenêtre la laisse tourner en arrière-plan)",
+            "Really stops the app (closing the window keeps it running in the background)"
+        ));
+        power_icon(ui.painter(), egui::pos2(resp.rect.left() + 20.0, resp.rect.center().y), 6.0, egui::Color32::WHITE);
+        if resp.clicked() {
+            crate::background::quit(ui.ctx());
+        }
+    });
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         let width = ui.available_width().min(760.0);
         ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
             general(ui, prefs, update);
+            background_card(ui, prefs);
+            spelling_card(ui, prefs);
             data_card(ui);
             themes(ui, prefs);
             fonts(ui, prefs);
@@ -35,6 +52,135 @@ pub fn show(ui: &mut egui::Ui, acc: &mut Account, prefs: &mut Prefs, update: &cr
             section(ui, t!("À propos", "About"), &[("Version", "WorkTable", Value::Text(env!("CARGO_PKG_VERSION")))]);
         });
     });
+}
+
+/// Orthographe : activation, langues, dictionnaire personnel.
+fn spelling_card(ui: &mut egui::Ui, prefs: &mut Prefs) {
+    widgets::card(ui, t!("Orthographe", "Spelling"), 0.0, |ui| {
+        ui.label(
+            RichText::new(t!(
+                "Les mots inconnus sont soulignés en rouge pendant la saisie (mails, notes, messages, tâches, événements). Clic droit sur un mot souligné : corrections, ajout au dictionnaire.",
+                "Unknown words are underlined in red as you type (mail, notes, messages, tasks, events). Right-click an underlined word: corrections, add to dictionary."
+            ))
+            .small()
+            .color(theme::TEXT_FAINT()),
+        );
+        ui.add_space(8.0);
+        let mut on = !prefs.spell_off;
+        ui.checkbox(&mut on, t!("Vérifier l'orthographe", "Check spelling"));
+        prefs.spell_off = !on;
+        ui.add_enabled_ui(on, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(t!("Langues :", "Languages:")).color(theme::TEXT_MUTED()));
+                let mut fr = !prefs.spell_no_fr;
+                let mut en = !prefs.spell_no_en;
+                ui.checkbox(&mut fr, "Français");
+                ui.checkbox(&mut en, "English");
+                prefs.spell_no_fr = !fr;
+                prefs.spell_no_en = !en;
+            });
+            let words = crate::spell::personal_words();
+            ui.add_space(6.0);
+            ui.label(RichText::new(tf!("Dictionnaire personnel ({})", "Personal dictionary ({})", words.len())).color(theme::TEXT_MUTED()));
+            if words.is_empty() {
+                ui.label(
+                    RichText::new(t!(
+                        "Vide : « Ajouter au dictionnaire » depuis le clic droit sur un mot souligné.",
+                        "Empty: “Add to dictionary” from the right-click on an underlined word."
+                    ))
+                    .small()
+                    .color(theme::TEXT_FAINT()),
+                );
+            }
+            ui.horizontal_wrapped(|ui| {
+                for w in words {
+                    if ui.small_button(format!("{w}  ✕")).on_hover_text(t!("Retirer du dictionnaire", "Remove from the dictionary")).clicked() {
+                        crate::spell::set_personal(&w, false);
+                    }
+                }
+            });
+        });
+    });
+    ui.add_space(12.0);
+}
+
+/// Icône « marche / arrêt » : cercle ouvert en haut, trait vertical au centre.
+fn power_icon(p: &egui::Painter, c: egui::Pos2, r: f32, color: egui::Color32) {
+    let stroke = egui::Stroke::new(1.8, color);
+    let (from, to) = (35f32.to_radians(), 325f32.to_radians());
+    let pts: Vec<egui::Pos2> = (0..=24)
+        .map(|k| {
+            // Angle 0 en haut, sens horaire.
+            let a = from + (to - from) * k as f32 / 24.0;
+            c + egui::vec2(a.sin(), -a.cos()) * r
+        })
+        .collect();
+    p.add(egui::Shape::line(pts, stroke));
+    p.line_segment([c + egui::vec2(0.0, -r - 1.5), c + egui::vec2(0.0, -1.0)], stroke);
+}
+
+/// Arrière-plan : raccourci global qui rouvre l'app.
+fn background_card(ui: &mut egui::Ui, prefs: &mut Prefs) {
+    widgets::card(ui, t!("Arrière-plan", "Background"), 0.0, |ui| {
+        ui.label(
+            RichText::new(t!(
+                "Fermer la fenêtre laisse WorkTable tourner (mails, notifications, rappels, Blueprint). Pour la rouvrir : le raccourci ci-dessous, une notification, ou relancer l'app. « Quitter WorkTable » (en haut) l'arrête pour de bon.",
+                "Closing the window keeps WorkTable running (mail, notifications, reminders, Blueprint). To bring it back: the shortcut below, a notification, or launching the app again. “Quit WorkTable” (at the top) really stops it."
+            ))
+            .small()
+            .color(theme::TEXT_FAINT()),
+        );
+        ui.add_space(8.0);
+        let id = egui::Id::unique("wt_hotkey_recording");
+        let mut recording: bool = ui.data(|d| d.get_temp(id)).unwrap_or(false);
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label(t!("Raccourci pour ouvrir WorkTable", "Shortcut to open WorkTable"));
+                let status = match crate::background::hotkey_ok() {
+                    Some(false) if !recording => {
+                        Some((t!("Déjà utilisé par une autre application : choisis-en un autre.", "Already used by another application: pick another one."), theme::TODAY()))
+                    }
+                    _ if recording => {
+                        Some((t!("Tape la combinaison (avec Ctrl ou Alt) · Échap : annuler", "Press the combination (with Ctrl or Alt) · Esc: cancel"), theme::TEXT_MUTED()))
+                    }
+                    _ => None,
+                };
+                let (text, color) = status.unwrap_or((t!("Fonctionne partout, même quand l'app est cachée", "Works everywhere, even when the app is hidden"), theme::TEXT_FAINT()));
+                ui.label(RichText::new(text).small().color(color));
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if prefs.show_hotkey != crate::prefs::Hotkey::default() && ui.button(t!("Par défaut", "Default")).clicked() {
+                    prefs.show_hotkey = crate::prefs::Hotkey::default();
+                    recording = false;
+                }
+                let label = if recording { t!("Tape le raccourci…", "Press the shortcut…").to_string() } else { crate::background::label(&prefs.show_hotkey) };
+                let b = egui::Button::new(RichText::new(label).strong()).selected(recording).min_size(egui::vec2(170.0, 30.0));
+                if ui.add(b).on_hover_text(t!("Cliquer puis taper le nouveau raccourci", "Click, then press the new shortcut")).clicked() {
+                    recording = !recording;
+                }
+            });
+        });
+        if recording {
+            let typed = ui.input(|i| {
+                i.events.iter().find_map(|e| match e {
+                    egui::Event::Key { key: egui::Key::Escape, pressed: true, .. } => Some(None),
+                    egui::Event::Key { key, pressed: true, modifiers, .. } => crate::background::from_event(*key, *modifiers).map(Some),
+                    _ => None,
+                })
+            });
+            match typed {
+                Some(Some(h)) => {
+                    prefs.show_hotkey = h;
+                    recording = false;
+                }
+                Some(None) => recording = false,
+                None => {}
+            }
+        }
+        crate::background::set_recording(recording);
+        ui.data_mut(|d| d.insert_temp(id, recording));
+    });
+    ui.add_space(12.0);
 }
 
 /// Langue de l'interface, onglet au démarrage et mises à jour.

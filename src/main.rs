@@ -6,6 +6,7 @@
 #[macro_use]
 mod i18n;
 mod app;
+mod background;
 mod emoji_img;
 mod google;
 mod lightbox;
@@ -19,6 +20,7 @@ mod prefs;
 mod search;
 mod sidebar;
 mod sound;
+mod spell;
 mod tabs;
 mod tasks;
 mod theme;
@@ -82,6 +84,10 @@ fn main() -> eframe::Result<()> {
         eprintln!("WorkTable : impossible de créer le dossier {}", d.display());
     }
     paths::migrate();
+    // Déjà lancée (en arrière-plan) : on la rouvre au lieu d'en démarrer une deuxième.
+    if !background::single_instance() {
+        return Ok(());
+    }
     // Windows : DirectX 12 avec une chaîne d'affichage « DirectComposition », la seule qui gère la
     // vraie transparence (bandeau de notification sans fond, avec son ombre). Si DirectX 12 n'est pas
     // disponible, repli sur OpenGL (le bandeau est alors découpé à sa forme, sans ombre).

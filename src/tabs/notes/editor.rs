@@ -516,6 +516,10 @@ fn text_block(
     if toggled {
         ops.push(Op::ToggleTodo(i));
     }
+    // Orthographe (pas dans les blocs de code).
+    if kind != Kind::Code {
+        crate::spell::check(ui, &output, &mut note.blocks[i].text);
+    }
 
     let resp = &output.response;
     if resp.has_focus()

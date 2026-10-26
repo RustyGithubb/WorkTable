@@ -5,6 +5,18 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.3.3
+
+### Ajouté
+- Arrière-plan (Windows) : fermer la fenêtre laisse l'app tourner ; raccourci global réglable
+  pour la rouvrir ou la cacher (Ctrl+Maj+Espace par défaut), avec une animation élastique ; une
+  seule instance (relancer l'app la rouvre) ; bouton « Quitter WorkTable » en haut des Réglages.
+- Correcteur d'orthographe (français, anglais) dans tous les champs de saisie : vague rouge sous
+  les mots inconnus, corrections au clic droit, dictionnaire personnel.
+
+### Modifié
+- Mise à jour : la nouvelle version attend la fermeture de l'ancienne avant de démarrer.
+
 ## 0.3.2
 
 ### Ajouté

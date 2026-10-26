@@ -103,6 +103,8 @@ impl WorkTableApp {
         theme::set_theme(ctx, prefs.theme);
         tabs::messages::emoji::set_recent(prefs.chat_recent_emojis.clone());
         tabs::messages::emoji::set_tone(prefs.emoji_tone);
+        // Raccourci global (rouvre l'app en arrière-plan) et demandes d'une autre instance.
+        crate::background::start(ctx, &prefs.show_hotkey);
         // Nouvelle version sur GitHub ? (en arrière-plan ; pastille sur le bouton Réglages)
         let update = crate::update::Updater::default();
         update.check(ctx);
@@ -336,6 +338,9 @@ impl eframe::App for WorkTableApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let window_rect = ui.max_rect();
+        // Fermeture → arrière-plan ; raccourci global modifié dans les réglages.
+        crate::background::on_frame(ui.ctx(), &self.prefs.show_hotkey);
+        crate::spell::configure(!self.prefs.spell_off, !self.prefs.spell_no_fr, !self.prefs.spell_no_en);
         crate::liquid::set_settings(ui.ctx(), self.prefs.animation);
         let prefs_before = self.prefs.clone();
         // Événements mis en évidence dans le quadrillage : copies tenues à jour (enregistrées).
@@ -582,6 +587,8 @@ impl eframe::App for WorkTableApp {
                 ui.ctx().request_repaint_after(wait.saturating_sub(t.elapsed()).max(std::time::Duration::from_millis(50)));
             }
         }
+        // Animation d'ouverture / fermeture (arrière-plan), sur tout ce qui vient d'être dessiné.
+        crate::background::paint(ui.ctx());
     }
 }
 

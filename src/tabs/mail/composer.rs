@@ -17,7 +17,7 @@ use super::contacts::Contacts;
 use super::{inline, recipients};
 use crate::google::compose::{self, Align, Block, Draft, FileData, Mode, Size};
 use crate::google::gmail::Signature;
-use crate::{theme, widgets};
+use crate::theme;
 
 #[derive(Default)]
 pub struct Editor {
@@ -79,7 +79,11 @@ pub fn show(
     ui.add_space(12.0);
     let _ = recipients::field(ui, t!("À", "To"), &mut d.to, "to", t!("Nom ou adresse…", "Name or address…"), book, &mut ed.suggest);
     let _ = recipients::field(ui, "Cc", &mut d.cc, "cc", "", book, &mut ed.suggest);
-    widgets::field(ui, t!("Objet", "Subject"), 52.0, egui::TextEdit::singleline(&mut d.subject));
+    ui.horizontal(|ui| {
+        ui.add_sized([52.0, 24.0], egui::Label::new(RichText::new(t!("Objet", "Subject")).color(theme::TEXT_MUTED())));
+        let out = egui::TextEdit::singleline(&mut d.subject).desired_width(ui.available_width()).show(ui);
+        crate::spell::check(ui, &out, &mut d.subject);
+    });
     ui.add_space(8.0);
 
     ed.focus = nearest_para(d, ed.focus);
@@ -406,6 +410,7 @@ fn body(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, after: &mut dyn FnMut
                     .align(egui::Align2([to_egui_align(align), EAlign::Min]))
                     .layouter(&mut layouter)
                     .show(ui);
+                crate::spell::check(ui, &output, &mut p.text);
                 if output.response.has_focus() {
                     ed.focus = i;
                     if let Some(r) = output.cursor_range {

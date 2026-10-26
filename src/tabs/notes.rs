@@ -598,21 +598,22 @@ fn page(ui: &mut egui::Ui, st: &mut NotesState, idx: usize, edit: bool, locked: 
     // Titre.
     if edit {
         let id = egui::Id::unique(("wt_note_title", &note.id));
-        let r = ui.add(
-            egui::TextEdit::multiline(&mut note.title)
-                .id(id)
-                .frame(egui::Frame::NONE)
-                .font(theme::title_font(34.0))
-                .hint_text(RichText::new(t!("Sans titre", "Untitled")).color(theme::TEXT_FAINT()).font(theme::title_font(34.0)))
-                .desired_rows(1)
-                .return_key(None)
-                .desired_width(f32::INFINITY),
-        );
+        let out = egui::TextEdit::multiline(&mut note.title)
+            .id(id)
+            .frame(egui::Frame::NONE)
+            .font(theme::title_font(34.0))
+            .hint_text(RichText::new(t!("Sans titre", "Untitled")).color(theme::TEXT_FAINT()).font(theme::title_font(34.0)))
+            .desired_rows(1)
+            .return_key(None)
+            .desired_width(f32::INFINITY)
+            .show(ui);
+        let fixed = crate::spell::check(ui, &out, &mut note.title);
+        let r = out.response.response;
         if st.focus_title {
             r.request_focus();
             st.focus_title = false;
         }
-        if r.changed() {
+        if r.changed() || fixed {
             note.title = note.title.replace('\n', " ");
             note.touch();
         }

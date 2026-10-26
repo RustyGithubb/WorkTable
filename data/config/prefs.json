@@ -47,7 +47,8 @@
   "calendar_side_hidden": false,
   "chat_favorites": [
     "spaces/AAAA5LfFxmk",
-    "spaces/AAQA9SWfRNc"
+    "spaces/AAQA9SWfRNc",
+    "spaces/AAQA6L863KE"
   ],
   "chat_side_hidden": false,
   "chat_people_hidden": false,
@@ -87,8 +88,52 @@
     "title": "",
     "start": "",
     "end": "",
-    "highlights": [],
-    "holidays": []
+    "highlights": [
+      {
+        "calendar": "dnoirel@artfx.fr",
+        "id": "bmhr5cn9ugk718rj4om4rih42k",
+        "title": "⚫ MILESTONE - PFE 1st PLAYABLE - M5-GA, M5-GD, M5-PROG",
+        "start": 1796025600000,
+        "end": 1796036400000,
+        "all_day": false
+      },
+      {
+        "calendar": "dnoirel@artfx.fr",
+        "id": "9e192hsti2gau260rji0mj6ph8",
+        "title": "⚫ MILESTONE - PFE BETA - M5-GA, M5-GD, M5-PROG",
+        "start": 1807516800000,
+        "end": 1807527600000,
+        "all_day": false
+      },
+      {
+        "calendar": "dnoirel@artfx.fr",
+        "id": "n9hmp7pu7ommnb0iujdvjdm6ms",
+        "title": "⚫ MILESTONE - PFE ALPHA - M5-GA, M5-GD, M5-PROG",
+        "start": 1803456000000,
+        "end": 1803466800000,
+        "all_day": false
+      },
+      {
+        "calendar": "dnoirel@artfx.fr",
+        "id": "3nmef71f35re8dogodnd9jm2rs",
+        "title": "⚫ JURY PFE MASTER - M5-GA, M5-GD, M5-PROG",
+        "start": 1810537200000,
+        "end": 1810548000000,
+        "all_day": false
+      }
+    ],
+    "holidays": [
+      {
+        "start": "2026-11-16",
+        "end": "2026-11-22",
+        "name": ""
+      },
+      {
+        "start": "2026-12-21",
+        "end": "2027-01-03",
+        "name": ""
+      }
+    ]
   },
   "dashboard_rows": [
     {
@@ -96,23 +141,15 @@
       "panels": [
         {
           "id": "links",
-          "share": 0.25
-        },
-        {
-          "id": "planning",
-          "share": 0.16666667
+          "share": 0.2761988
         },
         {
           "id": "timeline",
-          "share": 0.16666667
+          "share": 0.4738012
         },
         {
-          "id": "mails",
-          "share": 0.25
-        },
-        {
-          "id": "pinned",
-          "share": 0.16666667
+          "id": "planning",
+          "share": 0.24999999
         }
       ]
     },
@@ -121,11 +158,11 @@
       "panels": [
         {
           "id": "reminders",
-          "share": 0.25
+          "share": 0.26511875
         },
         {
           "id": "tasks",
-          "share": 0.75
+          "share": 0.7348812
         }
       ]
     },
@@ -133,8 +170,16 @@
       "h": 8,
       "panels": [
         {
+          "id": "pinned",
+          "share": 0.28055057
+        },
+        {
+          "id": "mails",
+          "share": 0.27840337
+        },
+        {
           "id": "files",
-          "share": 1.0
+          "share": 0.44104603
         }
       ]
     }
@@ -164,8 +209,14 @@
   "notif_no_share": false,
   "notif_no_event": false,
   "notif_no_sound": false,
-  "do_not_disturb": false,
+  "do_not_disturb": true,
   "clock_hidden": false,
   "notif_event_minutes": 0,
-  "language": "French"
+  "language": "French",
+  "show_hotkey": {
+    "ctrl": true,
+    "shift": true,
+    "alt": false,
+    "key": "Space"
+  }
 }

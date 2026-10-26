@@ -590,7 +590,9 @@ fn timer_form(ctx: &egui::Context, anchor: Rect, tasks: &mut Tasks) {
                     }
                 });
                 if f.task.is_none() {
-                    let te = ui.add(egui::TextEdit::singleline(&mut f.title).hint_text(t!("Que faut-il faire ?", "What needs doing?")).desired_width(f32::INFINITY));
+                    let edit = egui::TextEdit::singleline(&mut f.title).hint_text(t!("Que faut-il faire ?", "What needs doing?")).desired_width(f32::INFINITY).show(ui);
+                    crate::spell::check(ui, &edit, &mut f.title);
+                    let te = edit.response.response;
                     if f.title.is_empty() && !te.has_focus() && ui.memory(|m| m.focused().is_none()) {
                         te.request_focus();
                     }
@@ -740,8 +742,10 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
                         if status == Status::Todo {
                             let id = egui::Id::unique("wt_dash_new_task");
                             let mut text: String = ui.ctx().data(|d| d.get_temp(id)).unwrap_or_default();
-                            let r =
-                                ui.add(egui::TextEdit::singleline(&mut text).hint_text(t!("+ Ajouter une tâche (Entrée)", "+ Add a task (Enter)")).desired_width(f32::INFINITY));
+                            let edit =
+                                egui::TextEdit::singleline(&mut text).hint_text(t!("+ Ajouter une tâche (Entrée)", "+ Add a task (Enter)")).desired_width(f32::INFINITY).show(ui);
+                            crate::spell::check(ui, &edit, &mut text);
+                            let r = edit.response.response;
                             if r.changed()
                                 && let Some(t) = crate::tabs::messages::emoji::replace_codes(&text)
                             {
@@ -846,7 +850,9 @@ fn task_card(ui: &mut egui::Ui, task: &tasks::Task, alarm: Option<i64>, out: &mu
                 let mut done = false;
                 let mut cancel = false;
                 ui.horizontal(|ui| {
-                    let r = ui.add(egui::TextEdit::singleline(&mut t).id(field_id).desired_width(ui.available_width() - 60.0));
+                    let edit = egui::TextEdit::singleline(&mut t).id(field_id).desired_width(ui.available_width() - 60.0).show(ui);
+                    crate::spell::check(ui, &edit, &mut t);
+                    let r = edit.response.response;
                     if r.changed()
                         && let Some(x) = crate::tabs::messages::emoji::replace_codes(&t)
                     {
@@ -890,13 +896,14 @@ fn task_card(ui: &mut egui::Ui, task: &tasks::Task, alarm: Option<i64>, out: &mu
                 // Résumé : champ sur plusieurs lignes (Entrée = nouvelle ligne).
                 ui.add_space(4.0);
                 let field_id = sum_id.with("field");
-                let r = ui.add(
-                    egui::TextEdit::multiline(&mut s)
-                        .id(field_id)
-                        .desired_rows(4)
-                        .desired_width(f32::INFINITY)
-                        .hint_text(t!("Résumé, notes, étapes… (plusieurs lignes)", "Summary, notes, steps… (several lines)")),
-                );
+                let edit = egui::TextEdit::multiline(&mut s)
+                    .id(field_id)
+                    .desired_rows(4)
+                    .desired_width(f32::INFINITY)
+                    .hint_text(t!("Résumé, notes, étapes… (plusieurs lignes)", "Summary, notes, steps… (several lines)"))
+                    .show(ui);
+                crate::spell::check(ui, &edit, &mut s);
+                let r = edit.response.response;
                 if r.changed()
                     && let Some(x) = crate::tabs::messages::emoji::replace_codes(&s)
                 {

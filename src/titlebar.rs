@@ -40,6 +40,7 @@ pub fn show(ctx: &egui::Context, window: Rect) {
                 Button::Minimize => t!("Réduire", "Minimise"),
                 Button::Maximize if maximized => t!("Restaurer", "Restore"),
                 Button::Maximize => t!("Agrandir", "Maximise"),
+                Button::Close if cfg!(windows) => t!("Fermer (WorkTable reste en arrière-plan)", "Close (WorkTable keeps running in the background)"),
                 Button::Close => t!("Fermer", "Close"),
             };
             let resp = resp.on_hover_text(tip);

@@ -433,33 +433,20 @@ pub fn set_root_window(hwnd: isize) {
     ROOT_WINDOW.store(hwnd, std::sync::atomic::Ordering::Relaxed);
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn root_window() -> isize {
+    ROOT_WINDOW.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Remet la fenêtre principale au premier plan (renvoie `false` si c'est impossible ici).
 ///
 /// La commande `Focus` d'egui simule un appui sur Alt pour forcer le passage au premier plan :
 /// Windows ouvre alors le « mode menu » de la fenêtre et y dessine un instant sa barre de titre
 /// (cachée). Le clic sur le bandeau vient d'être reçu par l'app, Windows l'autorise donc à
 /// passer au premier plan directement, sans cette simulation.
-#[cfg(windows)]
 fn bring_root_to_front() -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, SW_RESTORE, SetForegroundWindow, ShowWindow};
-    let hwnd = ROOT_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
-    if hwnd == 0 {
-        return false;
-    }
-    let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
-    // SAFETY : fenêtre principale de ce processus, qui existe tant que l'app tourne.
-    unsafe {
-        if IsIconic(hwnd) != 0 {
-            ShowWindow(hwnd, SW_RESTORE);
-        }
-        SetForegroundWindow(hwnd);
-    }
-    true
-}
-
-#[cfg(not(windows))]
-fn bring_root_to_front() -> bool {
-    false
+    // Aussi quand l'app est en arrière-plan (fenêtre cachée).
+    crate::background::show()
 }
 
 /// Titre (invisible) de la fenêtre du bandeau, qui sert à la retrouver sous Windows.

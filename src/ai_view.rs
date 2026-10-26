@@ -111,14 +111,15 @@ pub fn panel(ctx: &egui::Context, window: Rect, ai: &mut AiState, action: &mut O
                     ui.horizontal(|ui| {
                         let id = egui::Id::unique("wt_ai_input");
                         let enter = ui.memory(|m| m.has_focus(id)) && ui.input_mut(|i| !i.modifiers.shift && i.consume_key(Modifiers::NONE, Key::Enter));
-                        let r = ui.add(
-                            egui::TextEdit::multiline(&mut ai.input)
-                                .id(id)
-                                .frame(egui::Frame::NONE)
-                                .desired_rows(1)
-                                .hint_text("Demande à Claude…")
-                                .desired_width(ui.available_width() - 40.0),
-                        );
+                        let out = egui::TextEdit::multiline(&mut ai.input)
+                            .id(id)
+                            .frame(egui::Frame::NONE)
+                            .desired_rows(1)
+                            .hint_text("Demande à Claude…")
+                            .desired_width(ui.available_width() - 40.0)
+                            .show(ui);
+                        crate::spell::check(ui, &out, &mut ai.input);
+                        let r = out.response.response;
                         if ai.focus_input {
                             r.request_focus();
                             ai.focus_input = false;

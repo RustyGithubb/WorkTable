@@ -58,13 +58,14 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
     egui::ScrollArea::vertical().id_salt("cal_panel").auto_shrink([false, false]).max_height(ui.available_height() - 48.0).show(ui, |ui| {
         ui.add_enabled_ui(writable && !ed.saving, |ui| {
             // Titre
-            let title = ui.add(
-                egui::TextEdit::singleline(&mut ed.ev.title)
-                    .hint_text(t!("Ajouter un titre", "Add a title"))
-                    .font(theme::title_font(19.0))
-                    .frame(egui::Frame::NONE)
-                    .desired_width(f32::INFINITY),
-            );
+            let out = egui::TextEdit::singleline(&mut ed.ev.title)
+                .hint_text(t!("Ajouter un titre", "Add a title"))
+                .font(theme::title_font(19.0))
+                .frame(egui::Frame::NONE)
+                .desired_width(f32::INFINITY)
+                .show(ui);
+            crate::spell::check(ui, &out, &mut ed.ev.title);
+            let title = out.response.response;
             if ed.focus_title {
                 title.request_focus();
                 ed.focus_title = false;
@@ -167,7 +168,12 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
             ui.add_space(8.0);
 
             ui.label(RichText::new("Description").small().color(theme::TEXT_MUTED()));
-            ui.add(egui::TextEdit::multiline(&mut ed.ev.description).desired_rows(4).desired_width(f32::INFINITY).hint_text(t!("Ajouter une description", "Add a description")));
+            let out = egui::TextEdit::multiline(&mut ed.ev.description)
+                .desired_rows(4)
+                .desired_width(f32::INFINITY)
+                .hint_text(t!("Ajouter une description", "Add a description"))
+                .show(ui);
+            crate::spell::check(ui, &out, &mut ed.ev.description);
         });
 
         if let Some(e) = &ed.error {

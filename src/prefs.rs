@@ -203,6 +203,29 @@ pub struct Prefs {
     pub notif_event_minutes: u32,
     /// Langue de l'interface (celle du système par défaut).
     pub language: crate::i18n::Language,
+    /// Raccourci global qui rouvre l'app restée en arrière-plan (Ctrl+Maj+Espace par défaut).
+    pub show_hotkey: Hotkey,
+    /// Correcteur d'orthographe désactivé, langues retirées (toutes actives par défaut).
+    pub spell_off: bool,
+    pub spell_no_fr: bool,
+    pub spell_no_en: bool,
+}
+
+/// Raccourci clavier global : modificateurs et touche (nom egui, ex. « Space », « K »).
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Hotkey {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    /// Vide : aucun raccourci.
+    pub key: String,
+}
+
+impl Default for Hotkey {
+    fn default() -> Self {
+        Self { ctrl: true, shift: true, alt: false, key: "Space".into() }
+    }
 }
 
 fn path() -> Option<PathBuf> {
