@@ -4,6 +4,7 @@ pub mod attachments;
 pub mod composer;
 pub mod contacts;
 pub mod directory;
+pub mod drafts;
 pub mod groups;
 pub mod inline;
 pub mod pinned;
@@ -80,6 +81,8 @@ pub struct MailState {
     shared_n: usize,
     pub opening: Option<String>,
     pub draft: Option<Draft>,
+    /// Brouillons rangés et enregistrement automatique (voir `drafts`).
+    pub drafts: drafts::Drafts,
     pub sending: bool,
     pub new_category: Option<String>,
     pub notice: Option<Notice>,
@@ -136,6 +139,7 @@ impl Default for MailState {
             shared_n: 0,
             opening: None,
             draft: None,
+            drafts: Default::default(),
             sending: false,
             new_category: None,
             notice: None,
@@ -276,6 +280,7 @@ impl MailState {
                 // Resynchronise la liste avec Gmail (au cas où).
                 acc.run(|s| Ok(Event::Labels(gmail::labels(s)?)));
             }
+            Event::DraftSaved { local_id, result } => self.drafts.on_saved(local_id, &result, self.draft.as_mut()),
             Event::Sent => {
                 let own = acc.session().map(|s| s.email.clone()).unwrap_or_default();
                 let now = chrono::Local::now().timestamp_millis();
@@ -284,7 +289,9 @@ impl MailState {
                 }
                 self.contacts.save();
                 self.sending = false;
-                self.draft = None;
+                if let Some(d) = self.draft.take() {
+                    self.drafts.sent(&d);
+                }
                 // Recharge la conversation ouverte : la réponse y apparaît.
                 if let Some(t) = self.sent_thread.take() {
                     self.thread_sizes.remove(&t);
@@ -325,6 +332,12 @@ impl MailState {
     /// À appeler à chaque frame : relève automatiquement la boîte.
     pub fn tick(&mut self, acc: &Account, ctx: &eframe::egui::Context) {
         self.contacts.autosave();
+        // Brouillons : enregistrement automatique (aussi quand un autre onglet est ouvert).
+        let from = acc.session().map(|s| s.email.clone()).unwrap_or_default();
+        self.drafts.track(acc, &from, self.draft.as_ref());
+        if self.draft.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
         if !self.loading {
             self.count_unread();
         }
@@ -392,7 +405,12 @@ impl MailState {
     }
 
     pub fn open_message(&mut self, acc: &Account, id: &str) {
-        self.draft = None;
+        // Brouillon ouvert depuis « Brouillons » : rouvert dans l'éditeur.
+        if let Some(local) = self.drafts.find_by_message(id) {
+            self.resume_draft(local);
+            return;
+        }
+        self.park_draft();
         if self.open.as_ref().is_some_and(|m| m.summary.id == id) {
             return;
         }
@@ -746,10 +764,62 @@ impl MailState {
     /// Nouveau message adressé à un contact.
     pub fn write_to(&mut self, mailbox: String) {
         let mut d = Draft::new();
-        d.to = format!("{mailbox}, ");
+        if !mailbox.is_empty() {
+            d.to = format!("{mailbox}, ");
+        }
+        self.start_draft(d);
+        self.directory = false;
+    }
+
+    // --- Brouillons ---------------------------------------------------------------
+
+    /// Ouvre un nouveau brouillon (celui en cours est rangé, pas perdu).
+    pub fn start_draft(&mut self, d: Draft) {
+        self.park_draft();
+        self.drafts.started(&d);
         self.draft = Some(d);
         self.editor.reset();
-        self.directory = false;
+    }
+
+    /// Range le brouillon en cours dans la barre des brouillons (gardé s'il contient quelque chose).
+    pub fn park_draft(&mut self) {
+        if self.sending {
+            return;
+        }
+        if let Some(d) = self.draft.take() {
+            self.drafts.park(d);
+        }
+    }
+
+    /// Rouvre un brouillon rangé.
+    pub fn resume_draft(&mut self, local_id: u64) {
+        if self.draft.as_ref().is_some_and(|d| d.local_id == local_id) {
+            return;
+        }
+        self.park_draft();
+        if let Some(d) = self.drafts.take(local_id) {
+            self.draft = Some(d);
+            self.editor.reset();
+            // Signature déjà en place (ou retirée volontairement).
+            self.editor.sig_applied = true;
+            self.directory = false;
+        }
+    }
+
+    /// Supprime le brouillon en cours (ici et dans Gmail).
+    pub fn discard_draft(&mut self) {
+        if let Some(d) = self.draft.take() {
+            self.drafts.discard(&d, None);
+            self.info(t!("Brouillon supprimé", "Draft deleted").into());
+        }
+    }
+
+    /// Supprime un brouillon rangé.
+    pub fn discard_parked(&mut self, local_id: u64) {
+        if let Some(d) = self.drafts.take(local_id) {
+            self.drafts.discard(&d, self.draft.as_ref());
+            self.info(t!("Brouillon supprimé", "Draft deleted").into());
+        }
     }
 
     fn show_notice(&mut self, n: attachments::Notice) {

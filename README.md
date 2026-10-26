@@ -271,6 +271,15 @@ Enregistrement automatique une seconde après la dernière frappe.
 - Corbeille : bouton « 🗑 Corbeille » dans la lecture, touche Suppr, ou clic droit sur un mail de la
   liste — toute la conversation quitte la boîte de réception ; depuis le dossier Corbeille, « Restaurer » le remet dans la boîte de réception.
 - Liste : l'épingle, l'étoile et le nom du groupe coloré n'apparaissent qu'au survol d'un mail.
+- **Brouillons** (comme Gmail) : un mail en cours d'écriture n'est jamais perdu. Il est enregistré
+  2 s après la dernière frappe, sur l'ordinateur (`data\drafts.json`, relu au lancement) et dans
+  les « Brouillons » de Gmail dès qu'il a un destinataire valide (donc aussi sur le téléphone).
+  Ouvrir un autre mail, écrire un nouveau message ou répondre ailleurs range le brouillon dans la
+  **barre des brouillons** en bas à droite (4 visibles, « +N » pour les autres) : clic pour le
+  rouvrir, 🗑 pour le supprimer. « Fermer » range aussi ; « 🗑 » dans l'éditeur supprime (ici et
+  dans Gmail). Un brouillon jamais modifié (réponse ouverte puis abandonnée) n'est pas gardé ;
+  envoyé, son brouillon Gmail disparaît. Ouvrir un de ces brouillons depuis le dossier
+  « Brouillons » le rouvre dans l'éditeur.
 - Mise en forme affichée :
   - HTML (ce que produit l'éditeur de Gmail) : gras `<b>`, italique `<i>`, souligné `<u>`,
     barré `<strike>`, tailles `<font size>` / `font-size`, titres `<h1>`…, alignement `text-align`,
@@ -367,6 +376,14 @@ Enregistrement automatique une seconde après la dernière frappe.
   fil à part, avant même la connexion à Google : la liste, les noms et les messages s'affichent
   aussitôt, et ouvrir une conversation ne demande plus que ses nouveaux messages. Liée au compte
   Google (effacée à la déconnexion ou si un autre compte se connecte) ; Réglages › Données › « Vider ».
+- **GIF animés** : ceux choisis dans Chat (bouton GIF, hébergés chez Tenor / Giphy) et les
+  fichiers `.gif` envoyés sont joués en boucle dans la conversation (pastille « GIF ») et dans la
+  visionneuse (clic pour agrandir).
+- **Envoyer un GIF** (bouton « GIF » du champ, comme Discord) : tendances, recherche, favoris
+  (★ au survol) ; un clic envoie le GIF en message à part. Les GIF viennent de **GIPHY** (l'API
+  Tenor a fermé le 30 juin 2026) : clé d'API gratuite à créer sur developers.giphy.com et à coller
+  dans le sélecteur. Google Chat n'accepte pas de lien GIF par l'API : le GIF est envoyé en pièce
+  jointe (animé dans Chat).
 - **Épingler** un message (📌 dans la barre d'actions au survol) : il apparaît dans le panneau
   « Messages épinglés » du tableau de bord ; « · épinglé » s'affiche à côté de l'heure.
 - **Noms des conversations vérifiés en arrière-plan** : toutes les conversations privées et les

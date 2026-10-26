@@ -5,6 +5,14 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+### Ajouté
+- Messages : les GIF (choisis dans Chat ou envoyés en fichier) s'affichent et s'animent, aussi en
+  grand dans la visionneuse.
+- Mail : brouillons comme dans Gmail (enregistrement automatique sur l'ordinateur et dans Gmail,
+  barre des brouillons pour les reprendre) : un mail en cours d'écriture n'est plus perdu en
+  ouvrant autre chose.
+- Messages : envoi de GIF façon Discord (bouton « GIF » : tendances, recherche GIPHY, favoris).
+
 ## 0.3.3
 
 ### Ajouté

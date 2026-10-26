@@ -10,6 +10,8 @@
 
 pub mod emoji;
 pub mod format;
+pub mod gif;
+pub mod gif_picker;
 mod manage;
 mod new_group;
 pub mod pins;
@@ -124,6 +126,12 @@ pub struct ChatState {
     pub app_missing: bool,
     pub notice: Option<(String, bool, Instant)>,
     pub images: InlineImages,
+    /// GIF animés (toutes leurs images).
+    pub gifs: gif::Gifs,
+    /// Sélecteur de GIF ouvert ; clé GIPHY et favoris (copiés des réglages à chaque image).
+    pub gif_picker: Option<gif_picker::Picker>,
+    pub giphy_key: String,
+    pub gif_favorites: Vec<crate::prefs::GifItem>,
     pub scroll_bottom: bool,
     /// Demandes vers l'onglet Mail (écrire un mail à cette adresse).
     pub mail_to: Option<String>,
@@ -521,6 +529,12 @@ impl ChatState {
                     l.retain(|m| m.name != name);
                 }
                 self.info(t!("Message supprimé", "Message deleted"));
+            }
+            ChatEvent::Gif { key, frames } => self.gifs.on_loaded(key, frames),
+            ChatEvent::GifResults { query, result } => {
+                if let Some(p) = self.gif_picker.as_mut() {
+                    p.on_results(&query, result);
+                }
             }
             ChatEvent::Image { key, image } => {
                 if key.starts_with("photo:") {
@@ -974,6 +988,69 @@ impl ChatState {
     /// Demandé depuis un autre onglet (ex. fiche contact de l'onglet Mail).
     pub fn request_dm(&mut self, email: String) {
         self.pending_dm = Some(email);
+    }
+
+    /// Tendances ou recherche GIPHY pour le sélecteur de GIF.
+    pub fn search_gifs(&mut self, acc: &Account, query: String) {
+        let (agent, key) = (acc.agent(), self.giphy_key.clone());
+        acc.spawn(move || {
+            let result = gif_picker::fetch(&agent, &key, &query);
+            Ok(Event::Chat(ChatEvent::GifResults { query, result }))
+        });
+    }
+
+    /// Envoie un GIF du sélecteur, en message à part (comme Discord) : affiché aussitôt, puis
+    /// téléchargé et envoyé en pièce jointe (Google Chat n'accepte pas de lien GIF par l'API).
+    pub fn send_gif(&mut self, acc: &Account, g: &crate::prefs::GifItem, in_thread: bool) {
+        let Some(space) = self.open.clone() else { return };
+        let thread = if in_thread { self.thread.clone() } else { None };
+        self.local_seq += 1;
+        let local = format!("local/{}", self.local_seq);
+        let preview = ChatMessage {
+            name: local.clone(),
+            space: space.clone(),
+            sender: self.me.clone().unwrap_or_else(|| ME_LOCAL.into()),
+            created: chrono::Utc::now().timestamp_millis(),
+            thread: thread.clone().unwrap_or_default(),
+            thread_reply: thread.is_some(),
+            attachments: vec![chat::ChatAttachment { name: "GIF".into(), mime: "image/gif".into(), download_uri: Some(g.url.clone()), ..Default::default() }],
+            ..Default::default()
+        };
+        self.msgs.entry(space.clone()).or_default().push(preview);
+        self.scroll_bottom = true;
+        let (agent, url) = (acc.agent(), g.url.clone());
+        let name = format!("{}.gif", if g.id.is_empty() { "giphy" } else { g.id.as_str() });
+        acc.run(move |s| {
+            let result = (|| {
+                let data = gif::fetch(&agent, &url)?;
+                let att = chat::upload(s, &space, &name, "image/gif", &data)?;
+                chat::send(s, &space, "", thread.as_deref(), vec![att])
+            })();
+            Ok(Event::Chat(match result {
+                Ok(msg) => ChatEvent::Sent { space, msg, local },
+                Err(error) => ChatEvent::SendFailed { space, local, error },
+            }))
+        });
+    }
+
+    /// Charge un GIF (lien public ou fichier envoyé dans Chat) et toutes ses images.
+    pub fn request_gif(&mut self, acc: &Account, att: &chat::ChatAttachment) {
+        let key = att.key();
+        if !self.gifs.start(&key) {
+            return;
+        }
+        if let Some(res) = att.resource.clone() {
+            acc.run(move |s| {
+                let frames = chat::media(s, &res).and_then(|d| gif::decode(&d));
+                Ok(Event::Chat(ChatEvent::Gif { key, frames }))
+            });
+        } else if let Some(url) = att.download_uri.clone() {
+            let agent = acc.agent();
+            acc.spawn(move || {
+                let frames = gif::fetch(&agent, &url).and_then(|d| gif::decode(&d));
+                Ok(Event::Chat(ChatEvent::Gif { key, frames }))
+            });
+        }
     }
 
     pub fn request_image(&mut self, acc: &Account, att: &chat::ChatAttachment) {

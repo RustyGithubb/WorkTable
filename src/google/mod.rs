@@ -268,6 +268,12 @@ pub enum Event {
     },
     LabelCreated(Label),
     Sent,
+    /// Brouillon enregistré dans Gmail : identifiant local → identifiants Gmail (brouillon,
+    /// message) ; `Err` : échec.
+    DraftSaved {
+        local_id: u64,
+        result: Result<(String, String), String>,
+    },
     /// Contenu d'une pièce jointe (ou la raison de l'échec), identifiée par `Attachment::key`.
     AttachmentData {
         key: String,

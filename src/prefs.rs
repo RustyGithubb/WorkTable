@@ -209,6 +209,23 @@ pub struct Prefs {
     pub spell_off: bool,
     pub spell_no_fr: bool,
     pub spell_no_en: bool,
+    /// Clé de l'API GIPHY (sélecteur de GIF des messages) et GIF favoris.
+    pub giphy_key: String,
+    pub chat_gif_favorites: Vec<GifItem>,
+}
+
+/// GIF du sélecteur (GIPHY) : aperçu léger pour la grille, version envoyée.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct GifItem {
+    pub id: String,
+    pub title: String,
+    /// Petit GIF animé (grille).
+    pub preview: String,
+    /// GIF envoyé (≤ 2 Mo si possible).
+    pub url: String,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// Raccourci clavier global : modificateurs et touche (nom egui, ex. « Space », « K »).

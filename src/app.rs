@@ -334,6 +334,9 @@ impl eframe::App for WorkTableApp {
         }
         self.chat.flush_store();
         self.people.flush();
+        // Brouillon en cours d'écriture : gardé pour le prochain lancement.
+        let current = self.mail.draft.clone();
+        self.mail.drafts.persist(current.as_ref());
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

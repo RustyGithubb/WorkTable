@@ -8,19 +8,21 @@ use std::sync::Arc;
 use lettre::message::header::ContentType;
 use lettre::message::{Attachment as MimeAttachment, Mailbox, Mailboxes, Message, MultiPart, SinglePart};
 
+use serde::{Deserialize, Serialize};
+
 use super::FullMessage;
 
 /// Gmail refuse les messages de plus de 25 Mo (encodage compris).
 const MAX_TOTAL: usize = 24 * 1024 * 1024;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Mode {
     New,
     Reply,
     Forward,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Size {
     Small,
     Normal,
@@ -48,7 +50,7 @@ impl Size {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Align {
     Left,
     Center,
@@ -76,7 +78,7 @@ impl Align {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Paragraph {
     pub id: u64,
     pub text: String,
@@ -84,31 +86,52 @@ pub struct Paragraph {
     pub align: Align,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct InlineImage {
     pub id: u64,
     pub name: String,
     pub mime: String,
+    #[serde(with = "b64")]
     pub data: Arc<Vec<u8>>,
     pub cid: String,
-    /// Image décodée pour l'aperçu dans l'éditeur.
+    /// Image décodée pour l'aperçu dans l'éditeur (recalculée à la relecture d'un brouillon).
+    #[serde(skip)]
     pub preview: Option<Arc<eframe::egui::ColorImage>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Block {
     Para(Paragraph),
     Image(InlineImage),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FileData {
     pub name: String,
     pub mime: String,
+    #[serde(with = "b64")]
     pub data: Arc<Vec<u8>>,
 }
 
-#[derive(Clone)]
+/// Contenu binaire en base64 dans les brouillons enregistrés.
+mod b64 {
+    use std::sync::Arc;
+
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(data: &Arc<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&STANDARD.encode(data.as_slice()))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Arc<Vec<u8>>, D::Error> {
+        let text = String::deserialize(d)?;
+        STANDARD.decode(text).map(Arc::new).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Draft {
     pub mode: Mode,
     pub to: String,
@@ -123,6 +146,25 @@ pub struct Draft {
     pub signature: Option<String>,
     quote_id: Option<u64>,
     next_id: u64,
+    /// Brouillon (comme dans Gmail) : identifiant local, brouillon Gmail correspondant, dernier
+    /// enregistrement (ms).
+    #[serde(default)]
+    pub local_id: u64,
+    #[serde(default)]
+    pub gmail_id: Option<String>,
+    /// Message Gmail du brouillon (change à chaque enregistrement) : le retrouver dans « Brouillons ».
+    #[serde(default)]
+    pub gmail_message_id: Option<String>,
+    #[serde(default)]
+    pub saved_at: Option<i64>,
+}
+
+/// Identifiant local unique d'un brouillon (horodatage + compteur).
+fn next_local_id() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let base = chrono::Utc::now().timestamp_millis() as u64 * 1000;
+    base + N.fetch_add(1, Ordering::Relaxed) % 1000
 }
 
 impl Draft {
@@ -140,6 +182,10 @@ impl Draft {
             signature: None,
             quote_id: None,
             next_id: 0,
+            local_id: next_local_id(),
+            gmail_id: None,
+            gmail_message_id: None,
+            saved_at: None,
         };
         let p = d.paragraph(String::new());
         d.blocks.push(Block::Para(p));

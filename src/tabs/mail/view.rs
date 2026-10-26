@@ -38,7 +38,11 @@ enum Action {
     ToggleThread(String),
     Compose,
     Send,
+    /// Fermer (le brouillon est rangé), le supprimer ; rouvrir / supprimer un brouillon rangé.
     CancelDraft,
+    DiscardDraft,
+    ResumeDraft(u64),
+    DiscardParked(u64),
     Refresh,
     Attachment(Attachment),
     AttachmentExternal(Attachment),
@@ -108,6 +112,7 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
     }
     actions.extend(dir_actions.into_iter().map(Action::Dir));
 
+    drafts_bar(ui, mail, &mut actions);
     preview_modal(ui, mail, &mut actions);
     toast(ui, mail);
 
@@ -162,12 +167,14 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
             }
             Action::CancelCategory => mail.new_category = None,
             Action::Reply => {
-                mail.draft = mail.open.as_ref().map(Draft::reply);
-                mail.editor.reset();
+                if let Some(d) = mail.open.as_ref().map(Draft::reply) {
+                    mail.start_draft(d);
+                }
             }
             Action::ReplyAll => {
-                mail.draft = mail.reply_all(&email);
-                mail.editor.reset();
+                if let Some(d) = mail.reply_all(&email) {
+                    mail.start_draft(d);
+                }
             }
             Action::ToggleThread(id) => {
                 if !mail.thread_expanded.remove(&id) {
@@ -175,21 +182,93 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
                 }
             }
             Action::Forward => {
-                mail.draft = mail.open.as_ref().map(|m| Draft::forward(m, &long_date(m.summary.date)));
-                mail.editor.reset();
+                if let Some(d) = mail.open.as_ref().map(|m| Draft::forward(m, &long_date(m.summary.date))) {
+                    mail.start_draft(d);
+                }
             }
             Action::Compose => {
-                mail.draft = Some(Draft::new());
-                mail.editor.reset();
+                mail.start_draft(Draft::new());
             }
             Action::Send => mail.send(acc),
-            Action::CancelDraft => mail.draft = None,
+            Action::CancelDraft => mail.park_draft(),
+            Action::DiscardDraft => mail.discard_draft(),
+            Action::ResumeDraft(id) => mail.resume_draft(id),
+            Action::DiscardParked(id) => mail.discard_parked(id),
             Action::Refresh => mail.refresh_folder(acc),
             Action::Attachment(a) => mail.activate_attachment(acc, &a),
             Action::AttachmentExternal(a) => mail.open_attachment_external(acc, &a),
             Action::ClosePreview => mail.attachments.preview = None,
         }
     }
+}
+
+// --- Barre des brouillons ----------------------------------------------------
+
+/// Brouillons rangés, en bas à droite (comme les fenêtres réduites de Gmail) : clic = rouvrir,
+/// 🗑 = supprimer. Au-delà de 4, « +N » ouvre la liste complète.
+fn drafts_bar(ui: &egui::Ui, mail: &MailState, actions: &mut Vec<Action>) {
+    let parked = &mail.drafts.parked;
+    if parked.is_empty() {
+        return;
+    }
+    const CHIP_W: f32 = 230.0;
+    const SHOWN: usize = 4;
+    let area = ui.max_rect();
+    let ctx = ui.ctx();
+    let title_of = |d: &Draft| {
+        let s = d.subject.trim();
+        if s.is_empty() { t!("(sans objet)", "(no subject)").to_string() } else { s.to_string() }
+    };
+    let extra = parked.len().saturating_sub(SHOWN);
+    let count = parked.len().min(SHOWN) as f32;
+    let width = count * (CHIP_W + 8.0) + if extra > 0 { 60.0 } else { 0.0 };
+    let pos = egui::pos2(area.right() - width - 4.0, area.bottom() - 44.0);
+    egui::Area::new(egui::Id::unique("wt_mail_drafts_bar")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            if extra > 0 {
+                let r = ui.add(egui::Button::new(RichText::new(tf!("+{extra}", "+{extra}")).strong()).min_size(vec2(52.0, 36.0)).corner_radius(CornerRadius::same(10)));
+                let popup_id = egui::Id::unique("wt_mail_drafts_more");
+                if r.clicked() {
+                    egui::Popup::toggle_id(ctx, popup_id);
+                }
+                egui::Popup::menu(&r).id(popup_id).show(|ui| {
+                    for d in parked.iter().skip(SHOWN) {
+                        ui.horizontal(|ui| {
+                            if ui.button(format!("✉  {}", title_of(d))).clicked() {
+                                actions.push(Action::ResumeDraft(d.local_id));
+                            }
+                            if ui.small_button("🗑").on_hover_text(t!("Supprimer le brouillon", "Delete the draft")).clicked() {
+                                actions.push(Action::DiscardParked(d.local_id));
+                            }
+                        });
+                    }
+                });
+            }
+            for d in parked.iter().take(SHOWN).rev() {
+                let (rect, resp) = ui.allocate_exact_size(vec2(CHIP_W, 36.0), Sense::click());
+                let p = ui.painter();
+                let hovered = resp.hovered();
+                p.rect_filled(rect, CornerRadius { nw: 10, ne: 10, sw: 4, se: 4 }, if hovered { theme::SURFACE_HI() } else { theme::SURFACE() });
+                p.rect_stroke(rect, CornerRadius { nw: 10, ne: 10, sw: 4, se: 4 }, Stroke::new(1.0, theme::BORDER()), egui::StrokeKind::Inside);
+                p.text(rect.left_center() + vec2(12.0, -7.0), egui::Align2::LEFT_CENTER, t!("Brouillon", "Draft"), FontId::proportional(10.0), theme::TODAY());
+                let g = one_line(p, &title_of(d), theme::editor_font(12.5, true), theme::TEXT(), CHIP_W - 54.0);
+                p.galley(rect.left_center() + vec2(12.0, -1.0), g, theme::TEXT());
+                // Supprimer.
+                let bin = Rect::from_center_size(rect.right_center() - vec2(18.0, 0.0), vec2(24.0, 24.0));
+                let br = ui.interact(bin, ui.scope_id().with(("draft_bin", d.local_id)), Sense::click());
+                if br.hovered() {
+                    p.rect_filled(bin, CornerRadius::same(6), theme::overlay(20));
+                }
+                p.text(bin.center(), egui::Align2::CENTER_CENTER, "🗑", FontId::proportional(13.0), theme::TEXT_MUTED());
+                if br.on_hover_text(t!("Supprimer le brouillon", "Delete the draft")).clicked() {
+                    actions.push(Action::DiscardParked(d.local_id));
+                } else if resp.on_hover_text(t!("Rouvrir le brouillon", "Reopen the draft")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                    actions.push(Action::ResumeDraft(d.local_id));
+                }
+            }
+        });
+    });
 }
 
 // --- Écran de connexion ----------------------------------------------------
@@ -758,9 +837,11 @@ fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &
                 }
             }
         };
+        mail.editor.save_label = mail.drafts.label(d);
         match composer::show(ui, d, &mut mail.editor, mail.sending, &mail.contacts, &mail.signatures, &mut preview) {
             Some(composer::Out::Send) => actions.push(Action::Send),
             Some(composer::Out::Cancel) => actions.push(Action::CancelDraft),
+            Some(composer::Out::Discard) => actions.push(Action::DiscardDraft),
             Some(composer::Out::Error(e)) => mail.notice = Some(super::Notice { text: e, error: true, at: std::time::Instant::now() }),
             None => {}
         }

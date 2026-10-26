@@ -64,10 +64,14 @@ pub struct ChatAttachment {
 
 impl ChatAttachment {
     pub fn is_image(&self) -> bool {
-        self.mime.starts_with("image/") && self.resource.is_some()
+        self.mime.starts_with("image/") && self.resource.is_some() && !self.is_gif()
+    }
+    /// GIF (animé) : choisi dans Chat (lien public) ou envoyé en fichier.
+    pub fn is_gif(&self) -> bool {
+        self.mime == "image/gif" && (self.resource.is_some() || self.download_uri.is_some())
     }
     pub fn key(&self) -> String {
-        self.resource.clone().or_else(|| self.drive_id.clone()).unwrap_or_else(|| self.name.clone())
+        self.resource.clone().or_else(|| self.drive_id.clone()).or_else(|| self.download_uri.clone()).unwrap_or_else(|| self.name.clone())
     }
 }
 
@@ -159,6 +163,16 @@ pub enum ChatEvent {
         key: String,
         image: Result<std::sync::Arc<eframe::egui::ColorImage>, String>,
     },
+    /// GIF trouvés sur GIPHY (sélecteur de GIF) pour cette recherche (vide : tendances).
+    GifResults {
+        query: String,
+        result: Result<Vec<crate::prefs::GifItem>, String>,
+    },
+    /// GIF décodé (toutes ses images et leur durée).
+    Gif {
+        key: String,
+        frames: Result<Vec<crate::tabs::messages::gif::Frame>, String>,
+    },
     /// Fichier téléchargé, prêt à ouvrir avec l'application par défaut.
     File {
         path: std::path::PathBuf,
@@ -243,6 +257,16 @@ pub fn parse_message(v: &Value) -> ChatMessage {
                 .collect()
         })
         .unwrap_or_default();
+    // GIF choisis dans Chat (bouton GIF) : lien public, affichés comme les pièces jointes.
+    let mut attachments: Vec<ChatAttachment> = attachments;
+    if let Some(gifs) = v["attachedGifs"].as_array() {
+        attachments.extend(gifs.iter().filter_map(|g| g["uri"].as_str()).map(|u| ChatAttachment {
+            name: "GIF".into(),
+            mime: "image/gif".into(),
+            download_uri: Some(u.to_string()),
+            ..Default::default()
+        }));
+    }
     let reactions = v["emojiReactionSummaries"]
         .as_array()
         .map(|a| {
@@ -641,6 +665,19 @@ mod tests {
         assert!(m.thread_reply && m.attachments[0].is_image());
         assert_eq!(m.reactions, vec![("👍".to_string(), 2)]);
         assert_eq!(rfc3339(m.created), "2026-10-20T10:00:00.123000Z");
+    }
+
+    #[test]
+    fn parses_attached_gifs() {
+        let v = json!({
+            "name": "spaces/AAA/messages/C",
+            "attachedGifs": [{ "uri": "https://media.tenor.com/x/cat.gif" }],
+            "attachment": [{ "contentName": "b.gif", "contentType": "image/gif", "attachmentDataRef": { "resourceName": "G" } }]
+        });
+        let m = parse_message(&v);
+        assert_eq!(m.attachments.len(), 2);
+        assert!(m.attachments.iter().all(|a| a.is_gif() && !a.is_image()));
+        assert_eq!(m.attachments[1].key(), "https://media.tenor.com/x/cat.gif");
     }
 
     #[test]

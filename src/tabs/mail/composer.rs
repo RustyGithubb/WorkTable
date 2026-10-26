@@ -31,6 +31,8 @@ pub struct Editor {
     suggest: recipients::Suggest,
     /// Signature par défaut déjà appliquée à ce brouillon.
     pub sig_applied: bool,
+    /// État de l'enregistrement du brouillon (« Brouillon enregistré »…), affiché à côté du titre.
+    pub save_label: Option<String>,
     /// Sélecteur d'émojis ouvert (position) et son état.
     picker: Option<egui::Pos2>,
     emoji_query: String,
@@ -45,7 +47,10 @@ impl Editor {
 
 pub enum Out {
     Send,
+    /// Fermer : le brouillon est rangé, pas perdu.
     Cancel,
+    /// Supprimer le brouillon.
+    Discard,
     Error(String),
 }
 
@@ -75,7 +80,13 @@ pub fn show(
         Mode::Reply => t!("Répondre", "Reply"),
         Mode::Forward => t!("Transférer", "Forward"),
     };
-    ui.label(RichText::new(title).font(theme::title_font(20.0)));
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(title).font(theme::title_font(20.0)));
+        if let Some(l) = &ed.save_label {
+            ui.add_space(6.0);
+            ui.label(RichText::new(l).small().color(theme::TEXT_FAINT()));
+        }
+    });
     ui.add_space(12.0);
     let _ = recipients::field(ui, t!("À", "To"), &mut d.to, "to", t!("Nom ou adresse…", "Name or address…"), book, &mut ed.suggest);
     let _ = recipients::field(ui, "Cc", &mut d.cc, "cc", "", book, &mut ed.suggest);
@@ -132,8 +143,15 @@ pub fn show(
         if ui.add_enabled(!sending, egui::Button::new(label)).clicked() {
             out = Some(Out::Send);
         }
-        if ui.add_enabled(!sending, egui::Button::new(t!("Annuler", "Cancel"))).clicked() {
+        if ui
+            .add_enabled(!sending, egui::Button::new(t!("Fermer", "Close")))
+            .on_hover_text(t!("Le brouillon est gardé (barre des brouillons, en bas à droite)", "The draft is kept (drafts bar, bottom right)"))
+            .clicked()
+        {
             out = Some(Out::Cancel);
+        }
+        if ui.add_enabled(!sending, egui::Button::new("🗑")).on_hover_text(t!("Supprimer le brouillon", "Delete the draft")).clicked() {
+            out = Some(Out::Discard);
         }
         if sending {
             ui.add(egui::Spinner::new().size(14.0));

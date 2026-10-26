@@ -631,6 +631,37 @@ pub fn send(s: &Session, mime: &[u8], thread_id: Option<&str>) -> Result<(), Str
     s.post_bytes(UPLOAD, &format!("multipart/related; boundary={boundary}"), &body).map(|_| ())
 }
 
+// --- Brouillons ----------------------------------------------------------------
+
+/// Crée (`id` absent) ou met à jour le brouillon Gmail ; renvoie son identifiant et celui de son
+/// message. Il apparaît dans « Brouillons » de Gmail, sur tous les appareils.
+pub fn save_draft(s: &Session, id: Option<&str>, mime: &[u8], thread_id: Option<&str>) -> Result<(String, String), String> {
+    let mut msg = json!({ "raw": B64.encode(mime) });
+    if let Some(t) = thread_id {
+        msg["threadId"] = json!(t);
+    }
+    let v = match id {
+        Some(id) => match s.send("PUT", &format!("{API}/drafts/{id}"), &[], Some(json!({ "id": id, "message": msg.clone() }))) {
+            Ok(v) => v,
+            // Supprimé entre-temps (dans Gmail) : recréé.
+            Err(e) if e.contains("404") || e.to_lowercase().contains("not found") => s.post(&format!("{API}/drafts"), json!({ "message": msg }))?,
+            Err(e) => return Err(e),
+        },
+        None => s.post(&format!("{API}/drafts"), json!({ "message": msg }))?,
+    };
+    let id = v["id"].as_str().ok_or_else(|| "brouillon sans identifiant".to_string())?;
+    Ok((id.to_string(), v["message"]["id"].as_str().unwrap_or_default().to_string()))
+}
+
+/// Supprime un brouillon Gmail (déjà supprimé : rien à faire).
+pub fn delete_draft(s: &Session, id: &str) -> Result<(), String> {
+    match s.send("DELETE", &format!("{API}/drafts/{id}"), &[], None) {
+        Ok(_) => Ok(()),
+        Err(e) if e.contains("404") || e.to_lowercase().contains("not found") => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 fn decode_entities(s: &str) -> String {
     s.replace("&#39;", "'").replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ").replace("&amp;", "&")
 }

@@ -218,5 +218,10 @@
     "shift": true,
     "alt": false,
     "key": "Space"
-  }
+  },
+  "spell_off": false,
+  "spell_no_fr": false,
+  "spell_no_en": false,
+  "giphy_key": "DzAwUhXFEx41VY7VmRPgg1GYJTKWCOQf",
+  "chat_gif_favorites": []
 }

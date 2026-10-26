@@ -44,6 +44,14 @@ enum Action {
     OpenAttachment(ChatAttachment),
     ViewImage(ChatAttachment),
     Image(ChatAttachment),
+    /// GIF à charger, à agrandir.
+    Gif(ChatAttachment),
+    ViewGif(ChatAttachment),
+    /// Sélecteur de GIF : recherche, envoi (dans le fil ?), favori, clé GIPHY.
+    GifSearch(String),
+    SendGif(crate::prefs::GifItem, bool),
+    ToggleGifFavorite(crate::prefs::GifItem),
+    SaveGiphyKey(String),
     Favorite(String),
     OpenDm(String),
     MailTo(String),
@@ -66,6 +74,16 @@ enum Action {
 
 pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &mut Prefs, book: &Contacts) {
     header(ui, chat);
+    // Sélecteur de GIF : clé GIPHY et favoris des réglages.
+    if chat.giphy_key != prefs.giphy_key {
+        chat.giphy_key.clone_from(&prefs.giphy_key);
+        if let Some(p) = chat.gif_picker.as_mut() {
+            p.reset();
+        }
+    }
+    if chat.gif_favorites != prefs.chat_gif_favorites {
+        chat.gif_favorites.clone_from(&prefs.chat_gif_favorites);
+    }
 
     if acc.session().is_none() {
         setup_card(
@@ -214,6 +232,26 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
                 }
             }
             Action::Image(a) => chat.request_image(acc, &a),
+            Action::Gif(a) => chat.request_gif(acc, &a),
+            Action::GifSearch(q) => chat.search_gifs(acc, q),
+            Action::SendGif(g, in_thread) => chat.send_gif(acc, &g, in_thread),
+            Action::ToggleGifFavorite(g) => {
+                let favs = &mut prefs.chat_gif_favorites;
+                if let Some(i) = favs.iter().position(|f| f.id == g.id) {
+                    favs.remove(i);
+                } else {
+                    favs.insert(0, g);
+                }
+            }
+            Action::SaveGiphyKey(k) => prefs.giphy_key = k,
+            Action::ViewGif(a) => {
+                let key = a.key();
+                if let Some((t, _)) = chat.gifs.frame(ui.ctx(), &key) {
+                    let tag = format!("chat:{key}");
+                    crate::lightbox::open(ui.ctx(), tag.clone(), t, a.name.clone(), crate::lightbox::OpenWith::Tag(tag));
+                    chat.viewer = Some(a);
+                }
+            }
             Action::Favorite(s) => {
                 if !prefs.chat_favorites.contains(&s) {
                     prefs.chat_favorites.push(s);
@@ -1501,7 +1539,34 @@ fn emoji_only(text: &str) -> Option<Vec<String>> {
 
 fn attachments(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, actions: &mut Vec<Action>) {
     for a in &m.attachments {
-        if a.is_image() {
+        if a.is_gif() {
+            let key = a.key();
+            match chat.gifs.frame(ui.ctx(), &key) {
+                Some((tex, size)) => {
+                    let max = vec2(320.0_f32.min(ui.available_width()), 240.0);
+                    let scale = (max.x / size.x).min(max.y / size.y).min(1.0);
+                    let r = ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(CornerRadius::same(8)).sense(Sense::click()));
+                    // Pastille « GIF » dans le coin, comme dans Chat.
+                    let badge = Rect::from_min_size(r.rect.left_bottom() + vec2(6.0, -22.0), vec2(30.0, 16.0));
+                    ui.painter().rect_filled(badge, CornerRadius::same(4), Color32::from_black_alpha(150));
+                    ui.painter().text(badge.center(), Align2::CENTER_CENTER, "GIF", FontId::proportional(10.0), Color32::WHITE);
+                    if r.on_hover_text(t!("GIF — agrandir", "GIF — enlarge")).on_hover_cursor(egui::CursorIcon::ZoomIn).clicked() {
+                        actions.push(Action::ViewGif(a.clone()));
+                    }
+                    // Visionneuse ouverte sur ce GIF : animée aussi.
+                    crate::lightbox::upgrade(&format!("chat:{key}"), tex);
+                }
+                None if chat.gifs.failed(&key) => file_chip(ui, a, actions),
+                None => {
+                    if !chat.gifs.is_known(&key) {
+                        actions.push(Action::Gif(a.clone()));
+                    }
+                    let (r, _) = ui.allocate_exact_size(vec2(160.0, 100.0), Sense::hover());
+                    ui.painter().rect_filled(r, CornerRadius::same(8), theme::SURFACE());
+                    ui.put(Rect::from_center_size(r.center(), vec2(18.0, 18.0)), egui::Spinner::new().size(16.0));
+                }
+            }
+        } else if a.is_image() {
             let key = a.key();
             let ctx = ui.ctx().clone();
             // `get` crée la texture au premier affichage.
@@ -1667,6 +1732,15 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
                 if r.clicked() {
                     chat.composer_picker = if chat.composer_picker.is_some() { None } else { Some((key.clone(), r.rect.left_top())) };
                 }
+                // GIF (comme Discord) : tendances, recherche, favoris ; un clic envoie.
+                let g = ui
+                    .add(egui::Button::new(RichText::new("GIF").small().strong()).corner_radius(CornerRadius::same(4)).min_size(vec2(30.0, 20.0)))
+                    .on_hover_text(t!("Envoyer un GIF", "Send a GIF"));
+                if g.clicked() {
+                    let open_here = chat.gif_picker.as_ref().is_some_and(|p| p.draft == key);
+                    chat.gif_picker = if open_here { None } else { Some(super::gif_picker::Picker::new(key.clone(), g.rect.left_top())) };
+                    chat.composer_picker = None;
+                }
                 if !in_thread
                     && ui
                         .add(egui::Button::new("📎").frame(false))
@@ -1723,6 +1797,23 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
             chat.composer_picker = None;
         } else if outside || ui.input(|i| i.key_pressed(Key::Escape)) {
             chat.composer_picker = None;
+        }
+    }
+    // Sélecteur de GIF de ce champ.
+    if chat.gif_picker.as_ref().is_some_and(|p| p.draft == key) {
+        use super::gif_picker::Want;
+        for w in super::gif_picker::show(ui, chat) {
+            match w {
+                Want::Search(q) => actions.push(Action::GifSearch(q)),
+                Want::Send(g) => {
+                    actions.push(Action::SendGif(g, in_thread));
+                    chat.gif_picker = None;
+                }
+                Want::ToggleFavorite(g) => actions.push(Action::ToggleGifFavorite(g)),
+                Want::SaveKey(k) => actions.push(Action::SaveGiphyKey(k)),
+                Want::Load(a) => actions.push(Action::Gif(a)),
+                Want::Close => chat.gif_picker = None,
+            }
         }
     }
     // « :nom: » complet → émoji, comme dans Google Chat.
@@ -1912,6 +2003,14 @@ pub fn prepare_images(chat: &mut ChatState, ctx: &egui::Context) {
         .get(chat.open.as_deref().unwrap_or_default())
         .map(|l| l.iter().flat_map(|m| m.attachments.iter()).filter(|a| a.is_image()).map(|a| a.key()).collect())
         .unwrap_or_default();
+    let gifs: Vec<String> = chat
+        .msgs
+        .get(chat.open.as_deref().unwrap_or_default())
+        .map(|l| l.iter().flat_map(|m| m.attachments.iter()).filter(|a| a.is_gif()).map(|a| a.key()).collect())
+        .unwrap_or_default();
+    for k in gifs {
+        chat.gifs.prepare(ctx, &k);
+    }
     let photos: Vec<String> = chat.people.keys().map(|u| format!("photo:{u}")).chain(chat.icons.keys().map(|s| format!("icon:{s}"))).collect();
     for k in keys.into_iter().chain(photos) {
         let _ = chat.images.get(ctx, &k);
