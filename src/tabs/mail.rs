@@ -24,6 +24,8 @@ const STARRED: &str = "STARRED";
 const UNREAD: &str = "UNREAD";
 /// Nombre de messages chargés par dossier.
 const PAGE: usize = 40;
+/// Mails cherchés pour un groupe (toute la messagerie, pas seulement la page affichée).
+const GROUP_PAGE: usize = 100;
 /// Vérification automatique des nouveaux mails.
 const SYNC_EVERY: Duration = Duration::from_secs(60);
 
@@ -216,7 +218,20 @@ impl MailState {
                     self.dir_mails = Some((addr.to_string(), list.clone()));
                 }
                 if label == self.folder {
-                    self.messages = list;
+                    // Groupe : résultats de Gmail + mails déjà connus passés par ce groupe.
+                    self.messages = match label.strip_prefix("group:") {
+                        Some(addr) => {
+                            let mut all = list;
+                            for m in self.known_for_group(addr) {
+                                if !all.iter().any(|x| x.id == m.id) {
+                                    all.push(m);
+                                }
+                            }
+                            all.sort_by_key(|m| std::cmp::Reverse(m.date));
+                            all
+                        }
+                        None => list,
+                    };
                     self.loading = false;
                 }
             }
@@ -704,9 +719,12 @@ impl MailState {
                 list.insert(pos, m.clone());
             }
         }
-        let in_folder = match self.folder.strip_prefix("from:") {
-            Some(addr) => contacts::parse_mailbox(&m.from).is_some_and(|(_, e)| e == addr),
-            None => self.belongs(&m.labels),
+        let in_folder = if let Some(addr) = self.folder.strip_prefix("from:") {
+            contacts::parse_mailbox(&m.from).is_some_and(|(_, e)| e == addr)
+        } else if let Some(addr) = self.folder.strip_prefix("group:") {
+            groups::belongs(&m, addr) && !m.labels.iter().any(|l| l == "TRASH" || l == "SPAM")
+        } else {
+            self.belongs(&m.labels)
         };
         let known = self.messages.iter().any(|x| x.id == m.id);
         // Un mail ancien hors de la page affichée n'y est pas ajouté.
@@ -743,6 +761,36 @@ impl MailState {
     }
 
     /// Affiche les mails d'une adresse (recherche Gmail `from:`).
+    /// N'affiche que les mails passés par une adresse de groupe : ceux déjà chargés tout de suite,
+    /// puis tous ceux que trouve la recherche Gmail (destinataire, liste de diffusion, remise).
+    pub fn show_group(&mut self, acc: &Account, address: &str) {
+        let addr = address.trim().to_lowercase();
+        let folder = format!("group:{addr}");
+        self.directory = false;
+        if self.folder == folder {
+            // Second clic : retour à la boîte de réception.
+            self.select_folder(acc, INBOX);
+            return;
+        }
+        let known = self.known_for_group(&addr);
+        self.folder = folder.clone();
+        self.messages = known;
+        self.loading = true;
+        acc.run(move |s| Ok(Event::Messages { list: gmail::list(s, &folder, GROUP_PAGE)?, label: folder }));
+    }
+
+    /// Mails déjà chargés (toutes listes confondues) passés par cette adresse de groupe.
+    fn known_for_group(&self, addr: &str) -> Vec<Summary> {
+        let mut out: Vec<Summary> = Vec::new();
+        for m in self.messages.iter().chain(self.starred.iter()).chain(self.pinned.list.iter()).chain(self.dir_mails.iter().flat_map(|(_, l)| l.iter())) {
+            if groups::belongs(m, addr) && !out.iter().any(|x| x.id == m.id) && !m.labels.iter().any(|l| l == "TRASH" || l == "SPAM") {
+                out.push(m.clone());
+            }
+        }
+        out.sort_by_key(|m| std::cmp::Reverse(m.date));
+        out
+    }
+
     pub fn show_from(&mut self, acc: &Account, email: &str) {
         self.directory = false;
         self.select_folder(acc, &format!("from:{}", email.to_lowercase()));
@@ -839,6 +887,7 @@ impl MailState {
             "SPAM" => "Spam".into(),
             "TRASH" => t!("Corbeille", "Trash").into(),
             STARRED => t!("Favoris", "Starred").into(),
+            other if other.starts_with("group:") => tf!("Groupe : {}", "Group: {}", &other[6..]),
             other if other.starts_with("from:") => {
                 let addr = &other[5..];
                 let name = self.contacts.get(addr).map(|c| c.display_name().to_string());

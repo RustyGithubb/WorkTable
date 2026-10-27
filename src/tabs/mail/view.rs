@@ -50,6 +50,8 @@ enum Action {
     Directory,
     Dir(directory::DirAction),
     FromFilter(String),
+    /// Seulement les mails passés par cette adresse de groupe.
+    GroupFilter(String),
     ContactFavorite(String),
     WriteTo(String),
     ChatTo(String),
@@ -86,7 +88,6 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
     let list_hidden = prefs.mail_list_hidden;
 
     let mut dir_actions = Vec::new();
-    let acc_ref: &Account = acc;
     widgets::pane_columns(ui, &fixed, |i, ui| match (i, mail.directory, has_list) {
         (0, _, _) => sidebar(ui, mail, cats_open, &mut toggle_cats, &mut actions),
         (1, true, _) => directory::list(ui, mail, &mut dir_actions),
@@ -96,7 +97,7 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
                 message_list(ui, mail, &mut actions)
             }
         }
-        _ => reading_pane(ui, mail, acc_ref, &email, list_hidden, &mut toggle_list, &mut actions),
+        _ => reading_pane(ui, mail, &email, list_hidden, &mut toggle_list, &mut actions),
     });
     if toggle_list {
         prefs.mail_list_hidden = !prefs.mail_list_hidden;
@@ -113,6 +114,7 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
     actions.extend(dir_actions.into_iter().map(Action::Dir));
 
     drafts_bar(ui, mail, &mut actions);
+    compose_window(ui, mail, acc, &mut actions);
     preview_modal(ui, mail, &mut actions);
     toast(ui, mail);
 
@@ -133,6 +135,7 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
             }
             Action::Directory => mail.directory = true,
             Action::FromFilter(e) => mail.show_from(acc, &e),
+            Action::GroupFilter(a) => mail.show_group(acc, &a),
             Action::ContactFavorite(e) => mail.contacts.toggle_favorite(&e),
             Action::WriteTo(m) => mail.write_to(m),
             Action::ChatTo(e) => mail.chat_to = Some(e),
@@ -373,7 +376,9 @@ fn sidebar(ui: &mut egui::Ui, mail: &mut MailState, cats_open: bool, toggle_cats
         hl.end(ui, SELECTED(), 6.0);
 
         ui.add_space(12.0);
-        groups_section(ui, mail);
+        if let Some(addr) = groups_section(ui, mail) {
+            actions.push(Action::GroupFilter(addr));
+        }
     });
 
     // Moitié basse : favoris, toujours visibles tant qu'ils restent en favoris.
@@ -449,7 +454,7 @@ fn section_title(ui: &mut egui::Ui, text: &str) {
 }
 
 /// Section « Groupes » : adresses intermédiaires colorées + adresses détectées à colorer.
-fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) {
+fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) -> Option<String> {
     let open = mail.groups_open;
     ui.horizontal(|ui| {
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 30.0, 18.0), Sense::click());
@@ -492,6 +497,7 @@ fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) {
     }
 
     let (groups_list, mut edits, mut new_group) = (mail.groups.clone(), Vec::new(), mail.new_group.take());
+    let mut group_click: Option<String> = None;
     liquid::collapse(ui, "mail_groups", open, |ui| {
         if let Some(addr) = &mut new_group {
             match name_input(ui, "new_group", addr, "adresse@groupe.fr") {
@@ -512,15 +518,29 @@ fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) {
             );
         }
         for g in &groups_list {
+            let active = mail.folder.strip_prefix("group:").is_some_and(|a| a.eq_ignore_ascii_case(&g.address));
             ui.horizontal(|ui| {
                 ui.add_space(8.0);
                 if let Some(e) = groups::swatch(ui, g, 12.0) {
                     edits.push(e);
                 }
                 ui.add_space(4.0);
-                let w = ui.available_width();
-                let gal = one_line(ui.painter(), &g.address, FontId::proportional(13.0), theme::TEXT_MUTED(), w);
-                ui.label(gal).on_hover_text(&g.address);
+                // Clic sur l'adresse : seulement les mails de ce groupe (second clic : retour).
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
+                let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if active {
+                    t!("Afficher toute la boîte de réception", "Show the whole inbox").to_string()
+                } else {
+                    tf!("N'afficher que les mails de {}", "Show only the mails of {}", g.address)
+                });
+                if active || resp.hovered() {
+                    ui.painter().rect_filled(r, CornerRadius::same(6), if active { SELECTED() } else { theme::overlay(8) });
+                }
+                let color = if active { theme::TEXT() } else { theme::TEXT_MUTED() };
+                let gal = one_line(ui.painter(), &g.address, theme::editor_font(13.0, active), color, r.width() - 10.0);
+                ui.painter().galley(egui::pos2(r.left() + 5.0, r.center().y - gal.size().y / 2.0), gal, color);
+                if resp.clicked() {
+                    group_click = Some(g.address.clone());
+                }
             });
         }
         if !detected.is_empty() {
@@ -536,6 +556,7 @@ fn groups_section(ui: &mut egui::Ui, mail: &mut MailState) {
     });
     mail.new_group = new_group;
     mail.group_edits.extend(edits);
+    group_click
 }
 
 /// Fond de sélection (forme liquide) des listes.
@@ -592,7 +613,8 @@ fn message_list(ui: &mut egui::Ui, mail: &MailState, actions: &mut Vec<Action>) 
     ui.horizontal(|ui| {
         ui.label(RichText::new(mail.folder_name(&mail.folder)).strong());
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if mail.folder.starts_with("from:") && ui.small_button("×").on_hover_text(t!("Retirer le filtre", "Remove the filter")).clicked() {
+            if (mail.folder.starts_with("from:") || mail.folder.starts_with("group:")) && ui.small_button("×").on_hover_text(t!("Retirer le filtre", "Remove the filter")).clicked()
+            {
                 actions.push(Action::Folder(INBOX.into()));
             }
             if ui.small_button(t!("Actualiser", "Refresh")).clicked() {
@@ -803,18 +825,8 @@ fn message_row(ui: &mut egui::Ui, m: &Summary, active: bool, pinned: bool, count
 
 // --- Lecture / rédaction ---------------------------------------------------
 
-fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &str, list_hidden: bool, toggle_list: &mut bool, actions: &mut Vec<Action>) {
-    // Bouton pour masquer / réafficher la liste des mails.
-    ui.horizontal(|ui| {
-        let (label, tip) = if list_hidden {
-            (t!("›  Afficher la liste", "›  Show the list"), t!("Réafficher la liste des mails", "Show the mail list again"))
-        } else {
-            (t!("‹  Masquer la liste", "‹  Hide the list"), t!("Masquer la liste pour agrandir la lecture", "Hide the list to widen the reading pane"))
-        };
-        if ui.add(egui::Button::new(RichText::new(label).small().color(theme::TEXT_MUTED())).frame(false)).on_hover_text(tip).clicked() {
-            *toggle_list = true;
-        }
-    });
+/// Fenêtre de rédaction (au-dessus de la messagerie, fond flouté), si un brouillon est ouvert.
+fn compose_window(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, actions: &mut Vec<Action>) {
     if let Some(d) = &mut mail.draft {
         // Aperçu fidèle de la signature (mise en forme, couleurs, images hébergées).
         let sig_blocks = d.signature.as_deref().map(crate::google::html::from_html).unwrap_or_default();
@@ -845,8 +857,21 @@ fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, acc: &Account, email: &
             Some(composer::Out::Error(e)) => mail.notice = Some(super::Notice { text: e, error: true, at: std::time::Instant::now() }),
             None => {}
         }
-        return;
     }
+}
+
+fn reading_pane(ui: &mut egui::Ui, mail: &mut MailState, email: &str, list_hidden: bool, toggle_list: &mut bool, actions: &mut Vec<Action>) {
+    // Bouton pour masquer / réafficher la liste des mails.
+    ui.horizontal(|ui| {
+        let (label, tip) = if list_hidden {
+            (t!("›  Afficher la liste", "›  Show the list"), t!("Réafficher la liste des mails", "Show the mail list again"))
+        } else {
+            (t!("‹  Masquer la liste", "‹  Hide the list"), t!("Masquer la liste pour agrandir la lecture", "Hide the list to widen the reading pane"))
+        };
+        if ui.add(egui::Button::new(RichText::new(label).small().color(theme::TEXT_MUTED())).frame(false)).on_hover_text(tip).clicked() {
+            *toggle_list = true;
+        }
+    });
     if mail.opening.is_some() {
         ui.add_space(ui.available_height() * 0.42);
         ui.vertical_centered(|ui| ui.add(egui::Spinner::new()));

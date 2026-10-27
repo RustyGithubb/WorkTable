@@ -36,6 +36,11 @@ fn list_id_matches(list_id: &str, address: &str) -> bool {
     !id.is_empty() && id.contains(&address.to_lowercase().replacen('@', ".", 1))
 }
 
+/// Le mail est-il passé par cette adresse de groupe (destinataire ou liste de diffusion) ?
+pub fn belongs(m: &Summary, address: &str) -> bool {
+    emails(&m.recipients).iter().any(|e| e.eq_ignore_ascii_case(address)) || list_id_matches(&m.list_id, address)
+}
+
 /// Groupe coloré auquel le mail a été adressé, s'il y en a un.
 pub fn group_of<'a>(m: &Summary, groups: &'a [GroupColor]) -> Option<&'a GroupColor> {
     if groups.is_empty() {
@@ -164,6 +169,14 @@ mod tests {
         let m = mail("Dorian <dorian@artfx.fr>, lea@studio.fr", "");
         assert!(intermediates(&m, own).is_empty());
         assert!(group_of(&m, &groups).is_none());
+        // Filtre d'un groupe : destinataire ou List-Id.
+        assert!(belongs(&mail("Promo <TheOtter@artfx.fr>", ""), "theotter@artfx.fr"));
+        assert!(belongs(&mail("x@y.fr", "<theotter.artfx.fr>"), "theotter@artfx.fr"));
+        assert!(!belongs(&mail("x@y.fr", ""), "theotter@artfx.fr"));
+        assert_eq!(
+            crate::google::gmail::group_query("TheOtter@artfx.fr "),
+            "{to:theotter@artfx.fr cc:theotter@artfx.fr bcc:theotter@artfx.fr list:theotter@artfx.fr deliveredto:theotter@artfx.fr}"
+        );
     }
 
     #[test]

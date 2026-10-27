@@ -26,6 +26,13 @@ pub struct Suggest {
     refocus: Option<egui::Id>,
 }
 
+impl Suggest {
+    /// Liste de suggestions affichée (Échap la ferme, pas la fenêtre).
+    pub fn popup_open(&self) -> bool {
+        self.popup.is_some()
+    }
+}
+
 /// Sépare le texte en (destinataires déjà saisis, adresse en cours de frappe).
 pub fn split_token(text: &str) -> (String, String) {
     let mut quoted = false;
@@ -61,6 +68,16 @@ fn move_cursor_to_end(ctx: &egui::Context, id: egui::Id, text: &str) {
 
 /// Renvoie la zone de saisie (pour un menu contextuel, par exemple).
 pub fn field(ui: &mut egui::Ui, label: &str, text: &mut String, salt: &str, hint: &str, book: &Contacts, st: &mut Suggest) -> egui::Response {
+    field_impl(ui, label, text, salt, hint, book, st, false)
+}
+
+/// Même champ, sans cadre, étiquette en petites capitales (fenêtre de rédaction).
+pub fn field_bare(ui: &mut egui::Ui, label: &str, text: &mut String, salt: &str, hint: &str, book: &Contacts, st: &mut Suggest) -> egui::Response {
+    field_impl(ui, label, text, salt, hint, book, st, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn field_impl(ui: &mut egui::Ui, label: &str, text: &mut String, salt: &str, hint: &str, book: &Contacts, st: &mut Suggest, bare: bool) -> egui::Response {
     let ctx = ui.ctx().clone();
     let id = egui::Id::unique(("wt_recipients", salt));
     if st.refocus == Some(id) {
@@ -107,15 +124,21 @@ pub fn field(ui: &mut egui::Ui, label: &str, text: &mut String, salt: &str, hint
 
     let resp = ui
         .horizontal(|ui| {
-            ui.add_sized([52.0, 24.0], egui::Label::new(RichText::new(label).color(theme::TEXT_MUTED())));
-            ui.add(
-                egui::TextEdit::singleline(text)
-                    .id(id)
-                    .hint_text(hint)
-                    // Tab sert à valider la suggestion au lieu de changer de champ.
-                    .lock_focus(!suggestions.is_empty())
-                    .desired_width(ui.available_width()),
-            )
+            if bare {
+                super::composer::field_label(ui, label);
+            } else {
+                ui.add_sized([52.0, 24.0], egui::Label::new(RichText::new(label).color(theme::TEXT_MUTED())));
+            }
+            let mut te = egui::TextEdit::singleline(text)
+                .id(id)
+                .hint_text(hint)
+                // Tab sert à valider la suggestion au lieu de changer de champ.
+                .lock_focus(!suggestions.is_empty())
+                .desired_width(ui.available_width());
+            if bare {
+                te = te.frame(egui::Frame::NONE).margin(vec2(0.0, 6.0));
+            }
+            ui.add(te)
         })
         .inner;
 

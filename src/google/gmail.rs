@@ -224,10 +224,14 @@ pub fn create_label(s: &Session, name: &str) -> Result<Label, String> {
 /// Un `label` commençant par `from:` est une recherche Gmail (mails d'une adresse).
 pub fn list(s: &Session, label: &str, max: usize) -> Result<Vec<Summary>, String> {
     let max_s = max.to_string();
+    let group_q;
     let filter = if let Some(q) = label.strip_prefix("search:") {
         ("q", q)
     } else if label.starts_with("from:") {
         ("q", label)
+    } else if let Some(addr) = label.strip_prefix("group:") {
+        group_q = group_query(addr);
+        ("q", group_q.as_str())
     } else {
         ("labelIds", label)
     };
@@ -239,6 +243,13 @@ pub fn list(s: &Session, label: &str, max: usize) -> Result<Vec<Summary>, String
     let mut out: Vec<Summary> = ids.iter().filter_map(|id| cache.get(id).cloned()).collect();
     out.sort_by_key(|m| std::cmp::Reverse(m.date));
     Ok(out)
+}
+
+/// Recherche Gmail des mails passés par une adresse de groupe : destinataire (À, Cc, Cci), liste
+/// de diffusion (`List-Id`) ou adresse de remise.
+pub fn group_query(addr: &str) -> String {
+    let a = addr.trim().to_lowercase();
+    format!("{{to:{a} cc:{a} bcc:{a} list:{a} deliveredto:{a}}}")
 }
 
 /// Télécharge les métadonnées des messages absents du cache.

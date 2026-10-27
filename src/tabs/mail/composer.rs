@@ -31,8 +31,11 @@ pub struct Editor {
     suggest: recipients::Suggest,
     /// Signature par défaut déjà appliquée à ce brouillon.
     pub sig_applied: bool,
-    /// État de l'enregistrement du brouillon (« Brouillon enregistré »…), affiché à côté du titre.
+    /// État de l'enregistrement du brouillon (« Brouillon enregistré »…), affiché sous le titre.
     pub save_label: Option<String>,
+    /// Fenêtre ouverte (fond flouté capturé à l'ouverture).
+    opened: bool,
+    bg: crate::search::Backdrop,
     /// Sélecteur d'émojis ouvert (position) et son état.
     picker: Option<egui::Pos2>,
     emoji_query: String,
@@ -60,6 +63,13 @@ enum Op {
     RemoveImage(usize),
 }
 
+/// Hauteur réservée au pied de la fenêtre (boutons, raccourcis).
+const FOOTER_H: f32 = 46.0;
+
+/// Fenêtre de rédaction, dans le style de la recherche (Ctrl+Espace) et de la fiche contact :
+/// fond flouté, carte centrée qui apparaît en fondu. Fermer (✕, Échap, clic à côté) range le
+/// brouillon ; « Envoyer » ou Ctrl+Entrée envoie.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     d: &mut Draft,
@@ -69,101 +79,202 @@ pub fn show(
     signatures: &[Signature],
     signature_preview: &mut dyn FnMut(&mut egui::Ui),
 ) -> Option<Out> {
+    let ctx = ui.ctx().clone();
     // Signature par défaut (la première : celle de Gmail), comme à l'ouverture d'un brouillon Gmail.
     if !ed.sig_applied && !signatures.is_empty() {
         d.signature = Some(signatures[0].html.clone());
         ed.sig_applied = true;
     }
+    let card_id = egui::Id::unique("wt_compose_card");
+    if !ed.opened {
+        ed.opened = true;
+        ed.bg.start(&ctx);
+    }
     let mut out = None;
-    let title = match d.mode {
-        Mode::New => t!("Nouveau message", "New message"),
-        Mode::Reply => t!("Répondre", "Reply"),
-        Mode::Forward => t!("Transférer", "Forward"),
-    };
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(title).font(theme::title_font(20.0)));
-        if let Some(l) = &ed.save_label {
+    // Fond : capture floutée et voile ; un clic à côté ferme (le brouillon est gardé).
+    let popups_open = ed.picker.is_some() || crate::spell::menu_open(&ctx) || ed.suggest.popup_open();
+    let (k, backdrop_click) = ed.bg.show_in(&ctx, "wt_compose_backdrop", egui::Order::Foreground);
+    if backdrop_click && !sending && !popups_open {
+        out = Some(Out::Cancel);
+    }
+    // Ctrl+Entrée : envoyer.
+    if !sending && ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter)) {
+        out = Some(Out::Send);
+    }
+
+    let screen = ctx.content_rect();
+    let w = 820.0_f32.min(screen.width() - 48.0);
+    let h = (screen.height() * 0.84).min(900.0);
+    let top = screen.top() + (screen.height() - h) * 0.42 - (1.0 - k) * 12.0;
+    egui::Area::new(card_id).order(egui::Order::Foreground).fixed_pos(egui::pos2(screen.center().x - w / 2.0, top)).show(&ctx, |ui| {
+        ui.multiply_opacity(k);
+        crate::search::overlay_frame().show(ui, |ui| {
+            ui.set_width(w - 28.0);
+            ui.set_height(h - 28.0);
+            if let Some(o) = header(ui, d, ed, sending) {
+                out = Some(o);
+            }
+            ui.add_space(8.0);
+            separator(ui);
+
+            // Destinataires et objet : étiquettes en petites capitales, champs sans cadre.
+            ui.add_space(2.0);
+            let _ = recipients::field_bare(ui, t!("À", "To"), &mut d.to, "to", t!("Nom ou adresse…", "Name or address…"), book, &mut ed.suggest);
+            separator(ui);
+            let _ = recipients::field_bare(ui, "Cc", &mut d.cc, "cc", "", book, &mut ed.suggest);
+            separator(ui);
+            ui.horizontal(|ui| {
+                field_label(ui, t!("Objet", "Subject"));
+                let o = egui::TextEdit::singleline(&mut d.subject)
+                    .hint_text(t!("Objet du message", "Subject of the message"))
+                    .font(theme::editor_font(15.0, true))
+                    .frame(egui::Frame::NONE)
+                    .desired_width(ui.available_width())
+                    .show(ui);
+                crate::spell::check(ui, &o, &mut d.subject);
+            });
+            separator(ui);
             ui.add_space(6.0);
-            ui.label(RichText::new(l).small().color(theme::TEXT_FAINT()));
-        }
-    });
-    ui.add_space(12.0);
-    let _ = recipients::field(ui, t!("À", "To"), &mut d.to, "to", t!("Nom ou adresse…", "Name or address…"), book, &mut ed.suggest);
-    let _ = recipients::field(ui, "Cc", &mut d.cc, "cc", "", book, &mut ed.suggest);
-    ui.horizontal(|ui| {
-        ui.add_sized([52.0, 24.0], egui::Label::new(RichText::new(t!("Objet", "Subject")).color(theme::TEXT_MUTED())));
-        let out = egui::TextEdit::singleline(&mut d.subject).desired_width(ui.available_width()).show(ui);
-        crate::spell::check(ui, &out, &mut d.subject);
-    });
-    ui.add_space(8.0);
 
-    ed.focus = nearest_para(d, ed.focus);
-    if let Some(e) = toolbar(ui, d, ed, signatures) {
-        out = Some(Out::Error(e));
-    }
-    emoji_picker(ui, d, ed);
-    if let Some(e) = dropped_files(ui, d, ed) {
-        out = Some(Out::Error(e));
-    }
+            ed.focus = nearest_para(d, ed.focus);
+            if let Some(e) = toolbar(ui, d, ed, signatures) {
+                out = Some(Out::Error(e));
+            }
+            emoji_picker(ui, d, ed);
+            if let Some(e) = dropped_files(ui, d, ed) {
+                out = Some(Out::Error(e));
+            }
+            // Pièces jointes du message.
+            if !d.files.is_empty() {
+                ui.add_space(6.0);
+                ui.label(RichText::new(tf!("PIÈCES JOINTES · {}", "ATTACHMENTS · {}", d.files.len())).small().strong().color(theme::TEXT_FAINT()));
+                let mut remove = None;
+                ui.horizontal_wrapped(|ui| {
+                    for (i, f) in d.files.iter().enumerate() {
+                        file_chip(ui, f, || remove = Some(i));
+                    }
+                });
+                if let Some(i) = remove {
+                    d.files.remove(i);
+                }
+            }
+            ui.add_space(6.0);
+            separator(ui);
+            ui.add_space(8.0);
 
-    // Pièces jointes du message.
-    if !d.files.is_empty() {
-        ui.add_space(6.0);
-        let mut remove = None;
-        ui.horizontal_wrapped(|ui| {
-            for (i, f) in d.files.iter().enumerate() {
-                file_chip(ui, f, || remove = Some(i));
+            // Texte du message.
+            let height = (ui.available_height() - FOOTER_H).max(120.0);
+            egui::ScrollArea::vertical().id_salt("compose_body").max_height(height).min_scrolled_height(height).auto_shrink([false, false]).show(ui, |ui| {
+                // Signature : rendu fidèle, non modifiable ici (elle vient de Gmail).
+                body(ui, d, ed, &mut |ui, d| {
+                    if d.signature.is_some() {
+                        ui.add_space(10.0);
+                        ui.label(RichText::new("--").color(theme::TEXT_FAINT()));
+                        signature_preview(ui);
+                    }
+                });
+            });
+
+            separator(ui);
+            ui.add_space(8.0);
+            if let Some(o) = footer(ui, d, sending) {
+                out = Some(o);
             }
         });
-        if let Some(i) = remove {
-            d.files.remove(i);
-        }
+    });
+    // La carte reste juste au-dessus de son fond ; ses menus (suggestions, émojis, corrections,
+    // listes) s'ouvrent au-dessus d'elle.
+    ctx.set_sublayer(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("wt_compose_backdrop")), egui::LayerId::new(egui::Order::Foreground, card_id));
+    // Échap : fermer (après les champs, qui le prennent pour leurs suggestions).
+    if out.is_none() && !sending && !popups_open && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+        out = Some(Out::Cancel);
     }
-    ui.add_space(8.0);
+    if matches!(out, Some(Out::Cancel | Out::Discard)) {
+        ed.bg.clear();
+        ed.opened = false;
+    }
+    out
+}
 
-    // Zone de texte.
-    let bottom = 44.0;
-    let height = (ui.available_height() - bottom).max(140.0);
-    egui::Frame::new().fill(theme::BG()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("compose_body").max_height(height - 26.0).auto_shrink([false, false]).show(ui, |ui| {
-            // Signature : rendu fidèle, non modifiable ici (elle vient de Gmail).
-            body(ui, d, ed, &mut |ui, d| {
-                if d.signature.is_some() {
-                    ui.add_space(10.0);
-                    ui.label(RichText::new("--").color(theme::TEXT_FAINT()));
-                    signature_preview(ui);
-                }
-            });
+/// En-tête : pastille, titre (nouveau message, réponse, transfert), état du brouillon, ✕.
+fn header(ui: &mut egui::Ui, d: &Draft, ed: &Editor, sending: bool) -> Option<Out> {
+    let mut out = None;
+    let (title, icon) = match d.mode {
+        Mode::New => (t!("Nouveau message", "New message"), "✉"),
+        Mode::Reply => (t!("Répondre", "Reply"), "↩"),
+        Mode::Forward => (t!("Transférer", "Forward"), "➦"),
+    };
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::hover());
+        ui.painter().circle_filled(r.center(), 22.0, theme::SURFACE_HI());
+        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, icon, egui::FontId::proportional(19.0), theme::TEXT());
+        ui.vertical(|ui| {
+            ui.add_space(2.0);
+            ui.label(RichText::new(title).font(theme::title_font(19.0)).color(theme::TEXT()));
+            let sub = match (&ed.save_label, d.mode) {
+                (Some(l), _) => l.clone(),
+                (None, Mode::New) => t!("Brouillon enregistré automatiquement", "Draft saved automatically").to_string(),
+                (None, _) => d.subject.clone(),
+            };
+            ui.add(egui::Label::new(RichText::new(sub).small().color(theme::TEXT_MUTED())).truncate());
+        });
+        ui.with_layout(Layout::right_to_left(EAlign::Center), |ui| {
+            let close = ui
+                .add_enabled(!sending, egui::Button::new(RichText::new("✕").size(14.0)).frame(false).min_size(vec2(30.0, 30.0)).corner_radius(CornerRadius::same(255)))
+                .on_hover_text(t!("Fermer (le brouillon est gardé) · Échap", "Close (the draft is kept) · Esc"));
+            if close.clicked() {
+                out = Some(Out::Cancel);
+            }
         });
     });
+    out
+}
 
-    ui.add_space(8.0);
+/// Pied : Envoyer (bouton principal), Fermer, Supprimer ; taille du message, raccourcis.
+fn footer(ui: &mut egui::Ui, d: &Draft, sending: bool) -> Option<Out> {
+    let mut out = None;
     ui.horizontal(|ui| {
         let label = if sending { t!("Envoi…", "Sending…") } else { t!("Envoyer", "Send") };
-        if ui.add_enabled(!sending, egui::Button::new(label)).clicked() {
+        let send = egui::Button::new(RichText::new(label).strong().color(Color32::WHITE)).fill(theme::TODAY()).corner_radius(CornerRadius::same(10)).min_size(vec2(104.0, 32.0));
+        if ui.add_enabled(!sending, send).on_hover_text(t!("Envoyer · Ctrl+Entrée", "Send · Ctrl+Enter")).clicked() {
             out = Some(Out::Send);
         }
+        if sending {
+            ui.add(egui::Spinner::new().size(14.0));
+        }
+        let close = egui::Button::new(t!("Fermer", "Close")).corner_radius(CornerRadius::same(10)).min_size(vec2(0.0, 32.0));
         if ui
-            .add_enabled(!sending, egui::Button::new(t!("Fermer", "Close")))
+            .add_enabled(!sending, close)
             .on_hover_text(t!("Le brouillon est gardé (barre des brouillons, en bas à droite)", "The draft is kept (drafts bar, bottom right)"))
             .clicked()
         {
             out = Some(Out::Cancel);
         }
-        if ui.add_enabled(!sending, egui::Button::new("🗑")).on_hover_text(t!("Supprimer le brouillon", "Delete the draft")).clicked() {
+        let bin = egui::Button::new("🗑").corner_radius(CornerRadius::same(10)).min_size(vec2(32.0, 32.0));
+        if ui.add_enabled(!sending, bin).on_hover_text(t!("Supprimer le brouillon", "Delete the draft")).clicked() {
             out = Some(Out::Discard);
         }
-        if sending {
-            ui.add(egui::Spinner::new().size(14.0));
-        }
-        let total = d.total_size();
-        if total > 0 {
-            ui.with_layout(Layout::right_to_left(EAlign::Center), |ui| {
-                ui.label(RichText::new(format!("{} / 25 Mo", human_size(total as u64))).small().color(theme::TEXT_FAINT()));
-            });
-        }
+        ui.with_layout(Layout::right_to_left(EAlign::Center), |ui| {
+            ui.label(RichText::new(t!("Ctrl+Entrée envoyer · Échap fermer", "Ctrl+Enter send · Esc close")).small().color(theme::TEXT_FAINT()));
+            let total = d.total_size();
+            if total > 0 {
+                ui.label(RichText::new(format!("{} / 25 Mo  ·", human_size(total as u64))).small().color(theme::TEXT_FAINT()));
+            }
+        });
     });
     out
+}
+
+/// Étiquette d'un champ (« À », « CC », « OBJET ») : petites capitales, comme les groupes de la
+/// recherche.
+pub fn field_label(ui: &mut egui::Ui, label: &str) {
+    ui.add_sized([58.0, 30.0], egui::Label::new(RichText::new(label.to_uppercase()).small().strong().color(theme::TEXT_FAINT())));
+}
+
+fn separator(ui: &mut egui::Ui) {
+    let y = ui.cursor().top();
+    ui.painter().hline(ui.max_rect().x_range(), y, Stroke::new(1.0, theme::BORDER()));
+    ui.add_space(1.0);
 }
 
 // --- Barre d'outils --------------------------------------------------------

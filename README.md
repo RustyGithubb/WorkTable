@@ -271,6 +271,10 @@ Enregistrement automatique une seconde après la dernière frappe.
 - Corbeille : bouton « 🗑 Corbeille » dans la lecture, touche Suppr, ou clic droit sur un mail de la
   liste — toute la conversation quitte la boîte de réception ; depuis le dossier Corbeille, « Restaurer » le remet dans la boîte de réception.
 - Liste : l'épingle, l'étoile et le nom du groupe coloré n'apparaissent qu'au survol d'un mail.
+- **Groupes** (colonne de gauche) : un clic sur une adresse de groupe n'affiche que les mails
+  passés par ce groupe — ceux déjà chargés aussitôt, puis tous ceux que trouve une recherche Gmail
+  dans toute la messagerie (destinataire À / Cc / Cci, liste de diffusion `List-Id`, adresse de
+  remise ; 100 au plus). Second clic, ou « × » en haut de la liste : retour à la boîte de réception.
 - **Brouillons** (comme Gmail) : un mail en cours d'écriture n'est jamais perdu. Il est enregistré
   2 s après la dernière frappe, sur l'ordinateur (`data\drafts.json`, relu au lancement) et dans
   les « Brouillons » de Gmail dès qu'il a un destinataire valide (donc aussi sur le téléphone).
@@ -286,7 +290,10 @@ Enregistrement automatique une seconde après la dernière frappe.
     listes `<ul>/<ol>`, citations `<blockquote>`, liens cliquables `<a href>`, code `<code>/<pre>` ;
   - Markdown écrit dans le texte : `**gras**`, `__gras__`, `*italique*`, `_italique_`,
     `~~barré~~`, `` `code` ``, `# titre`, `> citation`, `- puce`.
-- Rédaction (Nouveau message / Répondre / Transférer) :
+- Rédaction (Nouveau message / Répondre / Transférer) : fenêtre dans le style de la recherche
+  (Ctrl+Espace) et de la fiche contact — fond flouté, carte centrée en fondu ; en-tête avec l'état
+  du brouillon, champs « À / CC / OBJET » sans cadre, pied avec **Envoyer** (ou Ctrl+Entrée),
+  Fermer et 🗑. Échap, ✕ ou un clic à côté ferment en gardant le brouillon :
   - taille (Petit, Normal, Grand, Titre) et alignement (gauche, centre, droite, justifié) par paragraphe ;
   - gras : sélectionner du texte puis « B » (noté `**texte**`, affiché en gras) ;
   - « Image » insère une image à l'emplacement du curseur ; « Pièce jointe » ajoute des fichiers ;

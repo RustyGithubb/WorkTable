@@ -97,6 +97,11 @@ impl Backdrop {
 
     /// Dessine le fond ; renvoie (avancement du fondu 0..1, clic sur le fond).
     pub fn show(&mut self, ctx: &egui::Context, id: &str) -> (f32, bool) {
+        self.show_in(ctx, id, egui::Order::Tooltip)
+    }
+
+    /// Même fond, à un autre niveau (fenêtre de rédaction : ses menus et suggestions passent devant).
+    pub fn show_in(&mut self, ctx: &egui::Context, id: &str, order: egui::Order) -> (f32, bool) {
         let screen = ctx.content_rect();
         if let Some(img) = self.shot.lock().ok().and_then(|mut s| s.take()) {
             self.texture = Some(ctx.load_texture(format!("{id}_tex"), img, egui::TextureOptions::LINEAR));
@@ -106,7 +111,7 @@ impl Backdrop {
             ctx.request_repaint();
         }
         let mut clicked = false;
-        egui::Area::new(egui::Id::unique(id)).order(egui::Order::Tooltip).fixed_pos(screen.min).show(ctx, |ui| {
+        egui::Area::new(egui::Id::unique(id)).order(order).fixed_pos(screen.min).show(ctx, |ui| {
             let (r, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
             let p = ui.painter();
             if let Some(t) = &self.texture {

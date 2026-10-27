@@ -5,12 +5,17 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.3.4
+
 ### Ajouté
-- Messages : les GIF (choisis dans Chat ou envoyés en fichier) s'affichent et s'animent, aussi en
-  grand dans la visionneuse.
 - Mail : brouillons comme dans Gmail (enregistrement automatique sur l'ordinateur et dans Gmail,
   barre des brouillons pour les reprendre) : un mail en cours d'écriture n'est plus perdu en
   ouvrant autre chose.
+- Mail : la rédaction s'ouvre dans une fenêtre au style de la recherche et de la fiche contact
+  (fond flouté, carte centrée, Ctrl+Entrée pour envoyer, Échap pour fermer en gardant le brouillon).
+- Mail : clic sur un groupe = seulement ses mails, recherchés dans toute la messagerie.
+- Messages : les GIF (choisis dans Chat ou envoyés en fichier) s'affichent et s'animent, aussi en
+  grand dans la visionneuse.
 - Messages : envoi de GIF façon Discord (bouton « GIF » : tendances, recherche GIPHY, favoris).
 
 ## 0.3.3

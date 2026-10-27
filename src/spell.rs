@@ -299,6 +299,11 @@ fn menu_id() -> egui::Id {
     egui::Id::unique("wt_spell_menu")
 }
 
+/// Menu de corrections ouvert (Échap le ferme, pas la fenêtre qui le contient).
+pub fn menu_open(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<Option<Menu>>(menu_id())).flatten().is_some()
+}
+
 /// À appeler juste après `TextEdit::show` : souligne les mots inconnus et gère le menu du clic
 /// droit. Renvoie `true` si le texte a été corrigé (à traiter comme une modification).
 pub fn check(ui: &egui::Ui, out: &egui::text_edit::TextEditOutput, text: &mut String) -> bool {
