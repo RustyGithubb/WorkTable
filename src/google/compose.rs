@@ -1,7 +1,8 @@
 //! Rédaction des messages sortants : contenu mis en forme (taille, alignement, gras),
 //! images intégrées dans le texte, pièces jointes, puis génération MIME.
 //!
-//! Le gras est noté `**ainsi**` dans le texte (affiché en gras dans l'éditeur).
+//! Le gras est noté `**ainsi**` dans le texte (affiché en gras dans l'éditeur), un lien
+//! `[texte](https://adresse)` (affiché souligné, l'adresse en petit).
 
 use std::sync::Arc;
 
@@ -456,19 +457,136 @@ pub fn bold_spans(text: &str) -> Vec<(&str, bool, bool)> {
     out
 }
 
+// --- Liens -----------------------------------------------------------------
+
+/// Morceau de texte mis en forme : gras, lien (adresse), ou marqueur (`**`, `[`, `](adresse)`).
+#[derive(Debug, PartialEq)]
+pub struct Span<'a> {
+    pub text: &'a str,
+    pub bold: bool,
+    pub link: Option<&'a str>,
+    pub marker: bool,
+}
+
+/// Liens `[texte](adresse)` d'un paragraphe : (début, fin, début du texte, fin du texte, adresse),
+/// en octets.
+fn links(text: &str) -> Vec<(usize, usize, usize, usize, &str)> {
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(i) = text[from..].find('[').map(|i| i + from) {
+        let Some(j) = text[i + 1..].find("](").map(|j| j + i + 1) else { break };
+        let Some(k) = text[j + 2..].find(')').map(|k| k + j + 2) else { break };
+        let (label, url) = (&text[i + 1..j], &text[j + 2..k]);
+        if !label.is_empty() && !label.contains(['\n', '[']) && !url.is_empty() && !url.contains(char::is_whitespace) {
+            out.push((i, k + 1, i + 1, j, url));
+            from = k + 1;
+        } else {
+            from = i + 1;
+        }
+    }
+    out
+}
+
+/// Découpe un paragraphe en morceaux (gras, liens, marqueurs), dans l'ordre.
+pub fn spans(text: &str) -> Vec<Span<'_>> {
+    let mut out = Vec::new();
+    let mut pos = 0;
+    for (start, end, ls, le, url) in links(text) {
+        if start > pos {
+            for (seg, bold, marker) in bold_spans(&text[pos..start]) {
+                out.push(Span { text: seg, bold, link: None, marker });
+            }
+        }
+        out.push(Span { text: &text[start..ls], bold: false, link: None, marker: true });
+        for (seg, bold, marker) in bold_spans(&text[ls..le]) {
+            out.push(Span { text: seg, bold, link: Some(url), marker });
+        }
+        out.push(Span { text: &text[le..end], bold: false, link: None, marker: true });
+        pos = end;
+    }
+    if pos < text.len() {
+        for (seg, bold, marker) in bold_spans(&text[pos..]) {
+            out.push(Span { text: seg, bold, link: None, marker });
+        }
+    }
+    out
+}
+
+/// Lien sous le curseur (caractère `at`) : (début, fin en caractères, texte, adresse).
+pub fn link_at(text: &str, at: usize) -> Option<(usize, usize, String, String)> {
+    let c = |b: usize| text[..b].chars().count();
+    links(text).into_iter().find(|(s, e, ..)| c(*s) <= at && at <= c(*e)).map(|(s, e, ls, le, url)| (c(s), c(e), text[ls..le].to_string(), url.to_string()))
+}
+
+/// Remplace les caractères [a, b) par un lien `[texte](adresse)` ; renvoie la position du curseur
+/// après le lien.
+pub fn set_link(text: &mut String, a: usize, b: usize, label: &str, url: &str) -> usize {
+    let (a, b) = (a.min(b), a.max(b));
+    let label = if label.trim().is_empty() { url } else { label.trim() };
+    let label = label.replace(['[', ']'], "");
+    let link = format!("[{label}]({})", normalize_url(url));
+    let (ba, bb) = (char_to_byte(text, a), char_to_byte(text, b));
+    text.replace_range(ba..bb, &link);
+    a + link.chars().count()
+}
+
+/// Retire le lien [a, b) (caractères) en gardant son texte ; renvoie la fin du texte.
+pub fn remove_link(text: &mut String, a: usize, b: usize, label: &str) -> usize {
+    let (ba, bb) = (char_to_byte(text, a), char_to_byte(text, b));
+    text.replace_range(ba..bb, label);
+    a + label.chars().count()
+}
+
+/// « exemple.fr » → « https://exemple.fr », « jean@x.fr » → « mailto:jean@x.fr ».
+pub fn normalize_url(url: &str) -> String {
+    let u = url.trim();
+    if u.contains("://") || u.starts_with("mailto:") || u.starts_with("tel:") {
+        u.to_string()
+    } else if u.contains('@') && !u.contains('/') {
+        format!("mailto:{u}")
+    } else {
+        format!("https://{u}")
+    }
+}
+
 fn strip_bold(text: &str) -> String {
-    bold_spans(text).into_iter().filter(|(_, _, marker)| !marker).map(|(t, _, _)| t).collect()
+    let mut out = String::new();
+    for sp in spans(text) {
+        if sp.marker {
+            // Fin d'un lien : l'adresse entre parenthèses, lisible en texte brut.
+            if let Some(url) = sp.text.strip_prefix("](").and_then(|u| u.strip_suffix(')')) {
+                out.push_str(&format!(" ({url})"));
+            }
+            continue;
+        }
+        out.push_str(sp.text);
+    }
+    out
 }
 
 fn para_html(text: &str) -> String {
-    bold_spans(text)
-        .into_iter()
-        .filter(|(_, _, marker)| !marker)
-        .map(|(t, bold, _)| {
-            let t = escape(t).replace('\n', "<br>");
-            if bold { format!("<b>{t}</b>") } else { t }
-        })
-        .collect()
+    let mut out = String::new();
+    let mut open: Option<&str> = None;
+    for sp in spans(text) {
+        if sp.link != open {
+            if open.is_some() {
+                out.push_str("</a>");
+            }
+            if let Some(u) = sp.link {
+                out.push_str(&format!("<a href=\"{}\">", escape(u)));
+            }
+            open = sp.link;
+        }
+        if sp.marker {
+            continue;
+        }
+        let t = escape(sp.text).replace('\n', "<br>");
+        out.push_str(&if sp.bold { format!("<b>{t}</b>") } else { t });
+    }
+    if open.is_some() {
+        out.push_str("</a>");
+    }
+    out
 }
 
 /// Met en gras (ou retire le gras de) la sélection [a, b) en caractères.
@@ -497,11 +615,26 @@ fn escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
+/// Liste de destinataires tolérante : virgule finale (ajoutée par les suggestions), noms avec
+/// accents, points, parenthèses ou virgules entre guillemets. Chaque entrée est « Nom <adresse> »
+/// ou « adresse » ; seule l'adresse doit être valide (le nom est remis en forme à l'envoi).
 fn parse_list(s: &str) -> Result<Mailboxes, String> {
-    if s.trim().is_empty() {
-        return Ok(Mailboxes::new());
+    let mut out = Mailboxes::new();
+    for entry in split_addresses(s) {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let (name, addr) = match (entry.rfind('<'), entry.rfind('>')) {
+            (Some(a), Some(b)) if a < b => (entry[..a].trim(), entry[a + 1..b].trim()),
+            _ => ("", entry),
+        };
+        let name = name.trim_matches(['"', '\'', ' ']).replace("\\\"", "\"");
+        let addr = addr.trim_matches(['"', '\'', ' ']);
+        let address = addr.parse::<lettre::Address>().map_err(|_| format!("« {entry} »"))?;
+        out.push(Mailbox::new((!name.is_empty()).then_some(name), address));
     }
-    s.parse::<Mailboxes>().map_err(|e| e.to_string())
+    Ok(out)
 }
 
 fn prefixed(prefix: &str, subject: &str) -> String {
@@ -516,6 +649,33 @@ fn quote(body: &str) -> String {
 mod tests {
     use super::*;
     use crate::google::{FullMessage, Summary};
+
+    #[test]
+    fn links_in_paragraphs() {
+        let t = "Voir [le **site**](https://x.fr) et [doc](y.fr";
+        assert_eq!(para_html(t), "Voir <a href=\"https://x.fr\">le <b>site</b></a> et [doc](y.fr");
+        assert_eq!(strip_bold(t), "Voir le site (https://x.fr) et [doc](y.fr");
+        let mut s = String::from("Clique ici pour voir");
+        let end = set_link(&mut s, 7, 10, "ici", "exemple.fr");
+        assert_eq!(s, "Clique [ici](https://exemple.fr) pour voir");
+        assert_eq!(end, 32);
+        assert_eq!(link_at(&s, 9), Some((7, 32, "ici".into(), "https://exemple.fr".into())));
+        assert_eq!(link_at(&s, 2), None);
+        let end = remove_link(&mut s, 7, 32, "ici");
+        assert_eq!((s.as_str(), end), ("Clique ici pour voir", 10));
+        assert_eq!(normalize_url("jean@x.fr"), "mailto:jean@x.fr");
+    }
+
+    #[test]
+    fn recipients_from_suggestions_are_accepted() {
+        let list = |s: &str| parse_list(s).map(|m| m.into_iter().map(|x| x.email.to_string()).collect::<Vec<_>>());
+        // Suggestion choisie : « Nom <adresse>, » (virgule finale).
+        assert_eq!(list("Hugo Bernard <hugo@gmail.com>, "), Ok(vec!["hugo@gmail.com".to_string()]));
+        assert_eq!(list("Jean (Studio) <j@d.fr>; Léa Martin <lea@studio.fr>,"), Ok(vec!["j@d.fr".to_string(), "lea@studio.fr".to_string()]));
+        assert_eq!(list("\"Dupont, Jean\" <j@d.fr>, a@b.fr, "), Ok(vec!["j@d.fr".to_string(), "a@b.fr".to_string()]));
+        assert!(list("Hugo <pas-une-adresse>").is_err());
+        assert_eq!(list("  "), Ok(vec![]));
+    }
 
     fn sample() -> FullMessage {
         FullMessage {

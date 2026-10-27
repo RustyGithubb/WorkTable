@@ -296,6 +296,10 @@ Enregistrement automatique une seconde après la dernière frappe.
   Fermer et 🗑. Échap, ✕ ou un clic à côté ferment en gardant le brouillon :
   - taille (Petit, Normal, Grand, Titre) et alignement (gauche, centre, droite, justifié) par paragraphe ;
   - gras : sélectionner du texte puis « B » (noté `**texte**`, affiché en gras) ;
+  - lien : sélectionner un mot ou une phrase puis 🔗 (ou Ctrl+K) et coller l'adresse (noté
+    `[texte](https://…)`, affiché souligné ; « exemple.fr » devient https://, une adresse mail
+    devient mailto:) ; le curseur sur un lien puis 🔗 permet de le modifier ou de le retirer ;
+  - destinataires choisis dans les suggestions (« Nom <adresse>, ») acceptés tels quels à l'envoi ;
   - « Image » insère une image à l'emplacement du curseur ; « Pièce jointe » ajoute des fichiers ;
   - glisser-déposer : les images vont dans le texte, les autres fichiers en pièces jointes ;
   - Entrée = nouveau paragraphe, Retour arrière en début de paragraphe = fusion / retrait de l'image ;

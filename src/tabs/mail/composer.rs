@@ -33,6 +33,8 @@ pub struct Editor {
     pub sig_applied: bool,
     /// État de l'enregistrement du brouillon (« Brouillon enregistré »…), affiché sous le titre.
     pub save_label: Option<String>,
+    /// Fenêtre « Lien » ouverte (paragraphe, sélection, texte, adresse, position, lien existant).
+    link: Option<LinkEdit>,
     /// Fenêtre ouverte (fond flouté capturé à l'ouverture).
     opened: bool,
     bg: crate::search::Backdrop,
@@ -46,6 +48,20 @@ impl Editor {
     pub fn reset(&mut self) {
         *self = Editor { pending: Some((0, 0, 0)), ..Default::default() };
     }
+}
+
+/// Lien en cours de création ou de modification.
+struct LinkEdit {
+    para: usize,
+    /// Caractères remplacés par le lien.
+    a: usize,
+    b: usize,
+    label: String,
+    url: String,
+    pos: egui::Pos2,
+    /// Lien déjà là (on peut le retirer).
+    existing: bool,
+    focus: bool,
 }
 
 pub enum Out {
@@ -92,7 +108,15 @@ pub fn show(
     }
     let mut out = None;
     // Fond : capture floutée et voile ; un clic à côté ferme (le brouillon est gardé).
-    let popups_open = ed.picker.is_some() || crate::spell::menu_open(&ctx) || ed.suggest.popup_open();
+    let popups_open = ed.picker.is_some() || ed.link.is_some() || crate::spell::menu_open(&ctx) || ed.suggest.popup_open();
+    // Ctrl+K : lien sur la sélection.
+    if ed.link.is_none()
+        && ctx.memory(|m| m.focused()).is_some_and(|f| matches!(d.blocks.get(ed.focus), Some(Block::Para(p)) if para_id(p.id) == f))
+        && ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::K))
+    {
+        let pos = ctx.pointer_hover_pos().unwrap_or(ctx.content_rect().center());
+        open_link(d, ed, pos);
+    }
     let (k, backdrop_click) = ed.bg.show_in(&ctx, "wt_compose_backdrop", egui::Order::Foreground);
     if backdrop_click && !sending && !popups_open {
         out = Some(Out::Cancel);
@@ -141,6 +165,7 @@ pub fn show(
                 out = Some(Out::Error(e));
             }
             emoji_picker(ui, d, ed);
+            link_window(ui, d, ed);
             if let Some(e) = dropped_files(ui, d, ed) {
                 out = Some(Out::Error(e));
             }
@@ -317,6 +342,14 @@ fn toolbar(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, signatures: &[Sign
             let (a, z) = ed.sel;
             let sel = compose::toggle_bold(&mut p.text, a, z);
             ed.pending = Some((focus, sel.0, sel.1));
+        }
+
+        // Lien sur la sélection (ou le lien sous le curseur).
+        let lr = ui
+            .add(egui::Button::new(RichText::new("🔗")).min_size(vec2(28.0, 24.0)))
+            .on_hover_text(t!("Lien (Ctrl+K) : sélectionne un mot ou une phrase", "Link (Ctrl+K): select a word or a phrase"));
+        if lr.clicked() {
+            open_link(d, ed, lr.rect.left_bottom() + vec2(0.0, 4.0));
         }
 
         // Émojis (même sélecteur que Google Chat ; « :nom: » marche aussi en tapant).
@@ -662,10 +695,15 @@ fn to_egui_align(a: Align) -> EAlign {
 fn layout(text: &str, size: Size, align: Align, wrap: f32) -> LayoutJob {
     let px = size.px();
     let mut job = LayoutJob::default();
-    for (seg, bold, marker) in compose::bold_spans(text) {
-        let format =
-            if marker { TextFormat::simple(theme::editor_font(px * 0.75, false), theme::TEXT_FAINT()) } else { TextFormat::simple(theme::editor_font(px, bold), theme::TEXT()) };
-        job.append(seg, 0.0, format);
+    for sp in compose::spans(text) {
+        let format = if sp.marker {
+            TextFormat::simple(theme::editor_font(px * 0.75, false), theme::TEXT_FAINT())
+        } else if sp.link.is_some() {
+            TextFormat { underline: Stroke::new(1.0, theme::LINK()), ..TextFormat::simple(theme::editor_font(px, sp.bold), theme::LINK()) }
+        } else {
+            TextFormat::simple(theme::editor_font(px, sp.bold), theme::TEXT())
+        };
+        job.append(sp.text, 0.0, format);
     }
     if text.is_empty() {
         job.append("", 0.0, TextFormat::simple(theme::editor_font(px, false), theme::TEXT()));
@@ -674,6 +712,99 @@ fn layout(text: &str, size: Size, align: Align, wrap: f32) -> LayoutJob {
     job.halign = to_egui_align(align);
     job.justify = align == Align::Justify;
     job
+}
+
+/// Ouvre la fenêtre « Lien » : lien sous le curseur (modifier / retirer) ou sélection.
+fn open_link(d: &Draft, ed: &mut Editor, pos: egui::Pos2) {
+    let Some(Block::Para(p)) = d.blocks.get(ed.focus) else { return };
+    let (a, b) = (ed.sel.0.min(ed.sel.1), ed.sel.0.max(ed.sel.1));
+    ed.link = Some(match compose::link_at(&p.text, a).filter(|_| a == b || compose::link_at(&p.text, b).is_some()) {
+        Some((s, e, label, url)) => LinkEdit { para: ed.focus, a: s, b: e, label, url, pos, existing: true, focus: true },
+        None => {
+            let label: String = p.text.chars().skip(a).take(b - a).collect();
+            LinkEdit {
+                para: ed.focus,
+                a,
+                b,
+                label: compose::spans(&label).iter().filter(|s| !s.marker).map(|s| s.text).collect(),
+                url: String::new(),
+                pos,
+                existing: false,
+                focus: true,
+            }
+        }
+    });
+}
+
+/// Fenêtre « Lien » : texte affiché et adresse ; Entrée applique, Échap ferme.
+fn link_window(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor) {
+    let Some(mut le) = ed.link.take() else { return };
+    enum Do {
+        Apply,
+        Remove,
+        Close,
+    }
+    let mut action = None;
+    let area = egui::Area::new(egui::Id::unique("wt_compose_link")).order(egui::Order::Foreground).fixed_pos(le.pos).constrain(true).show(ui.ctx(), |ui| {
+        crate::search::overlay_frame().show(ui, |ui| {
+            ui.set_width(340.0);
+            ui.label(
+                RichText::new(if le.existing { t!("MODIFIER LE LIEN", "EDIT LINK") } else { t!("AJOUTER UN LIEN", "ADD A LINK") }).small().strong().color(theme::TEXT_FAINT()),
+            );
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                field_label(ui, t!("Texte", "Text"));
+                ui.add(egui::TextEdit::singleline(&mut le.label).hint_text(t!("Mot ou phrase affiché", "Word or phrase shown")).desired_width(f32::INFINITY));
+            });
+            ui.horizontal(|ui| {
+                field_label(ui, t!("Lien", "Link"));
+                let r = ui.add(egui::TextEdit::singleline(&mut le.url).hint_text("https://…").desired_width(f32::INFINITY));
+                if le.focus {
+                    r.request_focus();
+                    le.focus = false;
+                }
+                // Entrée : appliquer (la touche est prise, le texte ne doit pas la recevoir).
+                if r.lost_focus() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+                    action = Some(Do::Apply);
+                }
+            });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let ok = !le.url.trim().is_empty();
+                let apply = egui::Button::new(RichText::new(t!("Appliquer", "Apply")).strong().color(Color32::WHITE)).fill(theme::TODAY()).corner_radius(CornerRadius::same(8));
+                if ui.add_enabled(ok, apply).clicked() {
+                    action = Some(Do::Apply);
+                }
+                if le.existing && ui.button(t!("Retirer le lien", "Remove link")).clicked() {
+                    action = Some(Do::Remove);
+                }
+                if ui.button(t!("Annuler", "Cancel")).clicked() {
+                    action = Some(Do::Close);
+                }
+            });
+        });
+    });
+    let outside = ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p)));
+    if ui.input(|i| i.key_pressed(Key::Escape)) || (outside && action.is_none()) {
+        action = Some(Do::Close);
+    }
+    match action {
+        None => ed.link = Some(le),
+        Some(Do::Close) => ed.pending = Some((le.para, le.b, le.b)),
+        Some(Do::Apply) if !le.url.trim().is_empty() => {
+            if let Some(Block::Para(p)) = d.blocks.get_mut(le.para) {
+                let end = compose::set_link(&mut p.text, le.a, le.b, &le.label, &le.url);
+                ed.pending = Some((le.para, end, end));
+            }
+        }
+        Some(Do::Remove) => {
+            if let Some(Block::Para(p)) = d.blocks.get_mut(le.para) {
+                let end = compose::remove_link(&mut p.text, le.a, le.b, &le.label);
+                ed.pending = Some((le.para, end, end));
+            }
+        }
+        Some(Do::Apply) => ed.link = Some(le),
+    }
 }
 
 /// Sélecteur d'émojis (identique à Google Chat) : insère l'émoji au curseur du paragraphe actif.

@@ -5,6 +5,15 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.3.5
+
+### Ajouté
+- Mail : lien derrière un mot ou une phrase (🔗 ou Ctrl+K dans l'éditeur).
+
+### Corrigé
+- Mail : envoi impossible quand un destinataire avait été choisi dans les suggestions
+  (« Nom <adresse>, » : la virgule finale et certains noms étaient refusés).
+
 ## 0.3.4
 
 ### Ajouté

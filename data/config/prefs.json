@@ -16,7 +16,7 @@
   },
   "categories_collapsed": true,
   "mail_list_hidden": false,
-  "groups_collapsed": false,
+  "groups_collapsed": true,
   "hidden_calendars": [
     "dominique.peyronnet@artfx.fr",
     "fr.french#holiday@group.v.calendar.google.com",
@@ -209,7 +209,7 @@
   "notif_no_share": false,
   "notif_no_event": false,
   "notif_no_sound": false,
-  "do_not_disturb": true,
+  "do_not_disturb": false,
   "clock_hidden": false,
   "notif_event_minutes": 0,
   "language": "French",
