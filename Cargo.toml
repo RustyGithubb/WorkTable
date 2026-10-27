@@ -1,6 +1,6 @@
 [package]
 name = "worktable"
-version = "0.3.52"
+version = "0.3.53"
 edition = "2024"
 # Version minimale de Rust : imposée par egui / eframe 0.37 (le code lui-même demande 1.88,
 # pour les chaînes `if let … && let …`). Vérifiée par la CI (.github/workflows/ci.yml).
