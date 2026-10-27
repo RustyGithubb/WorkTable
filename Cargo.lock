@@ -5162,7 +5162,7 @@ dependencies = [
 
 [[package]]
 name = "worktable"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "aes-gcm",
  "argon2",
