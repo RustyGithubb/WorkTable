@@ -205,6 +205,8 @@ pub struct Prefs {
     pub language: crate::i18n::Language,
     /// Raccourci global qui rouvre l'app restée en arrière-plan (Ctrl+Maj+Espace par défaut).
     pub show_hotkey: Hotkey,
+    /// Raccourci global « quitter WorkTable » ; absent : Ctrl+Maj+K.
+    pub quit_hotkey: Option<Hotkey>,
     /// Correcteur d'orthographe désactivé, langues retirées (toutes actives par défaut).
     pub spell_off: bool,
     pub spell_no_fr: bool,
@@ -212,6 +214,20 @@ pub struct Prefs {
     /// Clé de l'API GIPHY (sélecteur de GIF des messages) et GIF favoris.
     pub giphy_key: String,
     pub chat_gif_favorites: Vec<GifItem>,
+    /// Onglets personnalisés (galerie 3 × 3 du logo de la barre).
+    pub custom_tabs: Vec<CustomTab>,
+}
+
+/// Onglet personnalisé : case de la galerie (0 à 8), nom, logo (émoji, ou image copiée dans
+/// `config\custom_tabs`).
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct CustomTab {
+    pub id: u64,
+    pub slot: u8,
+    pub name: String,
+    pub emoji: String,
+    pub image: Option<String>,
 }
 
 /// GIF du sélecteur (GIPHY) : aperçu léger pour la grille, version envoyée.
@@ -237,6 +253,13 @@ pub struct Hotkey {
     pub alt: bool,
     /// Vide : aucun raccourci.
     pub key: String,
+}
+
+impl Prefs {
+    /// Raccourci « quitter » (réglé, sinon Ctrl+Maj+K).
+    pub fn quit_key(&self) -> Hotkey {
+        self.quit_hotkey.clone().unwrap_or_else(crate::background::default_quit_key)
+    }
 }
 
 impl Default for Hotkey {

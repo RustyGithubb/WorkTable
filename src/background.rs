@@ -48,17 +48,17 @@ pub fn single_instance() -> bool {
     true
 }
 
-/// Démarre l'écoute du raccourci et des demandes de réouverture.
-pub fn start(ctx: &egui::Context, hotkey: &Hotkey) {
+/// Démarre l'écoute des raccourcis (ouvrir / cacher, quitter) et des demandes de réouverture.
+pub fn start(ctx: &egui::Context, hotkey: &Hotkey, quit_key: &Hotkey) {
     #[cfg(windows)]
-    win::start(ctx.clone(), code(hotkey));
+    win::start(ctx.clone(), code(hotkey), code(quit_key));
     #[cfg(not(windows))]
-    let _ = (ctx, hotkey);
+    let _ = (ctx, hotkey, quit_key);
 }
 
 /// À chaque image : fermeture → arrière-plan, raccourci modifié dans les réglages.
-pub fn on_frame(ctx: &egui::Context, hotkey: &Hotkey) {
-    static LAST: Mutex<Option<(Hotkey, bool)>> = Mutex::new(None);
+pub fn on_frame(ctx: &egui::Context, hotkey: &Hotkey, quit_key: &Hotkey) {
+    static LAST: Mutex<Option<(Hotkey, Hotkey, bool)>> = Mutex::new(None);
     // Fermeture (✕, Alt+F4) ou raccourci : animation, puis fenêtre cachée.
     let close = ctx.input(|i| i.viewport().close_requested()) && !QUIT.load(Ordering::Relaxed) && can_hide();
     if close {
@@ -69,15 +69,29 @@ pub fn on_frame(ctx: &egui::Context, hotkey: &Hotkey) {
     }
     // Remis à zéro à chaque image : les Réglages le redemandent tant que la saisie est ouverte.
     let paused = RECORDING.swap(false, Ordering::Relaxed);
-    let now = (hotkey.clone(), paused);
+    // Hors Windows (pas de raccourci global) : « quitter » quand l'app a le clavier.
+    #[cfg(not(windows))]
+    if !paused && pressed(ctx, quit_key) {
+        quit(ctx);
+    }
+    let now = (hotkey.clone(), quit_key.clone(), paused);
     let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
     if last.as_ref() != Some(&now) {
         if last.is_some() {
             #[cfg(windows)]
-            win::set_hotkey(if paused { None } else { code(hotkey) });
+            win::set_hotkeys(if paused { None } else { code(hotkey) }, if paused { None } else { code(quit_key) });
         }
         *last = Some(now);
     }
+}
+
+/// Raccourci tapé à cette image (dans l'app).
+#[cfg_attr(windows, allow(dead_code))]
+fn pressed(ctx: &egui::Context, h: &Hotkey) -> bool {
+    let Some(key) = Key::from_name(&h.key) else { return false };
+    ctx.input(|i| {
+        i.events.iter().any(|e| matches!(e, egui::Event::Key { key: k, pressed: true, modifiers: m, .. } if *k == key && m.ctrl == h.ctrl && m.shift == h.shift && m.alt == h.alt))
+    })
 }
 
 /// La fenêtre peut-elle être cachée sur ce système ?
@@ -239,14 +253,22 @@ pub fn hide() -> bool {
     false
 }
 
-/// Raccourci actif ? `None` : pas encore essayé ou sans objet.
-pub fn hotkey_ok() -> Option<bool> {
+/// Raccourci actif (0 : ouvrir / cacher, 1 : quitter) ? `None` : pas encore essayé ou sans objet.
+pub fn hotkey_ok(i: usize) -> Option<bool> {
     #[cfg(windows)]
     {
-        win::hotkey_ok()
+        win::hotkey_ok(i)
     }
     #[cfg(not(windows))]
-    None
+    {
+        let _ = i;
+        None
+    }
+}
+
+/// Raccourci « quitter WorkTable » par défaut : Ctrl+Maj+K.
+pub fn default_quit_key() -> Hotkey {
+    Hotkey { ctrl: true, shift: true, alt: false, key: "K".into() }
 }
 
 /// Rouvre la fenêtre au premier plan ; `false` si ce n'est pas possible sur ce système.

@@ -143,6 +143,8 @@ pub struct ChatState {
     spaces_inflight: bool,
     read_requested: HashSet<String>,
     last_full: Option<Instant>,
+    /// Conversations ouvertes pendant un chargement : relues dès qu'il se termine.
+    refresh_after: HashSet<String>,
     people_loaded: bool,
     /// Messages épinglés (affichés dans le tableau de bord).
     pub pins: pins::Pins,
@@ -433,6 +435,18 @@ impl ChatState {
                 }
                 let senders: Vec<String> = list.iter().map(|m| m.sender.clone()).collect();
                 let added = merge(self.msgs.entry(space.clone()).or_default(), list, replace_from);
+                // Dernier message posté par moi (ici, sur le téléphone ou le web) : conversation lue.
+                if let Some(last) = self.msgs.get(&space).and_then(|l| l.last())
+                    && self.is_me(&last.sender)
+                {
+                    let t = last.created.max(self.space(&space).map(|s| s.last_active).unwrap_or(0));
+                    let e = self.last_read.entry(space.clone()).or_insert(t);
+                    *e = (*e).max(t);
+                }
+                // Ouverture demandée pendant un chargement : relecture complète maintenant.
+                if self.refresh_after.remove(&space) {
+                    self.refresh_window(acc, &space);
+                }
                 self.request_people(acc, senders);
                 if self.open.as_deref() == Some(space.as_str()) && added && !older {
                     self.scroll_bottom = true;
@@ -767,8 +781,10 @@ impl ChatState {
         }
         self.open = Some(space.to_string());
         self.scroll_bottom = true;
-        if self.msgs.contains_key(space) {
-            self.fetch_new(acc, space);
+        // Toujours relu à l'ouverture (fenêtre récente remplacée) : nouveaux messages, réactions,
+        // modifications et suppressions faites ailleurs. La copie locale s'affiche en attendant.
+        if self.loading_msgs.contains(space) {
+            self.refresh_after.insert(space.to_string());
         } else {
             self.refresh_window(acc, space);
         }
@@ -1268,8 +1284,20 @@ impl ChatState {
         self.titles.get(&sp.name).cloned().or_else(|| (!others.is_empty()).then(names))
     }
 
+    /// Ce compte Google (identifiant Chat connu, ou adresse du compte).
+    pub fn is_me(&self, user: &str) -> bool {
+        user == ME_LOCAL || self.me.as_deref() == Some(user) || (!self.own_email.is_empty() && self.people.get(user).is_some_and(|p| p.email.eq_ignore_ascii_case(&self.own_email)))
+    }
+
     pub fn unread(&self, sp: &Space) -> bool {
         if self.open.as_deref() == Some(sp.name.as_str()) {
+            return false;
+        }
+        // Dernière activité = mon propre message : rien de nouveau pour moi.
+        if let Some(last) = self.msgs.get(&sp.name).and_then(|l| l.last())
+            && self.is_me(&last.sender)
+            && last.created + 2000 >= sp.last_active
+        {
             return false;
         }
         self.last_read.get(&sp.name).is_some_and(|t| sp.last_active > *t + 1000)

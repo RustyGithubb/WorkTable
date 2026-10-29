@@ -325,9 +325,8 @@ impl Engine {
     /// Nouveaux messages d'une conversation attendue : une exécution par message (pas les miens).
     pub fn on_chat_messages(&mut self, graphs: &mut [Graph], space: &str, list: &[ChatMessage], chat: &ChatState, dnd: bool) {
         let Some(since) = self.chat_pending.remove(space) else { return };
-        let me = chat.me.as_deref();
         let title = chat.space(space).map(|s| chat.title(s)).unwrap_or_else(|| "Google Chat".into());
-        for m in list.iter().filter(|m| m.created > since && Some(m.sender.as_str()) != me && !m.text.trim().is_empty()) {
+        for m in list.iter().filter(|m| m.created > since && !chat.is_me(&m.sender) && !m.text.trim().is_empty()) {
             let inc = Incoming::Chat(ChatIn {
                 id: m.name.clone(),
                 author: chat.name_of(&m.sender),

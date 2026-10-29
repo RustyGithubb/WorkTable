@@ -956,7 +956,8 @@ fn manage_menu(ui: &mut egui::Ui, s: &Space, actions: &mut Vec<Action>) {
         actions.push(Action::Manage(s.name.clone(), Mode::Rename));
         ui.close();
     }
-    if ui.button(t!("Gérer les membres…", "Manage members…")).clicked() {
+    // Message privé : pas de membre à ajouter (Google Chat le refuse).
+    if s.kind != SpaceKind::Dm && ui.button(t!("Gérer les membres…", "Manage members…")).clicked() {
         actions.push(Action::Manage(s.name.clone(), Mode::Members));
         ui.close();
     }
@@ -1078,6 +1079,18 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if ui.add(egui::Button::new(RichText::new(t!("Ouvrir dans Google Chat ↗", "Open in Google Chat ↗")).small()).corner_radius(CornerRadius::same(255))).clicked() {
                 let _ = webbrowser::open(&space.web_link());
+            }
+            // Groupe : membres (ajouter une personne, en retirer).
+            if space.kind != SpaceKind::Dm {
+                let n = chat.members.get(&space.name).map(|m| m.len()).unwrap_or(0);
+                let label = if n > 0 { tf!("👥  Membres · {n}", "👥  Members · {n}") } else { t!("👥  Membres", "👥  Members").to_string() };
+                if ui
+                    .add(egui::Button::new(RichText::new(label).small()).corner_radius(CornerRadius::same(255)))
+                    .on_hover_text(t!("Ajouter un membre ou en retirer", "Add a member or remove one"))
+                    .clicked()
+                {
+                    actions.push(Action::Manage(space.name.clone(), super::manage::Mode::Members));
+                }
             }
             if space.kind == SpaceKind::Dm
                 && let Some(e) = chat.others(&space.name).first().and_then(|u| chat.email_of(u))

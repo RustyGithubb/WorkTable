@@ -273,7 +273,7 @@ fn members(
                 .hint_text(t!("Ajouter une personne : nom ou adresse", "Add a person: name or address"))
                 .font(FontId::proportional(15.0))
                 .frame(egui::Frame::NONE)
-                .desired_width(f32::INFINITY),
+                .desired_width(ui.available_width() - 100.0),
         );
         if std::mem::take(&mut p.focus) {
             te.request_focus();
@@ -281,6 +281,17 @@ fn members(
         if te.changed() {
             p.selected = 0;
         }
+        // Bouton explicite (en plus d'Entrée) : ajoute la personne sélectionnée.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let can = !rows.is_empty() && !p.busy;
+            if ui
+                .add_enabled(can, primary(t!("+ Ajouter", "+ Add"), None))
+                .on_hover_text(t!("Ajouter la personne sélectionnée (Entrée)", "Add the selected person (Enter)"))
+                .clicked()
+            {
+                *add = Some(p.selected);
+            }
+        });
     });
     ui.add_space(6.0);
     rule(ui);

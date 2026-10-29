@@ -1,6 +1,6 @@
 pub mod blueprint;
 pub mod calendar;
-mod dash_layout;
+pub(crate) mod dash_layout;
 pub mod dashboard;
 pub mod files;
 pub mod mail;

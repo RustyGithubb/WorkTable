@@ -8,6 +8,7 @@ mod i18n;
 mod app;
 mod background;
 mod emoji_img;
+mod gallery;
 mod google;
 mod lightbox;
 mod links;

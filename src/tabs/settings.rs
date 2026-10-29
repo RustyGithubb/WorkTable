@@ -131,56 +131,84 @@ fn background_card(ui: &mut egui::Ui, prefs: &mut Prefs) {
             .color(theme::TEXT_FAINT()),
         );
         ui.add_space(8.0);
+        // Raccourci en cours de saisie : 0 = ouvrir / cacher, 1 = quitter.
         let id = egui::Id::unique("wt_hotkey_recording");
-        let mut recording: bool = ui.data(|d| d.get_temp(id)).unwrap_or(false);
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.label(t!("Raccourci pour ouvrir WorkTable", "Shortcut to open WorkTable"));
-                let status = match crate::background::hotkey_ok() {
-                    Some(false) if !recording => {
-                        Some((t!("Déjà utilisé par une autre application : choisis-en un autre.", "Already used by another application: pick another one."), theme::TODAY()))
-                    }
-                    _ if recording => {
-                        Some((t!("Tape la combinaison (avec Ctrl ou Alt) · Échap : annuler", "Press the combination (with Ctrl or Alt) · Esc: cancel"), theme::TEXT_MUTED()))
-                    }
-                    _ => None,
-                };
-                let (text, color) = status.unwrap_or((t!("Fonctionne partout, même quand l'app est cachée", "Works everywhere, even when the app is hidden"), theme::TEXT_FAINT()));
-                ui.label(RichText::new(text).small().color(color));
-            });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if prefs.show_hotkey != crate::prefs::Hotkey::default() && ui.button(t!("Par défaut", "Default")).clicked() {
-                    prefs.show_hotkey = crate::prefs::Hotkey::default();
-                    recording = false;
-                }
-                let label = if recording { t!("Tape le raccourci…", "Press the shortcut…").to_string() } else { crate::background::label(&prefs.show_hotkey) };
-                let b = egui::Button::new(RichText::new(label).strong()).selected(recording).min_size(egui::vec2(170.0, 30.0));
-                if ui.add(b).on_hover_text(t!("Cliquer puis taper le nouveau raccourci", "Click, then press the new shortcut")).clicked() {
-                    recording = !recording;
-                }
-            });
-        });
-        if recording {
-            let typed = ui.input(|i| {
-                i.events.iter().find_map(|e| match e {
-                    egui::Event::Key { key: egui::Key::Escape, pressed: true, .. } => Some(None),
-                    egui::Event::Key { key, pressed: true, modifiers, .. } => crate::background::from_event(*key, *modifiers).map(Some),
-                    _ => None,
-                })
-            });
-            match typed {
-                Some(Some(h)) => {
-                    prefs.show_hotkey = h;
-                    recording = false;
-                }
-                Some(None) => recording = false,
-                None => {}
-            }
-        }
-        crate::background::set_recording(recording);
+        let mut recording: Option<usize> = ui.data(|d| d.get_temp(id)).flatten();
+        let mut quit = prefs.quit_key();
+        hotkey_row(
+            ui,
+            0,
+            t!("Raccourci pour ouvrir WorkTable", "Shortcut to open WorkTable"),
+            t!("Fonctionne partout, même quand l'app est cachée", "Works everywhere, even when the app is hidden"),
+            &mut prefs.show_hotkey,
+            &crate::prefs::Hotkey::default(),
+            &mut recording,
+        );
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(4.0);
+        hotkey_row(
+            ui,
+            1,
+            t!("Raccourci pour quitter WorkTable", "Shortcut to quit WorkTable"),
+            t!("Arrête vraiment l'app, de partout, même cachée", "Really stops the app, from anywhere, even hidden"),
+            &mut quit,
+            &crate::background::default_quit_key(),
+            &mut recording,
+        );
+        prefs.quit_hotkey = (quit != crate::background::default_quit_key()).then_some(quit);
+        crate::background::set_recording(recording.is_some());
         ui.data_mut(|d| d.insert_temp(id, recording));
     });
     ui.add_space(12.0);
+}
+
+/// Ligne d'un raccourci global : nom, état, bouton « taper le raccourci », « Par défaut ».
+#[allow(clippy::too_many_arguments)]
+fn hotkey_row(ui: &mut egui::Ui, index: usize, title: &str, hint: &str, value: &mut crate::prefs::Hotkey, default: &crate::prefs::Hotkey, recording: &mut Option<usize>) {
+    let mine = *recording == Some(index);
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.label(title);
+            let status = match crate::background::hotkey_ok(index) {
+                Some(false) if !mine => {
+                    Some((t!("Déjà utilisé par une autre application : choisis-en un autre.", "Already used by another application: pick another one."), theme::TODAY()))
+                }
+                _ if mine => Some((t!("Tape la combinaison (avec Ctrl ou Alt) · Échap : annuler", "Press the combination (with Ctrl or Alt) · Esc: cancel"), theme::TEXT_MUTED())),
+                _ => None,
+            };
+            let (text, color) = status.unwrap_or((hint, theme::TEXT_FAINT()));
+            ui.label(RichText::new(text).small().color(color));
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if value != default && ui.button(t!("Par défaut", "Default")).clicked() {
+                *value = default.clone();
+                *recording = None;
+            }
+            let label = if mine { t!("Tape le raccourci…", "Press the shortcut…").to_string() } else { crate::background::label(value) };
+            let b = egui::Button::new(RichText::new(label).strong()).selected(mine).min_size(egui::vec2(170.0, 30.0));
+            if ui.add(b).on_hover_text(t!("Cliquer puis taper le nouveau raccourci", "Click, then press the new shortcut")).clicked() {
+                *recording = if mine { None } else { Some(index) };
+            }
+        });
+    });
+    if *recording == Some(index) {
+        let typed = ui.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Key { key: egui::Key::Escape, pressed: true, .. } => Some(None),
+                egui::Event::Key { key, pressed: true, modifiers, .. } => crate::background::from_event(*key, *modifiers).map(Some),
+                _ => None,
+            })
+        });
+        match typed {
+            Some(Some(h)) => {
+                *value = h;
+                *recording = None;
+            }
+            Some(None) => *recording = None,
+            None => {}
+        }
+    }
 }
 
 /// Langue de l'interface, onglet au démarrage et mises à jour.

@@ -167,19 +167,21 @@ impl Notifier {
     }
 
     /// Liste des conversations mise à jour : celles qui ont bougé sont relues pour la notification.
-    pub fn on_chat_spaces(&mut self, chat: &ChatState, acc: &Account, prefs: &Prefs) {
+    pub fn on_chat_spaces(&mut self, chat: &ChatState, acc: &Account, _prefs: &Prefs) {
         let first = self.chat_seen.is_none();
         let seen = self.chat_seen.get_or_insert_with(HashMap::new);
         for sp in &chat.spaces {
             let prev = seen.insert(sp.name.clone(), sp.last_active);
             let Some(prev) = prev else { continue };
-            if first || prefs.notif_no_chat || sp.last_active <= prev || sp.last_active < self.started_ms || chat.is_muted(&sp.name) {
+            if first || sp.last_active <= prev || sp.last_active < self.started_ms {
                 continue;
             }
-            // Conversation ouverte à l'écran : pas de notification.
+            // Conversation ouverte à l'écran : relue par l'onglet, pas de notification.
             if chat.open.as_deref() == Some(sp.name.as_str()) {
                 continue;
             }
+            // Relue même sans notification (muette, notifications coupées) : si le dernier message
+            // est le mien, la conversation n'apparaît pas comme non lue.
             self.chat_pending.insert(sp.name.clone(), prev);
             let name = sp.name.clone();
             acc.run(move |s| {
@@ -192,8 +194,15 @@ impl Notifier {
     /// Nouveaux messages d'une conversation attendue : notification du dernier (pas les miens).
     pub fn on_chat_messages(&mut self, space: &str, list: &[ChatMessage], chat: &ChatState, prefs: &Prefs) {
         let Some(since) = self.chat_pending.remove(space) else { return };
-        let me = chat.me.as_deref();
-        let new: Vec<&ChatMessage> = list.iter().filter(|m| m.created > since && Some(m.sender.as_str()) != me && !m.text.trim().is_empty()).collect();
+        if prefs.notif_no_chat || chat.is_muted(space) {
+            return;
+        }
+        // Jamais pour mes propres messages (envoyés d'ici, du téléphone ou du web).
+        let new: Vec<&ChatMessage> = list.iter().filter(|m| m.created > since && !chat.is_me(&m.sender) && !m.text.trim().is_empty()).collect();
+        // Dernier message de la conversation = le mien : déjà vu, pas de notification.
+        if list.iter().max_by_key(|m| m.created).is_some_and(|m| chat.is_me(&m.sender)) {
+            return;
+        }
         let Some(last) = new.last() else { return };
         let title = chat.space(space).map(|s| chat.title(s)).unwrap_or_else(|| "Google Chat".into());
         let who = chat.name_of(&last.sender);

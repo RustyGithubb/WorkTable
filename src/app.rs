@@ -15,6 +15,8 @@ pub enum Tab {
     Files,
     Blueprint,
     Settings,
+    /// Onglet personnalisé (galerie du logo), par identifiant.
+    Custom(u64),
 }
 
 impl Tab {
@@ -31,6 +33,7 @@ impl Tab {
             Tab::Files => t!("Fichiers", "Files"),
             Tab::Blueprint => "Blueprint",
             Tab::Settings => t!("Réglages", "Settings"),
+            Tab::Custom(_) => t!("Onglet personnalisé", "Custom tab"),
         }
     }
 }
@@ -104,7 +107,7 @@ impl WorkTableApp {
         tabs::messages::emoji::set_recent(prefs.chat_recent_emojis.clone());
         tabs::messages::emoji::set_tone(prefs.emoji_tone);
         // Raccourci global (rouvre l'app en arrière-plan) et demandes d'une autre instance.
-        crate::background::start(ctx, &prefs.show_hotkey);
+        crate::background::start(ctx, &prefs.show_hotkey, &prefs.quit_key());
         // Nouvelle version sur GitHub ? (en arrière-plan ; pastille sur le bouton Réglages)
         let update = crate::update::Updater::default();
         update.check(ctx);
@@ -342,7 +345,7 @@ impl eframe::App for WorkTableApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let window_rect = ui.max_rect();
         // Fermeture → arrière-plan ; raccourci global modifié dans les réglages.
-        crate::background::on_frame(ui.ctx(), &self.prefs.show_hotkey);
+        crate::background::on_frame(ui.ctx(), &self.prefs.show_hotkey, &self.prefs.quit_key());
         crate::spell::configure(!self.prefs.spell_off, !self.prefs.spell_no_fr, !self.prefs.spell_no_en);
         crate::liquid::set_settings(ui.ctx(), self.prefs.animation);
         let prefs_before = self.prefs.clone();
@@ -481,6 +484,7 @@ impl eframe::App for WorkTableApp {
                 }
                 Tab::Blueprint => tabs::blueprint::show(ui, &mut self.blueprint, &mut self.prefs),
                 Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.prefs, &self.update),
+                Tab::Custom(id) => crate::gallery::page(ui, &self.prefs, id),
             },
         );
 
@@ -529,6 +533,17 @@ impl eframe::App for WorkTableApp {
             Some(sidebar::Nav::Tab(tab)) => self.current = tab,
             Some(sidebar::Nav::Go(t)) => self.go_to(*t),
             None => {}
+        }
+
+        // Galerie des onglets personnalisés (clic droit sur le logo).
+        if let Some(id) = crate::gallery::show(ui.ctx(), &mut self.prefs) {
+            self.current = Tab::Custom(id);
+        }
+        // Onglet personnalisé supprimé pendant qu'il était ouvert : retour au tableau de bord.
+        if let Tab::Custom(id) = self.current
+            && crate::gallery::tab(&self.prefs, id).is_none()
+        {
+            self.current = Tab::Dashboard;
         }
 
         // Notifications (mail, message, document partagé, rendez-vous proche) : clic = y aller.

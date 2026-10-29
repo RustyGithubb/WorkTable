@@ -104,7 +104,8 @@ du Blueprint. Pour la rouvrir :
 - un clic sur une notification ;
 - relancer l'app : une seule instance tourne à la fois, la seconde rouvre la première.
 
-**Quitter WorkTable** (en haut des Réglages) l'arrête pour de bon. En développement (`cargo run`),
+**Quitter WorkTable** (en haut des Réglages) ou le raccourci global **Ctrl+Maj+K** (réglable dans
+Réglages › Arrière-plan, actif même app cachée) l'arrête pour de bon. En développement (`cargo run`),
 fermer la fenêtre la cache aussi : passer par ce bouton pour terminer.
 
 ## Orthographe
@@ -376,6 +377,13 @@ Enregistrement automatique une seconde après la dernière frappe.
 - Photos de profil (API People) pour les personnes et les auteurs des messages ; discussions de
   groupe : photos de deux membres ; espaces : image au choix (clic droit › « Choisir une image… »,
   copiée dans `chat_icons`), sinon initiales.
+- **Membres d'un groupe** : bouton « 👥 Membres » dans l'en-tête d'une discussion de groupe ou
+  d'un espace (ou clic droit › « Gérer les membres… ») : chercher une personne de l'annuaire ou
+  taper une adresse, puis « + Ajouter » (ou Entrée) ; croix au survol pour retirer.
+- **Ouvrir une conversation la relit** toujours chez Google (messages récents remplacés) : nouveaux
+  messages, réactions, modifications et suppressions faites ailleurs apparaissent aussitôt.
+- **Mes propres messages** (envoyés d'ici, du téléphone ou du web) ne déclenchent ni bandeau, ni son,
+  ni pastille de non-lu : la conversation reste lue.
 - **Rendre muet** une conversation (clic droit ou cloche dans l'en-tête) : nom estompé, cloche
   barrée, plus comptée dans les non lus ni dans la pastille de la barre.
 - Trait de séparation entre les sections.
@@ -450,6 +458,10 @@ Enregistrement automatique une seconde après la dernière frappe.
   (`chat_people.json`).
 
 ## Barre de navigation
+- **Onglets personnalisés** : clic droit sur le logo → galerie flottante 3 × 3. « + » sur une case
+  vide crée un onglet (nom à taper aussitôt) ; clic sur une case : ouvre l'onglet (un anneau entoure
+  alors le logo) ; clic droit sur une case : renommer, changer l'émoji, choisir une image (copiée
+  dans `config\custom_tabs`), supprimer. Les onglets sont pour l'instant vides (nom et logo).
 - Logo en haut : monochrome (équerres, cadre arrondi, grille 3 × 3), dessiné dans la couleur du texte
   du thème. Icône de la fenêtre et de la barre des tâches (logo sombre sur fond clair) : `assets/logo.png` (256 × 256),
   version HD `assets/logo-hd.png` (1024 × 1024).

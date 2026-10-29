@@ -76,7 +76,16 @@ pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usi
 
             // Logo
             let (logo, logo_resp) = ui.allocate_exact_size(vec2(BUTTON, BUTTON), Sense::click());
+            let logo_resp = logo_resp.on_hover_text(t!("Clic droit : onglets personnalisés", "Right-click: custom tabs"));
             spinning_logo(ui, logo, logo_resp.clicked());
+            // Clic droit : galerie des onglets personnalisés, à droite de la barre.
+            if logo_resp.secondary_clicked() {
+                crate::gallery::toggle(ui.ctx(), Pos2::new(logo.right() + 26.0, logo.top()));
+            }
+            // Onglet personnalisé ouvert ou galerie affichée : anneau autour du logo.
+            if matches!(current, Tab::Custom(_)) || crate::gallery::is_open() {
+                ui.painter().circle_stroke(logo.center(), BUTTON / 2.0, Stroke::new(1.5, theme::TEXT_MUTED()));
+            }
 
             // Séparateur
             let (sep, _) = ui.allocate_exact_size(vec2(BUTTON, 1.0), Sense::hover());
@@ -639,6 +648,7 @@ pub(crate) fn draw_icon(p: &Painter, r: Rect, tab: Tab, c: Color32, phase: f32) 
     let k = CornerRadius::same(2);
     match tab {
         Tab::Settings => draw_gear(p, r, c, phase),
+        Tab::Custom(_) => crate::sidebar::paint_logo(p, r, c),
         Tab::Blueprint => draw_blueprint(p, r, c, phase, w),
         Tab::Dashboard => {
             let g = 3.0 * w;

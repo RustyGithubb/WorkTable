@@ -22,15 +22,17 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 /// Fil d'écoute (pour lui signaler un nouveau raccourci).
 static THREAD: AtomicU32 = AtomicU32::new(0);
 /// Raccourci voulu (modificateurs, touche).
-static WANTED: Mutex<Option<(u32, u32)>> = Mutex::new(None);
-/// 0 : rien d'enregistré, 1 : actif, 2 : refusé (déjà pris par une autre application).
-static STATUS: AtomicU8 = AtomicU8::new(0);
+/// Raccourcis voulus : [0] ouvrir / cacher, [1] quitter.
+static WANTED: Mutex<[Option<(u32, u32)>; 2]> = Mutex::new([None, None]);
+/// Par raccourci — 0 : rien d'enregistré, 1 : actif, 2 : refusé (déjà pris par une autre application).
+static STATUS: [AtomicU8; 2] = [AtomicU8::new(0), AtomicU8::new(0)];
 static HIDDEN: AtomicBool = AtomicBool::new(false);
 /// Placement et style étendu de la fenêtre avant qu'elle soit cachée.
 static SAVED: Mutex<Option<(WINDOWPLACEMENT, isize)>> = Mutex::new(None);
 static CTX: Mutex<Option<egui::Context>> = Mutex::new(None);
 
 const HOTKEY_ID: i32 = 1;
+const QUIT_ID: i32 = 2;
 /// Message « raccourci modifié » envoyé au fil d'écoute.
 const WM_RELOAD: u32 = WM_APP + 1;
 
@@ -101,10 +103,10 @@ fn signal(name: &str) {
 
 /// Fil d'écoute : raccourci global (messages `WM_HOTKEY`) et demandes de réouverture (événement
 /// déclenché par une autre instance).
-pub fn start(ctx: egui::Context, hotkey: Option<(u32, u32)>) {
+pub fn start(ctx: egui::Context, show_key: Option<(u32, u32)>, quit_key: Option<(u32, u32)>) {
     black_background();
     *CTX.lock().unwrap_or_else(|e| e.into_inner()) = Some(ctx);
-    *WANTED.lock().unwrap_or_else(|e| e.into_inner()) = hotkey;
+    *WANTED.lock().unwrap_or_else(|e| e.into_inner()) = [show_key, quit_key];
     let mode = format!("{:?}", crate::paths::mode());
     let _ = std::thread::Builder::new().name("wt-hotkey".into()).spawn(move || {
         let show_name = wide(&format!("Local\\WorkTable.Show.{mode}"));
@@ -128,16 +130,12 @@ pub fn start(ctx: egui::Context, hotkey: Option<(u32, u32)>) {
                     Some(h) if *h == show_ev => {
                         show();
                     }
-                    Some(_) => {
-                        if let Some(ctx) = CTX.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-                            super::quit(ctx);
-                            ctx.request_repaint();
-                        }
-                    }
+                    Some(_) => quit_now(),
                     None => {}
                 }
                 while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
                     match msg.message {
+                        WM_HOTKEY if msg.wParam == QUIT_ID as usize => quit_now(),
                         WM_HOTKEY => toggle(),
                         WM_RELOAD => register(),
                         _ => {}
@@ -151,22 +149,32 @@ pub fn start(ctx: egui::Context, hotkey: Option<(u32, u32)>) {
 /// (Ré)enregistre le raccourci voulu sur le fil d'écoute.
 fn register() {
     let wanted = *WANTED.lock().unwrap_or_else(|e| e.into_inner());
-    // SAFETY : raccourci attaché au fil courant (pas de fenêtre).
-    unsafe {
-        UnregisterHotKey(std::ptr::null_mut(), HOTKEY_ID);
-        let status = match wanted {
-            Some((mods, vk)) if RegisterHotKey(std::ptr::null_mut(), HOTKEY_ID, mods | MOD_NOREPEAT, vk) != 0 => 1,
-            Some(_) => 2,
-            None => 0,
-        };
-        STATUS.store(status, Ordering::Relaxed);
+    for (i, (id, w)) in [(HOTKEY_ID, wanted[0]), (QUIT_ID, wanted[1])].into_iter().enumerate() {
+        // SAFETY : raccourci attaché au fil courant (pas de fenêtre).
+        unsafe {
+            UnregisterHotKey(std::ptr::null_mut(), id);
+            let status = match w {
+                Some((mods, vk)) if RegisterHotKey(std::ptr::null_mut(), id, mods | MOD_NOREPEAT, vk) != 0 => 1,
+                Some(_) => 2,
+                None => 0,
+            };
+            STATUS[i].store(status, Ordering::Relaxed);
+        }
     }
     repaint();
 }
 
+/// Raccourci « quitter » : l'app s'arrête pour de bon (même cachée).
+fn quit_now() {
+    if let Some(ctx) = CTX.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        super::quit(ctx);
+        ctx.request_repaint();
+    }
+}
+
 /// Nouveau raccourci (`None` : désactivé, par exemple pendant qu'on en tape un autre).
-pub fn set_hotkey(hotkey: Option<(u32, u32)>) {
-    *WANTED.lock().unwrap_or_else(|e| e.into_inner()) = hotkey;
+pub fn set_hotkeys(show: Option<(u32, u32)>, quit: Option<(u32, u32)>) {
+    *WANTED.lock().unwrap_or_else(|e| e.into_inner()) = [show, quit];
     let t = THREAD.load(Ordering::Relaxed);
     if t != 0 {
         // SAFETY : simple message sans données vers le fil d'écoute.
@@ -176,8 +184,8 @@ pub fn set_hotkey(hotkey: Option<(u32, u32)>) {
     }
 }
 
-pub fn hotkey_ok() -> Option<bool> {
-    match STATUS.load(Ordering::Relaxed) {
+pub fn hotkey_ok(i: usize) -> Option<bool> {
+    match STATUS.get(i)?.load(Ordering::Relaxed) {
         1 => Some(true),
         2 => Some(false),
         _ => None,

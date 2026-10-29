@@ -495,7 +495,7 @@ fn percent_chip(p: &egui::Painter, r: Rect, share: f32, active: bool) {
 }
 
 /// Contour pointillé arrondi (place visée).
-fn dashed(p: &egui::Painter, r: Rect, color: Color32) {
+pub(crate) fn dashed(p: &egui::Painter, r: Rect, color: Color32) {
     let r = r.shrink(1.0);
     let pts = vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
     p.rect_filled(r, CornerRadius::same(12), theme::overlay(5));
