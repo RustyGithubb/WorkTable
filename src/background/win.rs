@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use eframe::egui;
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND};
 use windows_sys::Win32::System::Threading::{CreateEventW, CreateMutexW, EVENT_MODIFY_STATE, GetCurrentThreadId, INFINITE, OpenEventW, SetEvent};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_NOREPEAT, RegisterHotKey, UnregisterHotKey};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, MOD_NOREPEAT, RegisterHotKey, UnregisterHotKey};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     ASFW_ANY, AllowSetForegroundWindow, GWL_EXSTYLE, GWL_STYLE, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowPlacement, IsIconic, MSG,
     MsgWaitForMultipleObjects, PM_NOREMOVE, PM_REMOVE, PeekMessageW, PostThreadMessageW, QS_ALLINPUT, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_RESTORE, SW_SHOWMAXIMIZED,
@@ -182,6 +182,12 @@ pub fn set_hotkeys(show: Option<(u32, u32)>, quit: Option<(u32, u32)>) {
             PostThreadMessageW(t, WM_RELOAD, 0, 0);
         }
     }
+}
+
+/// Touche enfoncée en ce moment (lecture directe du clavier).
+pub fn down(vk: u32) -> bool {
+    // SAFETY : simple lecture de l'état du clavier.
+    unsafe { GetAsyncKeyState(vk as i32) < 0 }
 }
 
 pub fn hotkey_ok(i: usize) -> Option<bool> {

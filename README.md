@@ -461,7 +461,12 @@ Enregistrement automatique une seconde après la dernière frappe.
 - **Onglets personnalisés** : clic droit sur le logo → galerie flottante 3 × 3. « + » sur une case
   vide crée un onglet (nom à taper aussitôt) ; clic sur une case : ouvre l'onglet (un anneau entoure
   alors le logo) ; clic droit sur une case : renommer, changer l'émoji, choisir une image (copiée
-  dans `config\custom_tabs`), supprimer. Les onglets sont pour l'instant vides (nom et logo).
+  dans `config\custom_tabs`), supprimer.
+- **Contenu d'un onglet personnalisé** : une galerie de panneaux, sur la même grille que le tableau
+  de bord (déplacer par la barre de titre, redimensionner par le coin). « + Ajouter un panneau » ouvre
+  la galerie : Bloc-notes (texte propre à l'onglet, plusieurs possibles), Tâches, Rappels, Planning
+  du jour, Quadrillage, Mails, Messages épinglés, Fichiers reçus, Liens importants (mêmes données que
+  le tableau de bord, une fois par onglet). La pastille « × » (au survol) retire un panneau.
 - Logo en haut : monochrome (équerres, cadre arrondi, grille 3 × 3), dessiné dans la couleur du texte
   du thème. Icône de la fenêtre et de la barre des tâches (logo sombre sur fond clair) : `assets/logo.png` (256 × 256),
   version HD `assets/logo-hd.png` (1024 × 1024).

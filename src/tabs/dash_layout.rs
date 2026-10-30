@@ -11,7 +11,11 @@
 //!   de la rangée rétrécissent ou s'élargissent en proportion (les parts s'affichent en %, et
 //!   s'aimantent à ¼, ⅓, ½, ⅔, ¾) ; la hauteur change celle de toute la rangée.
 //!
-//! La disposition est gardée dans les préférences (`Prefs::dashboard_rows`).
+//! La disposition est gardée dans les préférences (`Prefs::dashboard_rows`, et
+//! `CustomTab::rows` pour les onglets personnalisés).
+//!
+//! Onglets personnalisés ([`show_free`]) : mêmes panneaux, mais choisis librement (galerie de
+//! panneaux) ; chaque panneau s'y appelle `type#n` et se retire par sa pastille « × ».
 
 use std::collections::HashMap;
 
@@ -42,21 +46,56 @@ pub struct PanelDef {
     pub id: &'static str,
     pub min_px: f32,
     pub min_h: u8,
+    /// Toujours présent sur le tableau de bord (sinon : onglets personnalisés seulement).
+    pub dashboard: bool,
 }
 
-pub const PANELS: [PanelDef; 8] = [
-    PanelDef { id: "links", min_px: 200.0, min_h: 5 },
-    PanelDef { id: "planning", min_px: 150.0, min_h: 4 },
-    PanelDef { id: "timeline", min_px: 150.0, min_h: 4 },
-    PanelDef { id: "mails", min_px: 150.0, min_h: 4 },
-    PanelDef { id: "pinned", min_px: 150.0, min_h: 4 },
-    PanelDef { id: "reminders", min_px: 180.0, min_h: 4 },
-    PanelDef { id: "tasks", min_px: 360.0, min_h: 6 },
-    PanelDef { id: "files", min_px: 240.0, min_h: 3 },
+const fn panel(id: &'static str, min_px: f32, min_h: u8, dashboard: bool) -> PanelDef {
+    PanelDef { id, min_px, min_h, dashboard }
+}
+
+pub const PANELS: [PanelDef; 9] = [
+    panel("links", 200.0, 5, true),
+    panel("planning", 150.0, 4, true),
+    panel("timeline", 150.0, 4, true),
+    panel("mails", 150.0, 4, true),
+    panel("pinned", 150.0, 4, true),
+    panel("reminders", 180.0, 4, true),
+    panel("tasks", 360.0, 6, true),
+    panel("files", 240.0, 3, true),
+    panel("note", 160.0, 3, false),
 ];
 
+/// Type d'un panneau : « tasks » pour « tasks#3 » (onglets personnalisés).
+pub fn kind(id: &str) -> &str {
+    id.split('#').next().unwrap_or(id)
+}
+
 fn def(id: &str) -> Option<&'static PanelDef> {
-    PANELS.iter().find(|p| p.id == id)
+    let k = kind(id);
+    PANELS.iter().find(|p| p.id == k)
+}
+
+/// Ajoute un panneau en bas (dans la dernière rangée si elle a de la place, sinon dans une
+/// nouvelle rangée) : onglets personnalisés.
+pub fn append(rows: &mut Vec<DashRow>, id: &str, width: f32) {
+    let min_h = def(id).map_or(4, |d| d.min_h);
+    // Largeur confortable (un peu plus que le minimum du redimensionnement).
+    let min_px = |id: &str| def(id).map_or(200.0, |d| (d.min_px * 1.35).max(240.0));
+    // Place à parts égales pour tous, chacun au moins à sa largeur minimale.
+    let fits = |r: &DashRow| {
+        let n = r.panels.len() as f32 + 1.0;
+        let each = (width - GAP * (n - 1.0)) / n;
+        r.panels.len() < 3 && r.panels.iter().map(|p| min_px(&p.id)).chain([min_px(id)]).all(|m| m <= each)
+    };
+    match rows.last() {
+        Some(r) if fits(r) => {
+            let row = rows.len() - 1;
+            let at = r.panels.len();
+            insert(rows, id, min_h.max(8), Drop::Into { row, at });
+        }
+        _ => insert(rows, id, min_h.max(8), Drop::NewRow { row: rows.len() }),
+    }
 }
 
 fn row(h: u8, panels: &[(&str, f32)]) -> DashRow {
@@ -88,16 +127,23 @@ fn rebalance(r: &mut DashRow) {
 /// Disposition enregistrée remise en ordre : panneaux inconnus ou en double retirés, panneaux
 /// manquants ajoutés dans une rangée en bas, rangées vides retirées, parts ramenées à 100 %,
 /// hauteurs au moins égales aux minimums. Renvoie `true` si quelque chose a changé.
-pub fn normalize(rows: &mut Vec<DashRow>) -> bool {
+#[cfg(test)]
+fn normalize(rows: &mut Vec<DashRow>) -> bool {
+    normalize_with(rows, true)
+}
+
+/// `dashboard` : disposition du tableau de bord (tous ses panneaux, une fois chacun) ; sinon,
+/// onglet personnalisé (panneaux libres, éventuellement aucun).
+fn normalize_with(rows: &mut Vec<DashRow>, dashboard: bool) -> bool {
     let before = rows.clone();
-    if rows.is_empty() {
+    if rows.is_empty() && dashboard {
         *rows = default_layout();
     }
     let mut seen = std::collections::HashSet::new();
     for r in rows.iter_mut() {
-        r.panels.retain(|p| def(&p.id).is_some() && seen.insert(p.id.clone()));
+        r.panels.retain(|p| def(&p.id).is_some_and(|d| !dashboard || (d.dashboard && kind(&p.id) == p.id)) && seen.insert(p.id.clone()));
     }
-    let missing: Vec<&str> = PANELS.iter().map(|p| p.id).filter(|id| !seen.contains(*id)).collect();
+    let missing: Vec<&str> = if dashboard { PANELS.iter().filter(|p| p.dashboard).map(|p| p.id).filter(|id| !seen.contains(*id)).collect() } else { Vec::new() };
     if !missing.is_empty() {
         let share = 1.0 / missing.len() as f32;
         rows.push(DashRow { h: 8, panels: missing.iter().map(|id| DashPanel { id: id.to_string(), share }).collect() });
@@ -307,14 +353,25 @@ struct Board {
 
 /// Dessine les panneaux des rangées `rows` ; `body(id, ui)` dessine le contenu d'un panneau dans
 /// `ui` (à sa taille). Renvoie `true` si la disposition a changé.
-pub fn show(ui: &mut egui::Ui, rows: &mut Vec<DashRow>, mut body: impl FnMut(&str, &mut egui::Ui)) -> bool {
+pub fn show(ui: &mut egui::Ui, rows: &mut Vec<DashRow>, body: impl FnMut(&str, &mut egui::Ui)) -> bool {
+    show_inner(ui, rows, None, body).0
+}
+
+/// Onglet personnalisé `key` : panneaux libres, chacun avec sa pastille « × » (au survol).
+/// Renvoie si la disposition a changé et le panneau à retirer.
+pub fn show_free(ui: &mut egui::Ui, key: u64, rows: &mut Vec<DashRow>, body: impl FnMut(&str, &mut egui::Ui)) -> (bool, Option<String>) {
+    show_inner(ui, rows, Some(key), body)
+}
+
+fn show_inner(ui: &mut egui::Ui, rows: &mut Vec<DashRow>, free: Option<u64>, mut body: impl FnMut(&str, &mut egui::Ui)) -> (bool, Option<String>) {
     let ctx = ui.ctx().clone();
-    let mut changed = normalize(rows);
+    let mut changed = normalize_with(rows, free.is_none());
+    let mut removed = None;
     let width = ui.available_width() - 12.0;
     let stacked = width < STACK_BELOW;
     let origin = ui.cursor().min;
 
-    let board_id = egui::Id::unique("wt_dash_board");
+    let board_id = egui::Id::unique(("wt_dash_board", free));
     let mut board: Board = ctx.data(|d| d.get_temp(board_id)).unwrap_or_default();
     // Défilement : tout se décale d'un bloc, sans animation.
     if let Some(prev) = board.origin
@@ -340,7 +397,7 @@ pub fn show(ui: &mut egui::Ui, rows: &mut Vec<DashRow>, mut body: impl FnMut(&st
             let target = drop_target(&b_bands, &b_rects, p);
             let mut next = d.base.clone();
             insert(&mut next, &d.id, d.h, target);
-            normalize(&mut next);
+            normalize_with(&mut next, free.is_none());
             if let Drop::NewRow { row } = target {
                 drop_line = Some(if row < b_bands.len() { b_bands[row].0 - GAP / 2.0 } else { b_bands.last().map_or(origin.y, |b| b.1 + GAP / 2.0) });
             }
@@ -437,6 +494,22 @@ pub fn show(ui: &mut egui::Ui, rows: &mut Vec<DashRow>, mut body: impl FnMut(&st
             ui.set_max_size(r.size());
             body(id, ui);
         });
+        // Onglet personnalisé : pastille « × » au coin (au survol) pour retirer le panneau.
+        if free.is_some() && board.drag.is_none() && board.resize.is_none() && ui.rect_contains_pointer(r) {
+            let c = Pos2::new(r.right() - 18.0, r.top() + 18.0);
+            let hit = Rect::from_center_size(c, vec2(22.0, 22.0));
+            let x = ui.interact(hit, egui::Id::unique(("wt_dash_remove", id.as_str())), Sense::click_and_drag()).on_hover_text(t!("Retirer ce panneau", "Remove this panel"));
+            let p = ui.painter();
+            p.circle_filled(c, 10.0, if x.hovered() { crate::tabs::timeline::ACCENT } else { theme::SURFACE() });
+            p.circle_stroke(c, 10.0, Stroke::new(1.0, if x.hovered() { crate::tabs::timeline::ACCENT } else { theme::BORDER() }));
+            let ink = if x.hovered() { Color32::WHITE } else { theme::TEXT_MUTED() };
+            for d in [vec2(3.5, 3.5), vec2(3.5, -3.5)] {
+                p.line_segment([c - d, c + d], Stroke::new(1.5, ink));
+            }
+            if x.clicked() {
+                removed = Some(id.clone());
+            }
+        }
         if stacked {
             continue;
         }
@@ -481,7 +554,11 @@ pub fn show(ui: &mut egui::Ui, rows: &mut Vec<DashRow>, mut body: impl FnMut(&st
         ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     }
     ctx.data_mut(|d| d.insert_temp(board_id, board));
-    changed
+    if let Some(id) = &removed {
+        take(rows, id);
+        changed = true;
+    }
+    (changed, removed)
 }
 
 /// Part d'un panneau (en %), au centre de son bas, pendant le redimensionnement de sa rangée.
@@ -561,6 +638,26 @@ mod tests {
     }
 
     #[test]
+    fn free_layouts() {
+        // Onglet personnalisé : vide reste vide, plusieurs instances d'un même type.
+        let mut rows: Vec<DashRow> = Vec::new();
+        assert!(!normalize_with(&mut rows, false));
+        for id in ["note#1", "tasks#2", "note#3", "files#4"] {
+            append(&mut rows, id, 1600.0);
+        }
+        assert!(!normalize_with(&mut rows, false));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].panels.len(), 3);
+        assert_eq!(rows[0].h, 8);
+        take(&mut rows, "files#4");
+        assert_eq!(rows.len(), 1);
+        // Le tableau de bord ignore ces panneaux.
+        let mut dash = rows.clone();
+        normalize(&mut dash);
+        assert!(dash.iter().all(|r| r.panels.iter().all(|p| !p.id.contains('#'))));
+    }
+
+    #[test]
     fn drop_targets() {
         let r = |x: f32, y: f32| Rect::from_min_size(Pos2::new(x, y), vec2(100.0, 200.0));
         let rects = vec![vec![r(0.0, 0.0), r(110.0, 0.0)], vec![r(0.0, 212.0)]];
@@ -581,7 +678,7 @@ mod tests {
         assert_eq!(rows[0].panels[0].share, 1.0);
         assert_eq!(rows[0].h, 6);
         // Les panneaux manquants arrivent dans une rangée en bas.
-        assert_eq!(rows.iter().map(|r| r.panels.len()).sum::<usize>(), PANELS.len());
+        assert_eq!(rows.iter().map(|r| r.panels.len()).sum::<usize>(), PANELS.iter().filter(|p| p.dashboard).count());
         assert!(!normalize(&mut rows));
     }
 }

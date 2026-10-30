@@ -18,9 +18,13 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
         && !ed.editing
     {
         let ev = ed.ev.clone();
-        let highlighted = crate::tabs::timeline::is_highlighted(&prefs.timeline, &ev);
-        match view(ui, cal, &ev, book, highlighted) {
-            Some(ViewAction::Highlight) => crate::tabs::timeline::toggle(&mut prefs.timeline, &ev),
+        let bases = highlight_bases(prefs, &ev);
+        match view(ui, cal, &ev, book, &bases) {
+            Some(ViewAction::Highlight(b)) => crate::tabs::timeline::toggle_in(prefs, b, &ev),
+            Some(ViewAction::NewBase(name)) => {
+                let id = crate::tabs::timeline::new_base(prefs, &name);
+                crate::tabs::timeline::toggle_in(prefs, Some(id), &ev);
+            }
             Some(ViewAction::Edit) => {
                 if let Some(ed) = &mut cal.editor {
                     ed.editing = true;
@@ -250,12 +254,20 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &Account, book: &Co
 pub enum ViewAction {
     Edit,
     Close,
-    /// Mettre en évidence dans le quadrillage du tableau de bord (ou retirer).
-    Highlight,
+    /// Mettre en évidence dans une base de jours (`None` : celle du tableau de bord), ou retirer.
+    Highlight(Option<u64>),
+    /// Nouvelle base de jours mis en évidence (avec cet événement).
+    NewBase(String),
+}
+
+/// Bases de jours mis en évidence : identifiant, nom, l'événement y est-il.
+pub fn highlight_bases(prefs: &crate::prefs::Prefs, e: &CalEvent) -> Vec<(Option<u64>, String, bool)> {
+    crate::tabs::timeline::bases(prefs).into_iter().map(|(b, name)| (b, name, crate::tabs::timeline::in_base(prefs, b, e))).collect()
 }
 
 /// Affichage en lecture d'un événement (aucun champ modifiable).
-pub fn view(ui: &mut egui::Ui, cal: &CalendarState, e: &CalEvent, book: &Contacts, highlighted: bool) -> Option<ViewAction> {
+pub fn view(ui: &mut egui::Ui, cal: &CalendarState, e: &CalEvent, book: &Contacts, bases: &[(Option<u64>, String, bool)]) -> Option<ViewAction> {
+    let highlighted = bases.iter().any(|b| b.2);
     let writable = cal.calendar(&e.calendar).is_none_or(|c| c.writable);
     let mut act = None;
     ui.horizontal(|ui| {
@@ -278,27 +290,36 @@ pub fn view(ui: &mut egui::Ui, cal: &CalendarState, e: &CalEvent, book: &Contact
         });
         ui.add_space(4.0);
         ui.label(RichText::new(when(e)).color(theme::TEXT_MUTED()));
-        // Mise en évidence : le jour est coloré dans le quadrillage du tableau de bord.
+        // Mise en évidence : le jour est coloré dans le quadrillage de chaque base choisie.
         ui.add_space(6.0);
         let accent = crate::tabs::timeline::ACCENT;
-        let (label, tip) = if highlighted {
-            (
-                t!("Mis en évidence dans le quadrillage · retirer", "Highlighted in the day grid · remove"),
-                t!("Le jour n'est plus coloré dans le quadrillage du tableau de bord", "The day is no longer coloured in the dashboard day grid"),
-            )
-        } else {
-            (
-                t!("Mettre en évidence dans le quadrillage", "Highlight in the day grid"),
-                t!("Colore ce jour dans le quadrillage du tableau de bord", "Colours this day in the dashboard day grid"),
-            )
-        };
+        let n = bases.iter().filter(|b| b.2).count();
+        let label = if highlighted { tf!("Mis en évidence · {n} base(s)", "Highlighted · {n} base(s)") } else { t!("Mettre en évidence", "Highlight").to_string() };
         let button = egui::Button::new(RichText::new(label).small().color(if highlighted { Color32::WHITE } else { accent }))
             .fill(if highlighted { accent.gamma_multiply(0.8) } else { accent.gamma_multiply(0.15) })
             .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.7)))
             .corner_radius(egui::CornerRadius::same(255));
-        if ui.add(button).on_hover_text(tip).clicked() {
-            act = Some(ViewAction::Highlight);
-        }
+        let resp = ui.add(button).on_hover_text(t!("Choisir les bases de jours où colorer ce jour", "Choose the day bases where this day is coloured"));
+        egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+            ui.label(RichText::new(t!("Bases de jours mis en évidence", "Highlighted day bases")).small().strong().color(theme::TEXT_MUTED()));
+            for (b, name, on) in bases {
+                let mut checked = *on;
+                if ui.checkbox(&mut checked, name).clicked() {
+                    act = Some(ViewAction::Highlight(*b));
+                }
+            }
+            ui.separator();
+            let id = egui::Id::unique("wt_new_highlight_base");
+            let mut name: String = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+            ui.horizontal(|ui| {
+                let edit = ui.add(egui::TextEdit::singleline(&mut name).hint_text(t!("Nouvelle base…", "New base…")).desired_width(150.0));
+                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if (ui.add_enabled(!name.trim().is_empty(), egui::Button::new(t!("Créer", "Create"))).clicked() || enter) && !name.trim().is_empty() {
+                    act = Some(ViewAction::NewBase(std::mem::take(&mut name)));
+                }
+            });
+            ui.data_mut(|d| d.insert_temp(id, name));
+        });
         ui.add_space(10.0);
         if let Some(c) = cal.calendar(&e.calendar) {
             info_row(ui, t!("Agenda", "Calendar"), |ui| {

@@ -9,7 +9,9 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 - Raccourci global **Ctrl+Maj+K** pour quitter WorkTable (même cachée), réglable dans
   Réglages › Arrière-plan.
 - Onglets personnalisés : clic droit sur le logo de la barre → galerie 3 × 3 (créer, renommer,
-  émoji ou image, supprimer) ; les onglets sont pour l'instant vides.
+  émoji ou image, supprimer). Chaque onglet est une galerie de panneaux sur la grille du tableau de
+  bord : « + Ajouter un panneau » (bloc-notes, tâches, rappels, planning, quadrillage, mails,
+  messages épinglés, fichiers, liens), déplacer, redimensionner, retirer (« × »).
 - Messages : bouton « 👥 Membres » dans l'en-tête des groupes et bouton « + Ajouter » dans la
   gestion des membres.
 

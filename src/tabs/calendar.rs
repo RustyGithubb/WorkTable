@@ -648,8 +648,8 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &mut Account, prefs
                 panel::show(ui, cal, acc_ref, book, prefs);
             } else if let Some(e) = cal.panel_last.clone() {
                 // Panneau qui se referme (animation) : affichage seul.
-                let hl = crate::tabs::timeline::is_highlighted(&prefs.timeline, &e);
-                panel::view(ui, cal, &e, book, hl);
+                let bases = panel::highlight_bases(prefs, &e);
+                panel::view(ui, cal, &e, book, &bases);
             }
         }),
     });

@@ -133,6 +133,16 @@ pub struct Highlight {
     pub all_day: bool,
 }
 
+/// Autre base de jours mis en évidence (la base d'origine est `TimelinePrefs::highlights`) :
+/// utilisée par les quadrillages des onglets personnalisés.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct HighlightSet {
+    pub id: u64,
+    pub name: String,
+    pub highlights: Vec<Highlight>,
+}
+
 /// Couleur associée à une adresse intermédiaire (liste de diffusion, adresse de groupe).
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct GroupColor {
@@ -180,6 +190,8 @@ pub struct Prefs {
     pub blueprint: BlueprintPrefs,
     /// Quadrillage des jours du tableau de bord (Réglages › Quadrillage).
     pub timeline: TimelinePrefs,
+    /// Autres bases de jours mis en évidence (choisies dans le Calendrier).
+    pub highlight_sets: Vec<HighlightSet>,
     /// Disposition du tableau de bord (rangées, ordre et parts des panneaux) ; vide : par défaut.
     pub dashboard_rows: Vec<DashRow>,
     /// Nombre de fichiers du panneau « Fichiers reçus » (0 : par défaut).
@@ -214,7 +226,10 @@ pub struct Prefs {
     /// Clé de l'API GIPHY (sélecteur de GIF des messages) et GIF favoris.
     pub giphy_key: String,
     pub chat_gif_favorites: Vec<GifItem>,
-    /// Onglets personnalisés (galerie 3 × 3 du logo de la barre).
+    /// Onglets personnalisés (galerie 3 × 3 du logo de la barre) : un fichier par onglet dans
+    /// `data\custom_tabs` (voir [`custom_tabs`]) ; lus dans `prefs.json` seulement s'ils y sont
+    /// encore (anciennes versions), puis déplacés.
+    #[serde(skip_serializing)]
     pub custom_tabs: Vec<CustomTab>,
 }
 
@@ -228,6 +243,12 @@ pub struct CustomTab {
     pub name: String,
     pub emoji: String,
     pub image: Option<String>,
+    /// Panneaux de l'onglet (même grille que le tableau de bord) ; vide : aucun panneau.
+    pub rows: Vec<DashRow>,
+    /// Texte des panneaux « Bloc-notes », par panneau.
+    pub notes: std::collections::BTreeMap<String, String>,
+    /// Base de jours mis en évidence de chaque quadrillage (panneau → `HighlightSet::id`).
+    pub grid_sets: std::collections::BTreeMap<String, u64>,
 }
 
 /// GIF du sélecteur (GIPHY) : aperçu léger pour la grille, version envoyée.
@@ -274,12 +295,114 @@ fn path() -> Option<PathBuf> {
 
 impl Prefs {
     pub fn load() -> Self {
-        path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        let mut prefs: Prefs = path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let old = std::mem::take(&mut prefs.custom_tabs);
+        prefs.custom_tabs = custom_tabs::load(old);
+        prefs
     }
 
     pub fn save(&self) {
         if let Some(p) = path() {
             crate::paths::save_json(&p, self);
+        }
+        custom_tabs::save(&self.custom_tabs);
+    }
+}
+
+/// Onglets personnalisés : un fichier JSON par onglet (`data\custom_tabs\<id>.json`), à
+/// partager tel quel. Un fichier déposé dans ce dossier est importé au lancement suivant (dans
+/// une case libre de la galerie).
+pub mod custom_tabs {
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    use super::CustomTab;
+
+    /// Onglets lus ou écrits par l'app : leur fichier est supprimé quand l'onglet l'est (un
+    /// fichier déposé pendant que l'app tourne n'est pas touché).
+    static KNOWN: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
+
+    pub fn dir() -> PathBuf {
+        crate::paths::data().join("custom_tabs")
+    }
+
+    fn file(id: u64) -> PathBuf {
+        dir().join(format!("{id}.json"))
+    }
+
+    /// Onglets du dossier ; `old` : ceux encore dans `prefs.json` (anciennes versions), gardés
+    /// s'ils n'ont pas de fichier.
+    pub fn load(old: Vec<CustomTab>) -> Vec<CustomTab> {
+        let mut tabs: Vec<CustomTab> = std::fs::read_dir(dir())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+            .filter_map(|e| serde_json::from_str::<CustomTab>(&std::fs::read_to_string(e.path()).ok()?).ok())
+            .collect();
+        for t in old {
+            if !tabs.iter().any(|x| x.id == t.id) {
+                tabs.push(t);
+            }
+        }
+        let known: HashSet<u64> = tabs.iter().map(|t| t.id).collect();
+        let tabs = place(tabs);
+        *KNOWN.lock().unwrap_or_else(|e| e.into_inner()) = Some(known);
+        tabs
+    }
+
+    /// Une case par onglet : un onglet importé dont la case est prise (ou invalide) va dans la
+    /// première case libre ; sans case libre, il reste dans son fichier.
+    fn place(mut tabs: Vec<CustomTab>) -> Vec<CustomTab> {
+        tabs.sort_by_key(|t| (t.slot, t.id));
+        let mut used = [false; crate::gallery::SLOTS];
+        let mut out = Vec::new();
+        for mut t in tabs {
+            let slot = t.slot as usize;
+            let free = if slot < used.len() && !used[slot] { Some(slot) } else { used.iter().position(|u| !u) };
+            if let Some(s) = free {
+                used[s] = true;
+                t.slot = s as u8;
+                out.push(t);
+            }
+        }
+        out
+    }
+
+    /// Écrit chaque onglet dans son fichier (s'il a changé) et retire les fichiers des onglets
+    /// supprimés.
+    pub fn save(tabs: &[CustomTab]) {
+        let mut known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
+        let known = known.get_or_insert_with(HashSet::new);
+        for t in tabs {
+            let path = file(t.id);
+            let Ok(text) = serde_json::to_string_pretty(t) else { continue };
+            if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+                let _ = crate::paths::write_atomic(&path, text.as_bytes());
+            }
+            known.insert(t.id);
+        }
+        known.retain(|id| {
+            let keep = tabs.iter().any(|t| t.id == *id);
+            if !keep {
+                let _ = std::fs::remove_file(file(*id));
+            }
+            keep
+        });
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn imported_tabs_get_a_free_slot() {
+            let t = |id: u64, slot: u8| CustomTab { id, slot, ..Default::default() };
+            let out = place(vec![t(1, 0), t(2, 0), t(3, 40)]);
+            assert_eq!(out.iter().map(|t| (t.id, t.slot)).collect::<Vec<_>>(), [(1, 0), (2, 1), (3, 2)]);
+            let full: Vec<CustomTab> = (0..10).map(|i| t(i, 0)).collect();
+            assert_eq!(place(full).len(), crate::gallery::SLOTS);
         }
     }
 }

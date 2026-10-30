@@ -350,7 +350,7 @@ impl eframe::App for WorkTableApp {
         crate::liquid::set_settings(ui.ctx(), self.prefs.animation);
         let prefs_before = self.prefs.clone();
         // Événements mis en évidence dans le quadrillage : copies tenues à jour (enregistrées).
-        tabs::timeline::sync(&self.calendar, &mut self.prefs.timeline);
+        tabs::timeline::sync_all(&self.calendar, &mut self.prefs);
         // Visionneuse d'images (avant les onglets : elle prend Échap pour elle).
         crate::lightbox::show(ui.ctx());
 
@@ -443,6 +443,7 @@ impl eframe::App for WorkTableApp {
             self.show_timer(ui.ctx(), id);
         }
         let mut note_action = None;
+        let mut dash_action = None;
 
         // 1. L'onglet ouvert occupe toute la fenêtre.
         //    La marge gauche réserve la place de la barre flottante pour garder le contenu lisible.
@@ -450,26 +451,7 @@ impl eframe::App for WorkTableApp {
             ui,
             |ui| match self.current {
                 Tab::Dashboard => {
-                    match tabs::dashboard::show(ui, &self.calendar, &mut self.mail, &mut self.chat.pins, &self.account, &mut self.prefs, &mut self.tasks, &mut self.links) {
-                        Some(tabs::dashboard::DashAction::Mail(id)) => {
-                            self.mail.open_from_elsewhere(&self.account, &id);
-                            self.current = Tab::Mail;
-                        }
-                        Some(tabs::dashboard::DashAction::Event(e)) => {
-                            self.calendar.show_event(&e);
-                            self.current = Tab::Calendar;
-                        }
-                        Some(tabs::dashboard::DashAction::Day(d)) => {
-                            self.calendar.reveal_date(&self.prefs, d);
-                            self.current = Tab::Calendar;
-                        }
-                        Some(tabs::dashboard::DashAction::GridEvent(e)) => {
-                            self.calendar.reveal_event(&self.prefs, &e);
-                            self.current = Tab::Calendar;
-                        }
-                        Some(tabs::dashboard::DashAction::Chat(space)) => self.go_to(crate::search::Target::Space(space)),
-                        None => {}
-                    }
+                    dash_action = tabs::dashboard::show(ui, &self.calendar, &mut self.mail, &mut self.chat.pins, &self.account, &mut self.prefs, &mut self.tasks, &mut self.links);
                 }
                 Tab::Calendar => tabs::calendar::show(ui, &mut self.calendar, &mut self.account, &mut self.prefs, &self.mail.contacts),
                 Tab::Mail => tabs::mail::show(ui, &mut self.mail, &mut self.account, &mut self.prefs),
@@ -484,9 +466,41 @@ impl eframe::App for WorkTableApp {
                 }
                 Tab::Blueprint => tabs::blueprint::show(ui, &mut self.blueprint, &mut self.prefs),
                 Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.prefs, &self.update),
-                Tab::Custom(id) => crate::gallery::page(ui, &self.prefs, id),
+                Tab::Custom(id) => {
+                    let mut d = tabs::dashboard::Deps {
+                        cal: &self.calendar,
+                        mail: &mut self.mail,
+                        pins: &mut self.chat.pins,
+                        acc: &self.account,
+                        tasks: &mut self.tasks,
+                        links: &mut self.links,
+                    };
+                    dash_action = tabs::custom::show(ui, &mut self.prefs, id, &mut d);
+                }
             },
         );
+
+        // Panneaux (tableau de bord, onglets personnalisés) : ouverture d'un mail, d'un jour…
+        match dash_action {
+            Some(tabs::dashboard::DashAction::Mail(id)) => {
+                self.mail.open_from_elsewhere(&self.account, &id);
+                self.current = Tab::Mail;
+            }
+            Some(tabs::dashboard::DashAction::Event(e)) => {
+                self.calendar.show_event(&e);
+                self.current = Tab::Calendar;
+            }
+            Some(tabs::dashboard::DashAction::Day(d)) => {
+                self.calendar.reveal_date(&self.prefs, d);
+                self.current = Tab::Calendar;
+            }
+            Some(tabs::dashboard::DashAction::GridEvent(e)) => {
+                self.calendar.reveal_event(&self.prefs, &e);
+                self.current = Tab::Calendar;
+            }
+            Some(tabs::dashboard::DashAction::Chat(space)) => self.go_to(crate::search::Target::Space(space)),
+            None => {}
+        }
 
         // Liens d'une note vers le calendrier, un mail ou un fichier Drive.
         match note_action {

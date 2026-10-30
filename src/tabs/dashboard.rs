@@ -26,6 +26,85 @@ pub enum DashAction {
     Chat(String),
 }
 
+/// Ce dont les panneaux ont besoin (tableau de bord et onglets personnalisés).
+pub struct Deps<'a> {
+    pub cal: &'a CalendarState,
+    pub mail: &'a mut MailState,
+    pub pins: &'a mut Pins,
+    pub acc: &'a Account,
+    pub tasks: &'a mut Tasks,
+    pub links: &'a mut crate::links::Links,
+}
+
+/// Titres et pastilles des panneaux, calculés une fois par image.
+pub struct Badges {
+    pinned: String,
+    mail: String,
+    doing: String,
+    grid: String,
+    grid_title: String,
+    file_count: usize,
+}
+
+/// À chaque image où des panneaux sont affichés : tâches du jour, fichiers reçus, pastilles.
+pub fn prepare(d: &mut Deps, prefs: &Prefs, ui: &egui::Ui) -> Badges {
+    d.tasks.roll_over(Local::now().timestamp_millis());
+    let file_count = crate::tabs::mail::shared_files_count(prefs);
+    d.mail.refresh_shared_files(d.acc, file_count);
+    ui.ctx().request_repaint_after(std::time::Duration::from_secs(30));
+    let unread = inbox_unread(d.mail).len();
+    let mail = if unread == 0 {
+        String::new()
+    } else if crate::i18n::en() {
+        format!("{unread} unread")
+    } else {
+        format!("{unread} non lu{}", if unread > 1 { "s" } else { "" })
+    };
+    // Titre réglable : raccourci pour tenir dans le panneau.
+    let grid_title = {
+        let t = super::timeline::title(&prefs.timeline);
+        if t.chars().count() > 22 { format!("{}…", t.chars().take(21).collect::<String>()) } else { t }
+    };
+    Badges {
+        pinned: if d.pins.list.is_empty() { String::new() } else { d.pins.list.len().to_string() },
+        mail,
+        doing: tf!("{} en cours", "{} in progress", d.tasks.column(Status::Doing).len()),
+        grid: super::timeline::badge(&prefs.timeline),
+        grid_title,
+        file_count,
+    }
+}
+
+/// Contenu d'un panneau du type `kind` (voir `dash_layout::PANELS`).
+pub fn draw(kind: &str, ui: &mut egui::Ui, d: &mut Deps, view: &Prefs, b: &Badges, out: &mut Option<DashAction>) {
+    match kind {
+        "links" => links_panel(ui, d.links),
+        "planning" => panel(ui, t!("Planning du jour", "Today's schedule"), "", |ui| planning(ui, d.cal, view, out)),
+        "timeline" => grid_panel(ui, &b.grid_title, d, view, b, &view.timeline.highlights, out),
+        "mails" => panel(ui, "Mails", &b.mail, |ui| mails(ui, d.mail, out)),
+        "pinned" => panel(ui, t!("Messages épinglés", "Pinned messages"), &b.pinned, |ui| pinned_messages(ui, d.pins, out)),
+        "reminders" => panel(ui, t!("Rappels", "Reminders"), "", |ui| reminders(ui, d.tasks)),
+        "tasks" => tasks_panel(ui, d.tasks, &b.doing),
+        "files" => {
+            let two = ui.available_width() > 700.0;
+            panel(ui, t!("Fichiers reçus", "Received files"), "", |ui| files(ui, d.mail, d.acc, two, b.file_count, out))
+        }
+        _ => {}
+    }
+}
+
+/// Panneau quadrillage : `highlights`, les jours mis en évidence d'une base (voir `timeline`).
+#[allow(clippy::too_many_arguments)]
+pub fn grid_panel(ui: &mut egui::Ui, title: &str, d: &mut Deps, view: &Prefs, b: &Badges, highlights: &[crate::prefs::Highlight], out: &mut Option<DashAction>) {
+    panel(ui, title, &b.grid, |ui| {
+        *out = match super::timeline::show_with(ui, d.cal, view, highlights) {
+            Some(super::timeline::Pick::Day(day)) => Some(DashAction::Day(day)),
+            Some(super::timeline::Pick::Event(e)) => Some(DashAction::GridEvent(*e)),
+            None => out.take(),
+        };
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
@@ -38,63 +117,25 @@ pub fn show(
     links: &mut crate::links::Links,
 ) -> Option<DashAction> {
     let mut out = None;
-    tasks.roll_over(Local::now().timestamp_millis());
-    let file_count = crate::tabs::mail::shared_files_count(prefs);
-    mail.refresh_shared_files(acc, file_count);
-    ui.ctx().request_repaint_after(std::time::Duration::from_secs(30));
-
+    let mut d = Deps { cal, mail, pins, acc, tasks, links };
+    let b = prepare(&mut d, prefs, ui);
     let greeting = greeting();
     let today = super::today_long();
     widgets::page_header_with(ui, t!("Tableau de bord", "Dashboard"), greeting, |ui| widgets::header_badge(ui, &today, false));
     // Panneaux dans une grille : déplaçables (barre de titre) et redimensionnables (coin en bas
     // à droite), voir `dash_layout`.
-    let pinned_badge = if pins.list.is_empty() { String::new() } else { pins.list.len().to_string() };
-    let unread = inbox_unread(mail).len();
-    let mail_badge = if unread == 0 {
-        String::new()
-    } else if crate::i18n::en() {
-        format!("{unread} unread")
-    } else {
-        format!("{unread} non lu{}", if unread > 1 { "s" } else { "" })
-    };
-    let doing = tf!("{} en cours", "{} in progress", tasks.column(Status::Doing).len());
-    let grid_badge = super::timeline::badge(&prefs.timeline);
-    // Titre réglable : raccourci pour tenir dans le panneau.
-    let grid_title = {
-        let t = super::timeline::title(&prefs.timeline);
-        if t.chars().count() > 22 { format!("{}…", t.chars().take(21).collect::<String>()) } else { t }
-    };
     let mut slots = std::mem::take(&mut prefs.dashboard_rows);
     let view: &Prefs = prefs;
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        super::dash_layout::show(ui, &mut slots, |id, ui| match id {
-            "links" => links_panel(ui, links),
-            "planning" => panel(ui, t!("Planning du jour", "Today's schedule"), "", |ui| planning(ui, cal, view, &mut out)),
-            "timeline" => panel(ui, &grid_title, &grid_badge, |ui| {
-                out = match super::timeline::show(ui, cal, view) {
-                    Some(super::timeline::Pick::Day(d)) => Some(DashAction::Day(d)),
-                    Some(super::timeline::Pick::Event(e)) => Some(DashAction::GridEvent(*e)),
-                    None => out.take(),
-                };
-            }),
-            "mails" => panel(ui, "Mails", &mail_badge, |ui| mails(ui, mail, &mut out)),
-            "pinned" => panel(ui, t!("Messages épinglés", "Pinned messages"), &pinned_badge, |ui| pinned_messages(ui, pins, &mut out)),
-            "reminders" => panel(ui, t!("Rappels", "Reminders"), "", |ui| reminders(ui, tasks)),
-            "tasks" => tasks_panel(ui, tasks, &doing),
-            "files" => {
-                let two = ui.available_width() > 700.0;
-                panel(ui, t!("Fichiers reçus", "Received files"), "", |ui| files(ui, mail, acc, two, file_count, &mut out))
-            }
-            _ => {}
-        });
+        super::dash_layout::show(ui, &mut slots, |id, ui| draw(id, ui, &mut d, view, &b, &mut out));
         ui.add_space(24.0);
     });
     prefs.dashboard_rows = slots;
-    tasks.save_if_needed();
+    d.tasks.save_if_needed();
     out
 }
 
-fn panel(ui: &mut egui::Ui, title: &str, badge: &str, body: impl FnOnce(&mut egui::Ui)) {
+pub fn panel(ui: &mut egui::Ui, title: &str, badge: &str, body: impl FnOnce(&mut egui::Ui)) {
     panel_with(
         ui,
         |ui| {
@@ -734,7 +775,8 @@ fn kanban(ui: &mut egui::Ui, tasks: &mut Tasks) {
                             ui.painter().circle_filled(d.center(), 4.0, c);
                             ui.label(RichText::new(status.label().to_uppercase()).small().strong().color(theme::TEXT_MUTED()));
                             ui.label(RichText::new(items.len().to_string()).small().color(theme::TEXT_FAINT()));
-                            if status == Status::Done {
+                            // Mention seulement si elle tient (colonne étroite : rien).
+                            if status == Status::Done && ui.available_width() > 120.0 {
                                 ui.label(RichText::new(t!("· vidé chaque jour", "· cleared every day")).small().color(theme::TEXT_FAINT()));
                             }
                         });

@@ -2,7 +2,7 @@
 //! une grille 3 × 3. Une case pleine ouvre son onglet ; une case vide (« + ») en crée un ; clic
 //! droit sur une case : renommer, changer le logo (émoji ou image), supprimer.
 //!
-//! Les onglets sont pour l'instant des coquilles vides (nom et logo) : leur contenu viendra plus tard.
+//! Le contenu d'un onglet (galerie de panneaux) est dans `tabs::custom`.
 
 use std::sync::Mutex;
 
@@ -223,7 +223,7 @@ fn create(prefs: &mut Prefs, slot: u8) {
     let id = chrono::Utc::now().timestamp_millis() as u64;
     let n = prefs.custom_tabs.len() + 1;
     let name = tf!("Onglet {n}", "Tab {n}");
-    prefs.custom_tabs.push(CustomTab { id, slot, name: name.clone(), emoji: ICONS[slot as usize % ICONS.len()].to_string(), image: None });
+    prefs.custom_tabs.push(CustomTab { id, slot, name: name.clone(), emoji: ICONS[slot as usize % ICONS.len()].to_string(), image: None, ..Default::default() });
     if let Some(s) = state().as_mut() {
         s.renaming = Some((slot, name, true));
     }
@@ -311,26 +311,6 @@ fn emoji_picker(ctx: &egui::Context, prefs: &mut Prefs) -> bool {
 }
 
 /// Contenu d'un onglet personnalisé (vide pour l'instant).
-pub fn page(ui: &mut egui::Ui, prefs: &Prefs, id: u64) {
-    let Some(tab) = tab(prefs, id) else {
-        crate::widgets::page_header(ui, t!("Onglet personnalisé", "Custom tab"), t!("Onglet supprimé", "Deleted tab"));
-        return;
-    };
-    crate::widgets::page_header(ui, t!("Onglet personnalisé", "Custom tab"), &tab.name);
-    ui.add_space(ui.available_height() * 0.28);
-    ui.vertical_centered(|ui| {
-        let (r, _) = ui.allocate_exact_size(vec2(64.0, 64.0), Sense::hover());
-        paint_icon(ui.painter(), r, tab);
-        ui.add_space(14.0);
-        ui.label(RichText::new(t!("Cet onglet est vide pour l'instant", "This tab is empty for now")).color(theme::TEXT_MUTED()));
-        ui.label(
-            RichText::new(t!("Clic droit sur le logo de la barre pour gérer tes onglets personnalisés.", "Right-click the logo in the bar to manage your custom tabs."))
-                .small()
-                .color(theme::TEXT_FAINT()),
-        );
-    });
-}
-
 /// Élan en sortie : dépasse un peu la cible puis s'y pose.
 fn back_out(t: f32) -> f32 {
     let (c1, c3) = (1.70158, 2.70158);

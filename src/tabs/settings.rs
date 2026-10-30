@@ -200,6 +200,9 @@ fn hotkey_row(ui: &mut egui::Ui, index: usize, title: &str, hint: &str, value: &
                 _ => None,
             })
         });
+        // Lecture directe du clavier en plus (Windows) : redessin continu pendant la saisie.
+        let typed = typed.or_else(|| crate::background::poll_typed(!mine));
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
         match typed {
             Some(Some(h)) => {
                 *value = h;

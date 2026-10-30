@@ -1,5 +1,6 @@
 pub mod blueprint;
 pub mod calendar;
+pub mod custom;
 pub(crate) mod dash_layout;
 pub mod dashboard;
 pub mod files;

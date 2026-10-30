@@ -59,26 +59,71 @@ pub fn title(t: &TimelinePrefs) -> String {
 
 // --- Mise en évidence ------------------------------------------------------------------------
 
-pub fn is_highlighted(t: &TimelinePrefs, e: &CalEvent) -> bool {
-    t.highlights.iter().any(|h| h.id == e.id && h.calendar == e.calendar)
-}
-
-/// Met en évidence l'événement, ou retire la mise en évidence.
-pub fn toggle(t: &mut TimelinePrefs, e: &CalEvent) {
-    if is_highlighted(t, e) {
-        t.highlights.retain(|h| !(h.id == e.id && h.calendar == e.calendar));
-    } else {
-        t.highlights.push(snapshot(e));
-    }
-}
-
 fn snapshot(e: &CalEvent) -> Highlight {
     Highlight { calendar: e.calendar.clone(), id: e.id.clone(), title: e.title.clone(), start: e.start, end: e.end, all_day: e.all_day }
 }
 
+// --- Bases de jours mis en évidence -------------------------------------------------------------
+// `None` : la base d'origine (quadrillage du tableau de bord) ; `Some(id)` : une autre base.
+
+/// Bases existantes : identifiant et nom.
+pub fn bases(prefs: &Prefs) -> Vec<(Option<u64>, String)> {
+    std::iter::once((None, title(&prefs.timeline))).chain(prefs.highlight_sets.iter().map(|s| (Some(s.id), s.name.clone()))).collect()
+}
+
+fn base(prefs: &Prefs, b: Option<u64>) -> Option<&Vec<Highlight>> {
+    match b {
+        None => Some(&prefs.timeline.highlights),
+        Some(id) => prefs.highlight_sets.iter().find(|s| s.id == id).map(|s| &s.highlights),
+    }
+}
+
+fn base_mut(prefs: &mut Prefs, b: Option<u64>) -> Option<&mut Vec<Highlight>> {
+    match b {
+        None => Some(&mut prefs.timeline.highlights),
+        Some(id) => prefs.highlight_sets.iter_mut().find(|s| s.id == id).map(|s| &mut s.highlights),
+    }
+}
+
+/// L'événement est-il dans cette base ?
+pub fn in_base(prefs: &Prefs, b: Option<u64>, e: &CalEvent) -> bool {
+    base(prefs, b).is_some_and(|l| l.iter().any(|h| h.id == e.id && h.calendar == e.calendar))
+}
+
+/// Ajoute l'événement à la base, ou l'en retire.
+pub fn toggle_in(prefs: &mut Prefs, b: Option<u64>, e: &CalEvent) {
+    let on = in_base(prefs, b, e);
+    if let Some(l) = base_mut(prefs, b) {
+        if on {
+            l.retain(|h| !(h.id == e.id && h.calendar == e.calendar));
+        } else {
+            l.push(snapshot(e));
+        }
+    }
+}
+
+/// Nouvelle base (vide) : son identifiant.
+pub fn new_base(prefs: &mut Prefs, name: &str) -> u64 {
+    let id = prefs.highlight_sets.iter().map(|s| s.id).max().unwrap_or(0) + 1;
+    prefs.highlight_sets.push(crate::prefs::HighlightSet { id, name: name.trim().to_string(), highlights: Vec::new() });
+    id
+}
+
+/// Les copies suivent l'événement quand il est chargé (déplacé, renommé), dans toutes les bases.
+pub fn sync_all(cal: &CalendarState, prefs: &mut Prefs) {
+    sync(cal, &mut prefs.timeline);
+    for s in prefs.highlight_sets.iter_mut() {
+        sync_list(cal, &mut s.highlights);
+    }
+}
+
 /// Les copies suivent l'événement quand il est chargé (déplacé, renommé).
 pub fn sync(cal: &CalendarState, t: &mut TimelinePrefs) {
-    for h in t.highlights.iter_mut() {
+    sync_list(cal, &mut t.highlights);
+}
+
+fn sync_list(cal: &CalendarState, list: &mut [Highlight]) {
+    for h in list.iter_mut() {
         if let Some(e) = cal.events.get(&h.calendar).and_then(|l| l.iter().find(|e| e.id == h.id)) {
             let fresh = snapshot(e);
             if *h != fresh {
@@ -246,8 +291,9 @@ pub enum Pick {
     Event(Box<CalEvent>),
 }
 
-/// Le quadrillage, dans le corps du panneau. Renvoie le jour ou l'événement cliqué.
-pub fn show(ui: &mut egui::Ui, cal: &CalendarState, prefs: &Prefs) -> Option<Pick> {
+/// Le quadrillage avec les jours mis en évidence d'une base (`highlights`) ; dates et vacances
+/// du quadrillage d'origine.
+pub fn show_with(ui: &mut egui::Ui, cal: &CalendarState, prefs: &Prefs, highlights: &[Highlight]) -> Option<Pick> {
     let t = &prefs.timeline;
     let (start, end) = range(t);
     let n = (end - start).num_days() + 1;
@@ -255,7 +301,7 @@ pub fn show(ui: &mut egui::Ui, cal: &CalendarState, prefs: &Prefs) -> Option<Pic
     // Jours mis en évidence → événements.
     let off = periods(t);
     let mut marked: BTreeMap<NaiveDate, Vec<&Highlight>> = BTreeMap::new();
-    for h in &t.highlights {
+    for h in highlights {
         for d in days_of(h).filter(|d| *d >= start && *d <= end) {
             marked.entry(d).or_default().push(h);
         }
@@ -627,12 +673,17 @@ mod tests {
         // Journée entière du 3 au 4 (fin exclue le 5 à minuit).
         let h = Highlight { start: ms(2026, 11, 3), end: ms(2026, 11, 5), all_day: true, ..Default::default() };
         assert_eq!(days_of(&h).collect::<Vec<_>>(), vec![d(2026, 11, 3), d(2026, 11, 4)]);
-        let mut t = TimelinePrefs::default();
+        let mut p = Prefs::default();
         let e = CalEvent { id: "e".into(), calendar: "c".into(), ..Default::default() };
-        toggle(&mut t, &e);
-        assert!(is_highlighted(&t, &e));
-        toggle(&mut t, &e);
-        assert!(!is_highlighted(&t, &e));
+        toggle_in(&mut p, None, &e);
+        assert!(in_base(&p, None, &e));
+        // Une autre base est indépendante de celle d'origine.
+        let b = new_base(&mut p, "Prod PFE");
+        assert!(!in_base(&p, Some(b), &e));
+        toggle_in(&mut p, Some(b), &e);
+        assert!(in_base(&p, Some(b), &e));
+        toggle_in(&mut p, None, &e);
+        assert!(!in_base(&p, None, &e) && in_base(&p, Some(b), &e));
     }
 
     #[test]

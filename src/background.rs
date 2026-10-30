@@ -69,13 +69,14 @@ pub fn on_frame(ctx: &egui::Context, hotkey: &Hotkey, quit_key: &Hotkey) {
     }
     // Remis à zéro à chaque image : les Réglages le redemandent tant que la saisie est ouverte.
     let paused = RECORDING.swap(false, Ordering::Relaxed);
-    // Hors Windows (pas de raccourci global) : « quitter » quand l'app a le clavier.
-    #[cfg(not(windows))]
-    if !paused && pressed(ctx, quit_key) {
-        quit(ctx);
-    }
     let now = (hotkey.clone(), quit_key.clone(), paused);
     let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    // Hors Windows (pas de raccourci global) : « quitter » quand l'app a le clavier (pas à
+    // l'image où le raccourci vient d'être choisi dans les Réglages).
+    #[cfg(not(windows))]
+    if !paused && last.as_ref().is_some_and(|l| l.1 == *quit_key) && pressed(ctx, quit_key) {
+        quit(ctx);
+    }
     if last.as_ref() != Some(&now) {
         if last.is_some() {
             #[cfg(windows)]
@@ -363,6 +364,31 @@ pub fn code(h: &Hotkey) -> Option<(u32, u32)> {
 /// une touche ordinaire dans toutes les applications.
 pub fn from_event(key: Key, m: egui::Modifiers) -> Option<Hotkey> {
     (KEYS.iter().any(|(k, _)| *k == key) && (m.ctrl || m.alt)).then(|| Hotkey { ctrl: m.ctrl, shift: m.shift, alt: m.alt, key: key.name().to_string() })
+}
+
+/// Saisie d'un raccourci dans les Réglages, lue directement au clavier : sous Windows, les
+/// combinaisons avec Ctrl ou Alt n'arrivent pas toujours jusqu'à la fenêtre. `Some(None)` :
+/// Échap (annuler). `start` : première image de la saisie (touches déjà enfoncées ignorées).
+#[cfg_attr(not(windows), allow(unused_variables))]
+pub fn poll_typed(start: bool) -> Option<Option<Hotkey>> {
+    #[cfg(windows)]
+    {
+        const ESC: u32 = 0x1B;
+        static PREV: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+        let down: Vec<u32> = KEYS.iter().map(|(_, vk)| *vk).chain([ESC]).filter(|vk| win::down(*vk)).collect();
+        let mut prev = PREV.lock().unwrap_or_else(|e| e.into_inner());
+        let fresh: Vec<u32> = if start { Vec::new() } else { down.iter().filter(|v| !prev.contains(v)).copied().collect() };
+        *prev = down;
+        if fresh.contains(&ESC) {
+            return Some(None);
+        }
+        let key = fresh.iter().find_map(|vk| KEYS.iter().find(|(_, v)| v == vk).map(|(k, _)| *k))?;
+        // VK_CONTROL, VK_SHIFT, VK_MENU (Alt).
+        let m = egui::Modifiers { ctrl: win::down(0x11), shift: win::down(0x10), alt: win::down(0x12), ..Default::default() };
+        from_event(key, m).map(Some)
+    }
+    #[cfg(not(windows))]
+    None
 }
 
 /// « Ctrl + Maj + Espace ».
