@@ -10,9 +10,16 @@ repository = "https://github.com/RustyGithubb/WorkTable"
 
 [dependencies]
 aes-gcm = "0.10"
+# HyperPlanning.net (espace web) : AES-CBC, MD5, RSA du protocole de l'espace.
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+md-5 = "0.10"
+num-bigint = "0.4"
+flate2 = "1"
+hex = "0.4"
 argon2 = "0.5"
 base64 = "0.22"
-chrono = "0.4.45"
+chrono = { version = "0.4.45", features = ["serde"] }
 directories = "6.0.0"
 eframe = { version = "0.37.0", features = ["glow"] }
 emojis = "0.9.1"

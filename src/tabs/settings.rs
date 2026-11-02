@@ -7,7 +7,7 @@ use crate::liquid::Liquid;
 use crate::prefs::{Animation, Curve, Prefs};
 use crate::{theme, widgets};
 
-pub fn show(ui: &mut egui::Ui, acc: &mut Account, prefs: &mut Prefs, update: &crate::update::Updater) {
+pub fn show(ui: &mut egui::Ui, acc: &mut Account, hp: &mut crate::hyperplanning::HyperPlanning, prefs: &mut Prefs, update: &crate::update::Updater) {
     widgets::page_header_with(ui, t!("Application", "Application"), t!("Réglages", "Settings"), |ui| {
         ui.add_space(8.0);
         // Icône « marche / arrêt » dessinée (le caractère ⏻ manque dans les polices de Windows).
@@ -48,6 +48,7 @@ pub fn show(ui: &mut egui::Ui, acc: &mut Account, prefs: &mut Prefs, update: &cr
                 google_account_form(ui, acc);
             });
             ui.add_space(12.0);
+            hyperplanning_card(ui, hp);
             notifications(ui, prefs);
             section(ui, t!("À propos", "About"), &[("Version", "WorkTable", Value::Text(env!("CARGO_PKG_VERSION")))]);
         });
@@ -367,6 +368,159 @@ pub fn google_account_form(ui: &mut egui::Ui, acc: &mut Account) {
             }
         }
     }
+}
+
+/// Espace web HyperPlanning.net (espace Enseignants) : demandes de réservation de salle.
+fn web_space(ui: &mut egui::Ui, hp: &mut crate::hyperplanning::HyperPlanning) {
+    use crate::hyperplanning::Status;
+    ui.add_space(8.0);
+    ui.separator();
+    ui.add_space(8.0);
+    ui.label(RichText::new(t!("Espace web (demandes de réservation de salle)", "Web space (room booking requests)")).strong());
+    ui.label(
+        RichText::new(t!(
+            "Identifiant et mot de passe de l'espace Enseignants. Laisser vide : ceux du service web ci-dessus.",
+            "Teachers space login and password. Leave empty: those of the web service above."
+        ))
+        .small()
+        .color(theme::TEXT_FAINT()),
+    );
+    ui.add_space(6.0);
+    let testing = hp.web_status == Status::Testing;
+    ui.add_enabled_ui(!testing, |ui| {
+        let url = widgets::field(ui, t!("Adresse", "Address"), 96.0, egui::TextEdit::singleline(&mut hp.config.web_url).hint_text(crate::hyperplanning::config::DEFAULT_WEB_URL));
+        if url.lost_focus() {
+            let _ = hp.config.save();
+        }
+        let same = hp.config.login.clone();
+        widgets::field(ui, t!("Identifiant", "Login"), 96.0, egui::TextEdit::singleline(&mut hp.config.web_login).hint_text(same));
+        let hint = if hp.config.has_web_password() {
+            t!("enregistré — laisser vide pour le garder", "saved — leave empty to keep it")
+        } else {
+            t!("celui du service web", "the web service one")
+        };
+        widgets::field(ui, t!("Mot de passe", "Password"), 96.0, egui::TextEdit::singleline(&mut hp.web_password_input).password(true).hint_text(hint));
+    });
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        let ready = !testing && !hp.config.web_url.trim().is_empty() && (hp.config.web_credentials().is_some() || !hp.web_password_input.is_empty());
+        if ui.add_enabled(ready, egui::Button::new(t!("Tester l'espace web", "Test web space"))).clicked() {
+            hp.save_and_test_web();
+        }
+        match &hp.web_status {
+            Status::Testing => {
+                ui.add(egui::Spinner::new().size(14.0));
+                ui.label(t!("Connexion…", "Connecting…"));
+            }
+            Status::Connected(user) => {
+                ui.label(RichText::new(tf!("Connecté — {user}", "Connected — {user}")).color(theme::TEXT_MUTED()));
+            }
+            _ => {}
+        }
+    });
+    if let Status::Failed(e) = &hp.web_status {
+        ui.add_space(6.0);
+        ui.add(egui::Label::new(RichText::new(e).small().color(theme::TEXT())).wrap());
+    }
+}
+
+/// Compte HyperPlanning (service web de l'école) : identifiants et test de connexion.
+fn hyperplanning_card(ui: &mut egui::Ui, hp: &mut crate::hyperplanning::HyperPlanning) {
+    use crate::hyperplanning::{Status, SyncStatus};
+    widgets::card(ui, "HyperPlanning", 0.0, |ui| {
+        ui.label(
+            RichText::new(t!(
+                "Plannings de l'école (lecture seule). Connexion en HTTP : identifiants non chiffrés sur le réseau.",
+                "School timetables (read-only). HTTP connection: credentials are not encrypted on the network."
+            ))
+            .small()
+            .color(theme::TEXT_FAINT()),
+        );
+        ui.add_space(10.0);
+        let testing = hp.status == Status::Testing;
+        ui.add_enabled_ui(!testing, |ui| {
+            widgets::field(ui, t!("Adresse", "Address"), 96.0, egui::TextEdit::singleline(&mut hp.config.url).hint_text(crate::hyperplanning::config::DEFAULT_URL));
+            widgets::field(ui, t!("Identifiant", "Login"), 96.0, egui::TextEdit::singleline(&mut hp.config.login));
+            let hint = if hp.config.has_password() { t!("enregistré — laisser vide pour le garder", "saved — leave empty to keep it") } else { "" };
+            widgets::field(ui, t!("Mot de passe", "Password"), 96.0, egui::TextEdit::singleline(&mut hp.password_input).password(true).hint_text(hint));
+        });
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            let ready = !testing && !hp.config.url.trim().is_empty() && !hp.config.login.trim().is_empty() && (hp.config.has_password() || !hp.password_input.is_empty());
+            if ui.add_enabled(ready, egui::Button::new(t!("Tester la connexion", "Test connection"))).clicked() {
+                hp.save_and_test();
+            }
+            match &hp.status {
+                Status::Testing => {
+                    ui.add(egui::Spinner::new().size(14.0));
+                    ui.label(t!("Connexion…", "Connecting…"));
+                }
+                Status::Connected(v) => {
+                    ui.label(RichText::new(tf!("Connecté — {v}", "Connected — {v}")).color(theme::TEXT_MUTED()));
+                }
+                Status::Unknown if hp.is_configured() => {
+                    ui.label(RichText::new(t!("Identifiants enregistrés", "Credentials saved")).small().color(theme::TEXT_FAINT()));
+                }
+                _ => {}
+            }
+            if hp.config.has_password() {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add_enabled(!testing, egui::Button::new(t!("Oublier", "Forget"))).clicked() {
+                        hp.forget();
+                    }
+                });
+            }
+        });
+        if let Status::Failed(e) = &hp.status {
+            ui.add_space(6.0);
+            ui.add(egui::Label::new(RichText::new(e).small().color(theme::TEXT())).wrap());
+        }
+        web_space(ui, hp);
+        if !hp.is_configured() {
+            return;
+        }
+        // Copie locale : contenu, dernière synchronisation.
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                match hp.data() {
+                    Some(d) if d.synced_at > 0 => {
+                        let when = chrono::DateTime::from_timestamp(d.synced_at, 0).map(|t| t.with_timezone(&chrono::Local).format("%d/%m %H:%M").to_string()).unwrap_or_default();
+                        ui.label(tf!("{} séances, {} salles, {} enseignants", "{} sessions, {} rooms, {} teachers", d.seance_count(), d.salles.len(), d.enseignants.len()));
+                        ui.label(
+                            RichText::new(tf!("Copie chiffrée sur cet ordinateur — synchronisée le {when}", "Encrypted copy on this computer — synced on {when}"))
+                                .small()
+                                .color(theme::TEXT_FAINT()),
+                        );
+                    }
+                    _ => {
+                        ui.label(RichText::new(t!("Pas encore de copie locale", "No local copy yet")).color(theme::TEXT_MUTED()));
+                    }
+                }
+                match &hp.sync_status {
+                    SyncStatus::Done(n) => {
+                        ui.label(RichText::new(tf!("Dernière synchronisation : {n} requête(s)", "Last sync: {n} request(s)")).small().color(theme::TEXT_FAINT()));
+                    }
+                    SyncStatus::Failed(e) => {
+                        ui.add(egui::Label::new(RichText::new(e).small().color(theme::TEXT())).wrap());
+                    }
+                    _ => {}
+                }
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let running = hp.sync_status == SyncStatus::Running;
+                if ui.add_enabled(!running, egui::Button::new(t!("Synchroniser", "Sync"))).clicked() {
+                    hp.sync_now();
+                }
+                if running {
+                    ui.add(egui::Spinner::new().size(14.0));
+                }
+            });
+        });
+    });
+    ui.add_space(12.0);
 }
 
 fn section(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str, Value)]) {
