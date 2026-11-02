@@ -5,13 +5,19 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.3.55
+
 ### Ajouté
 - Raccourci global **Ctrl+Maj+K** pour quitter WorkTable (même cachée), réglable dans
   Réglages › Arrière-plan.
 - Onglets personnalisés : clic droit sur le logo de la barre → galerie 3 × 3 (créer, renommer,
   émoji ou image, supprimer). Chaque onglet est une galerie de panneaux sur la grille du tableau de
   bord : « + Ajouter un panneau » (bloc-notes, tâches, rappels, planning, quadrillage, mails,
-  messages épinglés, fichiers, liens), déplacer, redimensionner, retirer (« × »).
+  messages épinglés, fichiers, liens), déplacer, redimensionner, retirer (« × »). Un fichier par
+  onglet (`data\custom_tabs`), à partager : un fichier déposé dans ce dossier est importé au
+  lancement.
+- Bases de jours mis en évidence : chaque quadrillage d'un onglet personnalisé a sa propre base ;
+  dans le Calendrier, « Mettre en évidence » permet de choisir les bases (et d'en créer).
 - Messages : bouton « 👥 Membres » dans l'en-tête des groupes et bouton « + Ajouter » dans la
   gestion des membres.
 
@@ -20,6 +26,7 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
   modifications).
 
 ### Corrigé
+- Réglages : la saisie d'un nouveau raccourci prend bien la combinaison tapée sous Windows.
 - Messages : plus aucune notification (bandeau, son, non-lu) pour mes propres messages, même
   envoyés depuis le téléphone ou le web.
 

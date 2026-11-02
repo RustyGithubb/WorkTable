@@ -5211,7 +5211,7 @@ dependencies = [
 
 [[package]]
 name = "worktable"
-version = "0.3.54"
+version = "0.3.55"
 dependencies = [
  "aes",
  "aes-gcm",
