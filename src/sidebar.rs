@@ -719,6 +719,21 @@ pub(crate) fn draw_icon(p: &Painter, r: Rect, tab: Tab, c: Color32, phase: f32) 
             let front = Rect::from_min_max(Pos2::new(back.left(), back.top() + 3.5 * w - lift), back.max);
             p.rect_stroke(front, CornerRadius::same(2), s, egui::StrokeKind::Inside);
         }
+        Tab::Plannings => {
+            // Emploi du temps : cadre, bandeau des jours, colonnes, un cours (qui glisse au clic).
+            let frame = r.shrink(0.5 * w);
+            p.rect_stroke(frame, CornerRadius::same((3.0 * w) as u8), s, egui::StrokeKind::Inside);
+            let top = frame.top() + frame.height() * 0.28;
+            p.hline(frame.x_range(), top, s);
+            for i in 1..=2 {
+                let x = frame.left() + i as f32 * frame.width() / 3.0;
+                p.vline(x, top..=frame.bottom(), Stroke::new(s.width * 0.7, c));
+            }
+            let drop = bump(phase) * 1.4 * w;
+            let col = frame.width() / 3.0;
+            let block = Rect::from_min_size(Pos2::new(frame.left() + col + 1.2 * w, top + 2.0 * w + drop), vec2(col - 2.4 * w, frame.height() * 0.3));
+            p.rect_filled(block, CornerRadius::same(1), c);
+        }
         Tab::Notes => {
             let body = Rect::from_center_size(r.center(), vec2(r.width() * 0.8, r.height()));
             p.rect_stroke(body, k, s, egui::StrokeKind::Inside);

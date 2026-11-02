@@ -1,0 +1,5 @@
+Clic droit sur installer.ps1 > "Exécuter avec PowerShell".
+(Si Windows bloque : ouvre PowerShell ici et tape
+ powershell -ExecutionPolicy Bypass -File .\installer.ps1 )
+Les anciens fichiers éventuels sont sauvegardés en .bak.
+Ensuite tu peux supprimer ce dossier.

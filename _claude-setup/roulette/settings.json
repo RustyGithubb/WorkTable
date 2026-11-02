@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(git checkout -b:*)",
+      "Bash(*publier-github*)"
+    ],
+    "deny": [
+      "Read(./target/**)",
+      "Read(./polices/**)",
+      "Read(./Cargo.lock)"
+    ]
+  }
+}

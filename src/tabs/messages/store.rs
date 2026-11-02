@@ -176,12 +176,12 @@ pub fn size() -> Option<u64> {
 // --- Protection de la clé par Windows (DPAPI) ----------------------------------------
 
 #[cfg(windows)]
-fn protect(data: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn protect(data: &[u8]) -> Option<Vec<u8>> {
     dpapi(data, true)
 }
 
 #[cfg(windows)]
-fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
     dpapi(data, false)
 }
 
@@ -210,12 +210,12 @@ fn dpapi(data: &[u8], encrypt: bool) -> Option<Vec<u8>> {
 
 /// Ailleurs : la clé est gardée telle quelle dans le dossier `secrets` (jamais publié).
 #[cfg(not(windows))]
-fn protect(data: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn protect(data: &[u8]) -> Option<Vec<u8>> {
     Some(data.to_vec())
 }
 
 #[cfg(not(windows))]
-fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
     Some(data.to_vec())
 }
 

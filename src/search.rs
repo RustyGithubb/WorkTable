@@ -1,6 +1,7 @@
 //! Recherche globale (Ctrl+Espace) : barre au centre, par-dessus l'app, sur un fond flouté.
 //! Cherche dans les mails (chargés + recherche Gmail), l'annuaire, les événements et les dates
-//! du calendrier, Google Chat, les tâches, les fichiers partagés et les commandes de l'app.
+//! du calendrier, Google Chat, les tâches, les fichiers partagés, les plannings HyperPlanning et
+//! les commandes de l'app.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -39,6 +40,8 @@ pub enum Target {
     Drive(DriveFile),
     Note(String),
     NewNote,
+    /// Planning HyperPlanning d'un enseignant, d'une salle, d'une promotion…
+    Planning(crate::tabs::plannings::Kind, u32),
 }
 
 #[derive(Clone)]
@@ -178,6 +181,7 @@ impl Palette {
         notes: &crate::tabs::notes::NotesState,
         people: &crate::people::People,
         prefs: &Prefs,
+        hp: Option<&crate::hyperplanning::cache::Snapshot>,
     ) -> Option<Target> {
         if !self.open {
             return None;
@@ -206,7 +210,7 @@ impl Palette {
             ctx.request_repaint_after(Duration::from_millis(120));
         }
 
-        let hits = if q.is_empty() { suggestions(cal, prefs) } else { search(&q, mail, cal, chat, tasks, notes, people, prefs, &self.remote, &self.drive) };
+        let hits = if q.is_empty() { suggestions(cal, prefs) } else { search(&q, mail, cal, chat, tasks, notes, people, prefs, &self.remote, &self.drive, hp) };
         if self.selected >= hits.len() {
             self.selected = hits.len().saturating_sub(1);
         }
@@ -458,6 +462,7 @@ fn commands() -> Vec<Hit> {
         c("💬", "Messages", "Google Chat", Target::Tab(Tab::Messages)),
         c("📝", t!("Prise de notes", "Notes"), t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Notes)),
         c("📁", t!("Fichiers", "Files"), t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Files)),
+        c("🗓️", "Plannings", t!("HyperPlanning · emplois du temps", "HyperPlanning · timetables"), Target::Tab(Tab::Plannings)),
         c("🧩", "Blueprint", t!("Automatisations · graphs de nodes", "Automations · node graphs"), Target::Tab(Tab::Blueprint)),
         c("⚙️", t!("Réglages", "Settings"), t!("Compte Google, animations…", "Google account, animations…"), Target::Tab(Tab::Settings)),
     ]
@@ -475,6 +480,7 @@ fn search(
     prefs: &Prefs,
     remote: &[Summary],
     drive: &[DriveFile],
+    hp: Option<&crate::hyperplanning::cache::Snapshot>,
 ) -> Vec<Hit> {
     let words: Vec<String> = fold(q).split_whitespace().map(str::to_string).collect();
     let mut out: Vec<Hit> = Vec::new();
@@ -630,9 +636,27 @@ fn search(
         push(&mut out, Hit { group: "Drive", icon, title: f.name.clone(), sub, target: Target::Drive(f.clone()), score: s });
     }
 
+    // Plannings HyperPlanning (copie locale) : enseignants, salles, promotions, TD, regroupements.
+    // Le type compte comme un mot cherché (« salle 101 »).
+    if let Some(d) = hp {
+        use crate::tabs::plannings::Kind;
+        for kind in Kind::ALL {
+            for (k, name) in crate::tabs::plannings::entries(d, kind) {
+                let Some(s) = score(&words, &[&name, kind.keywords()]) else { continue };
+                let mut sub = tf!("Planning · {}", "Timetable · {}", kind.singular());
+                if kind == Kind::Salle
+                    && let Some(c) = d.salles.get(&k).map(|x| x.capacity).filter(|c| *c > 0)
+                {
+                    sub.push_str(&tf!(" · {c} places", " · {c} seats"));
+                }
+                push(&mut out, Hit { group: "Plannings", icon: "🗓️", title: name, sub, target: Target::Planning(kind, k), score: s });
+            }
+        }
+    }
+
     // Tri : par groupe (ordre ci-dessous), puis pertinence ; 6 résultats par groupe.
     // Priorité : contacts, agenda (événements puis dates), mails, chat, Drive, notes, puis le reste.
-    const ORDER: [&str; 11] = ["Fiches contact", "Calendrier", "Date", "Mails", "Google Chat", "Drive", "Notes", "Tâches", "Fichiers", "Actions", "À venir"];
+    const ORDER: [&str; 12] = ["Fiches contact", "Plannings", "Calendrier", "Date", "Mails", "Google Chat", "Drive", "Notes", "Tâches", "Fichiers", "Actions", "À venir"];
     out.sort_by_key(|h| (ORDER.iter().position(|g| *g == h.group).unwrap_or(99), -h.score));
     let mut counts = std::collections::HashMap::new();
     out.retain(|h| {

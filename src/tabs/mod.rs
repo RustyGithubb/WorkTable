@@ -7,6 +7,7 @@ pub mod files;
 pub mod mail;
 pub mod messages;
 pub mod notes;
+pub mod plannings;
 pub mod settings;
 pub mod timeline;
 

@@ -10,6 +10,7 @@ mod background;
 mod emoji_img;
 mod gallery;
 mod google;
+mod hyperplanning;
 mod lightbox;
 mod links;
 mod liquid;

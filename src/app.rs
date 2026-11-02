@@ -13,6 +13,8 @@ pub enum Tab {
     Messages,
     Notes,
     Files,
+    /// Plannings HyperPlanning.
+    Plannings,
     Blueprint,
     Settings,
     /// Onglet personnalisé (galerie du logo), par identifiant.
@@ -21,7 +23,7 @@ pub enum Tab {
 
 impl Tab {
     /// Onglets de la barre principale (Blueprint et Réglages ont leur pilule en bas à gauche).
-    pub const ALL: [Tab; 6] = [Tab::Dashboard, Tab::Calendar, Tab::Mail, Tab::Messages, Tab::Notes, Tab::Files];
+    pub const ALL: [Tab; 7] = [Tab::Dashboard, Tab::Calendar, Tab::Mail, Tab::Messages, Tab::Notes, Tab::Files, Tab::Plannings];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -31,6 +33,7 @@ impl Tab {
             Tab::Messages => "Messages",
             Tab::Notes => t!("Prise de notes", "Notes"),
             Tab::Files => t!("Fichiers", "Files"),
+            Tab::Plannings => "Plannings",
             Tab::Blueprint => "Blueprint",
             Tab::Settings => t!("Réglages", "Settings"),
             Tab::Custom(_) => t!("Onglet personnalisé", "Custom tab"),
@@ -44,6 +47,9 @@ pub struct WorkTableApp {
     prefs_dirty: Option<std::time::Instant>,
     current: Tab,
     account: Account,
+    /// Service web HyperPlanning (identifiants, test de connexion).
+    hyperplanning: crate::hyperplanning::HyperPlanning,
+    plannings: tabs::plannings::PlanningsState,
     mail: MailState,
     calendar: tabs::calendar::CalendarState,
     chat: tabs::messages::ChatState,
@@ -115,6 +121,8 @@ impl WorkTableApp {
             prefs_dirty: None,
             current: Tab::Dashboard,
             account: Account::new(ctx.clone()),
+            hyperplanning: crate::hyperplanning::HyperPlanning::new(ctx.clone()),
+            plannings: Default::default(),
             mail: MailState::default(),
             calendar: Default::default(),
             chat: Default::default(),
@@ -354,6 +362,8 @@ impl eframe::App for WorkTableApp {
         // Visionneuse d'images (avant les onglets : elle prend Échap pour elle).
         crate::lightbox::show(ui.ctx());
 
+        // HyperPlanning : copie locale et synchronisation en arrière-plan.
+        self.hyperplanning.tick();
         // Résultats des requêtes Google arrivés depuis la dernière frame.
         for ev in self.account.poll() {
             match ev {
@@ -464,8 +474,9 @@ impl eframe::App for WorkTableApp {
                         self.drive_action(a);
                     }
                 }
+                Tab::Plannings => tabs::plannings::show(ui, &mut self.plannings, &mut self.hyperplanning),
                 Tab::Blueprint => tabs::blueprint::show(ui, &mut self.blueprint, &mut self.prefs),
-                Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.prefs, &self.update),
+                Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.hyperplanning, &mut self.prefs, &self.update),
                 Tab::Custom(id) => {
                     let mut d = tabs::dashboard::Deps {
                         cal: &self.calendar,
@@ -577,7 +588,9 @@ impl eframe::App for WorkTableApp {
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Space)) {
             self.search.toggle(ui.ctx());
         }
-        if let Some(t) = self.search.show(ui.ctx(), &self.account, &self.mail, &self.calendar, &self.chat, &self.tasks, &self.notes, &self.people, &self.prefs) {
+        if let Some(t) =
+            self.search.show(ui.ctx(), &self.account, &self.mail, &self.calendar, &self.chat, &self.tasks, &self.notes, &self.people, &self.prefs, self.hyperplanning.data())
+        {
             self.go_to(t);
         }
         // Fiche contact (clic droit sur une trace d'une personne, ou depuis la recherche).
@@ -658,6 +671,10 @@ impl WorkTableApp {
                 self.current = Tab::Files;
             }
             Target::Tab(t) => self.current = t,
+            Target::Planning(kind, key) => {
+                self.plannings.open(kind, key);
+                self.current = Tab::Plannings;
+            }
             Target::Note(id) => {
                 self.notes.select(&id);
                 self.current = Tab::Notes;
