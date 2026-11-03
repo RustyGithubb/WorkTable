@@ -5,6 +5,16 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.4.1
+
+### Ajouté
+- Plannings : plusieurs plannings affichés ensemble (Ctrl+clic dans la liste pour en ajouter ou en
+  retirer). Chaque planning a sa couleur, rappelée par une pastille en haut (clic pour le retirer).
+  Un planning de salle s'affiche toujours seul.
+
+### Corrigé
+- CI : mise en forme du code (`cargo fmt`).
+
 ## 0.4.0
 
 ### Ajouté
