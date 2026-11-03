@@ -325,8 +325,12 @@ pub fn set_fonts(ctx: &egui::Context, prefs: &FontPrefs) {
     let achievement = add("wt-achievement-data", FontChoice::Lato, false, 1.0);
     let achievement_bold = add("wt-achievement-bold-data", FontChoice::Lato, true, 1.0);
 
-    // Replis (émojis, symboles) après la police principale de chaque famille.
-    let fallback: Vec<String> = defaults.families.get(&FontFamily::Proportional).cloned().unwrap_or_default().into_iter().filter(|f| f != "Ubuntu-Light").collect();
+    // Symboles absents de certaines polices (★ ☆ des favoris…) : Inter en premier repli.
+    let symbols = add("wt-symbols-data", FontChoice::Inter, false, 1.0);
+
+    // Replis (symboles, émojis) après la police principale de chaque famille.
+    let fallback: Vec<String> =
+        std::iter::once(symbols).chain(defaults.families.get(&FontFamily::Proportional).cloned().unwrap_or_default().into_iter().filter(|f| f != "Ubuntu-Light")).collect();
     let chain = |main: &str| -> Vec<String> {
         let mut v = vec![main.to_string()];
         v.extend(fallback.iter().cloned());

@@ -5,6 +5,21 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.4.0
+
+### Ajouté
+- Onglet **Plannings** : emplois du temps HyperPlanning de l'école (enseignants, salles,
+  promotions, TD / options, regroupements), lus dans une copie locale synchronisée. Même forme et
+  mêmes raccourcis que le Calendrier : vues Jour, 3 jours, Semaine, Mois, vue de l'année scolaire,
+  colonne de gauche masquable (S).
+- Plannings : favoris, choix du type de planning dépliable, bandeau de l'année scolaire ; clic sur
+  une séance = détail, clic sur un nom du détail = son planning.
+- Plannings : salles libres sur un créneau (capacité minimale, groupes de salles).
+- Plannings : demande de réservation d'une salle (cliquer-glisser sur la grille ou « Demander »
+  depuis les salles libres), envoyée à l'espace web HyperPlanning.net et validée par un
+  administrateur.
+- Réglages › HyperPlanning : identifiants, mot de passe protégé par Windows (DPAPI).
+
 ## 0.3.55
 
 ### Ajouté

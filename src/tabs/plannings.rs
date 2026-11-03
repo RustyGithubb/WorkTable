@@ -477,7 +477,7 @@ fn favorites(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &mu
         widgets::empty_state(
             ui,
             t!("Aucun favori", "No favourites"),
-            t!("Dans le Répertoire, survole un planning et clique ☆ pour l'ajouter.", "In the Directory, hover a timetable and click ☆ to add it."),
+            t!("Dans le Répertoire, survole un planning et clique sur l'étoile pour l'ajouter.", "In the Directory, hover a timetable and click the star to add it."),
         );
         return;
     }
@@ -573,7 +573,11 @@ fn center(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(
             }
             let fav = is_fav(favs, kind, k);
             let tip = if fav { t!("Retirer des favoris", "Remove from favourites") } else { t!("Ajouter aux favoris", "Add to favourites") };
-            if ui.add(egui::Button::new(if fav { "★" } else { "☆" }).frame(false)).on_hover_text(tip).clicked() {
+            let (r, resp) = ui.allocate_exact_size(vec2(22.0, 24.0), Sense::click());
+            let resp = resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let color = if fav || resp.hovered() { theme::TEXT() } else { theme::TEXT_MUTED() };
+            widgets::paint_star(ui.painter(), r.center(), 7.0, color, fav);
+            if resp.clicked() {
                 toggle_fav(favs, kind, k);
             }
             let w = (ui.available_width() - 270.0).max(0.0);
@@ -700,7 +704,7 @@ fn item_button(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &
         // Fond sous l'étoile pour masquer la fin d'un nom long.
         let bg = if on { ui.visuals().selection.bg_fill } else if ui.rect_contains_pointer(resp.rect) { ui.visuals().widgets.hovered.weak_bg_fill } else { theme::SURFACE() };
         ui.painter().rect_filled(star.shrink2(vec2(0.0, 2.0)), CornerRadius::same(4), bg);
-        ui.painter().text(star.center(), Align2::CENTER_CENTER, if fav { "★" } else { "☆" }, FontId::proportional(13.0), color);
+        widgets::paint_star(ui.painter(), star.center(), 6.0, color, fav);
     }
     if star_resp.clicked() {
         toggle_fav(favs, kind, k);

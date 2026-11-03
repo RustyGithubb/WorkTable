@@ -37,6 +37,13 @@ pub struct Seance {
     pub regroupements: Vec<u32>,
 }
 
+/// Catégorie d'une salle ou d'une promotion (famille › rubrique HYPERPLANNING).
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+pub struct Category {
+    pub famille: String,
+    pub rubrique: String,
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Cours {
     pub memo: String,
@@ -55,6 +62,11 @@ pub struct Snapshot {
     pub tdoptions: BTreeMap<u32, String>,
     pub regroupements: BTreeMap<u32, String>,
     pub cours: BTreeMap<u32, Cours>,
+    /// Catégories des salles et des promotions (vides : listes non rangées).
+    #[serde(default)]
+    pub salle_cats: BTreeMap<u32, Vec<Category>>,
+    #[serde(default)]
+    pub promo_cats: BTreeMap<u32, Vec<Category>>,
     /// Période couverte (année de la base).
     pub window: Option<(NaiveDate, NaiveDate)>,
     /// Dernière lecture des référentiels (horodatage Unix).

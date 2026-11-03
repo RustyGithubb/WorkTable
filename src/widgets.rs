@@ -458,7 +458,7 @@ pub fn field(ui: &mut egui::Ui, label: &str, label_w: f32, edit: egui::TextEdit)
     .inner
 }
 
-/// Sélecteur segmenté : la pastille de sélection glisse (animation liquide) d'une option à l'autre.
+/// Sélecteur segmenté (une option commençant par « ★ » a son étoile dessinée) : la pastille de sélection glisse (animation liquide) d'une option à l'autre.
 pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, salt: &str, options: &[(T, &str)], value: &mut T) -> bool {
     let mut changed = false;
     egui::Frame::new().fill(theme::BG()).stroke(egui::Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(255)).inner_margin(egui::Margin::same(3)).show(
@@ -468,8 +468,11 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, salt: &str, options: &[
                 ui.spacing_mut().item_spacing.x = 2.0;
                 let mut hl = crate::liquid::Liquid::begin(ui, ("segmented", salt));
                 for (i, (opt, label)) in options.iter().enumerate() {
+                    let star = label.strip_prefix('★').map(str::trim_start);
+                    let label = star.unwrap_or(label);
+                    let star_w = if star.is_some() { 18.0 } else { 0.0 };
                     let galley = ui.painter().layout_no_wrap(label.to_string(), egui::FontId::proportional(13.0), egui::Color32::PLACEHOLDER);
-                    let size = egui::vec2(galley.size().x + 24.0, 26.0);
+                    let size = egui::vec2(galley.size().x + 24.0 + star_w, 26.0);
                     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
                     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
                     if *opt == *value {
@@ -478,7 +481,11 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, salt: &str, options: &[
                     let cov = hl.coverage(rect);
                     let base = if resp.hovered() { theme::TEXT() } else { theme::TEXT_MUTED() };
                     let color = crate::sidebar::lerp_color(base, theme::BG(), cov);
-                    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, color);
+                    let text_pos = rect.center() - galley.size() / 2.0 + egui::vec2(star_w / 2.0, 0.0);
+                    if star_w > 0.0 {
+                        paint_star(ui.painter(), egui::pos2(text_pos.x - 11.0, rect.center().y), 5.5, color, true);
+                    }
+                    ui.painter().galley(text_pos, galley, color);
                     if resp.clicked() && *opt != *value {
                         *value = *opt;
                         changed = true;
@@ -489,6 +496,25 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, salt: &str, options: &[
         },
     );
     changed
+}
+
+/// Étoile dessinée (le caractère ★ manque dans certaines polices) : pleine ou en contour.
+pub fn paint_star(p: &egui::Painter, c: egui::Pos2, r: f32, color: egui::Color32, filled: bool) {
+    let pts: Vec<egui::Pos2> = (0..10)
+        .map(|i| {
+            let a = std::f32::consts::PI * (i as f32 / 5.0) - std::f32::consts::FRAC_PI_2;
+            let k = if i % 2 == 0 { r } else { r * 0.45 };
+            c + egui::vec2(a.cos(), a.sin()) * k
+        })
+        .collect();
+    if filled {
+        // Polygone concave : rempli en triangles depuis le centre.
+        for i in 0..pts.len() {
+            p.add(egui::Shape::convex_polygon(vec![c, pts[i], pts[(i + 1) % pts.len()]], color, egui::Stroke::NONE));
+        }
+    } else {
+        p.add(egui::Shape::closed_line(pts, egui::Stroke::new(1.2, color)));
+    }
 }
 
 /// Bouton « + Nouveau … » des colonnes de gauche (même aspect dans tous les onglets) : pleine
