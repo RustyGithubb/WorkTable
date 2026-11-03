@@ -474,7 +474,7 @@ impl eframe::App for WorkTableApp {
                         self.drive_action(a);
                     }
                 }
-                Tab::Plannings => tabs::plannings::show(ui, &mut self.plannings, &mut self.hyperplanning),
+                Tab::Plannings => tabs::plannings::show(ui, &mut self.plannings, &mut self.hyperplanning, &mut self.prefs.hp_favorites),
                 Tab::Blueprint => tabs::blueprint::show(ui, &mut self.blueprint, &mut self.prefs),
                 Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.hyperplanning, &mut self.prefs, &self.update),
                 Tab::Custom(id) => {

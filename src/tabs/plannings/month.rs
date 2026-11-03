@@ -1,7 +1,7 @@
-//! Vue Mois (comme dans l'onglet Calendrier) et année scolaire de la colonne de gauche.
+//! Vue Mois (comme dans l'onglet Calendrier) et bandeau de l'année scolaire.
 
 use chrono::{Datelike, Duration, Local, NaiveDate};
-use eframe::egui::{self, Align2, Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, RichText, Sense, Stroke, vec2};
+use eframe::egui::{self, Align2, Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, vec2};
 
 use super::{PlanningsState, View, hhmm, matiere, monday_of, teacher_color};
 use crate::hyperplanning::cache::{Seance, Snapshot};
@@ -91,8 +91,11 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &
     }
 }
 
-/// Année scolaire de la colonne de gauche : une ligne par mois, une pastille par semaine
-/// (numéro ISO, comme le badge « Semaine N ») ; clic : afficher cette semaine.
+/// Hauteur du bandeau de l'année scolaire.
+pub const YEAR_STRIP_H: f32 = 44.0;
+
+/// Bandeau de l'année scolaire, sous la vue principale : une pastille par semaine (numéro ISO,
+/// comme le badge « Semaine N »), mois au-dessus ; clic : afficher cette semaine.
 pub fn school_year(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
     let today = Local::now().date_naive();
     // Début d'année HYPERPLANNING (cache) ; sinon du 1er septembre au 31 août.
@@ -101,44 +104,50 @@ pub fn school_year(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
         NaiveDate::from_ymd_opt(y, 9, 1).unwrap_or(today)
     });
     let end = start.with_year(start.year() + 1).unwrap_or(start + Duration::days(365));
-    ui.label(RichText::new(tf!("Année {}–{}", "Year {}–{}", start.year(), end.year())).strong());
-    ui.add_space(6.0);
-
-    // Semaines (lundis) groupées par mois du lundi.
-    let mut months: Vec<(NaiveDate, Vec<NaiveDate>)> = Vec::new();
+    let mut weeks = Vec::new();
     let mut monday = monday_of(start);
     while monday < end {
-        match months.last_mut() {
-            Some((m, weeks)) if m.month() == monday.month() && m.year() == monday.year() => weeks.push(monday),
-            _ => months.push((monday, vec![monday])),
-        }
+        weeks.push(monday);
         monday += Duration::days(7);
     }
 
-    // Semaines affichées dans la grille (vue Mois : celles du mois affiché).
+    // Semaines affichées dans la vue (vue Mois : celles du mois affiché).
     let shown: Vec<NaiveDate> = match st.view {
         View::Month => st.days().into_iter().filter(|x| x.month() == st.anchor.month()).collect(),
         View::Days(_) => st.days(),
     };
-    let label_w = 42.0;
+    let label_w = 48.0;
     let w = ui.available_width();
-    let chip_w = ((w - label_w) / 5.0).floor();
-    let row_h = 24.0;
-    let (rect, _) = ui.allocate_exact_size(vec2(w, row_h * months.len() as f32), Sense::hover());
-    let p = ui.painter().clone();
+    // Pastilles réparties sur toute la largeur ; défilement horizontal si trop étroit.
+    let chip_w = ((w - label_w) / weeks.len().max(1) as f32).max(15.0);
     let mut go = None;
-    for (r, (m, weeks)) in months.iter().enumerate() {
-        let y = rect.top() + r as f32 * row_h;
-        p.text(Pos2::new(rect.left(), y + row_h / 2.0), Align2::LEFT_CENTER, crate::tabs::month_short(m.month()).to_uppercase(), FontId::proportional(10.0), theme::TEXT_FAINT());
-        for (c, mon) in weeks.iter().enumerate() {
-            let cell = Rect::from_min_size(Pos2::new(rect.left() + label_w + c as f32 * chip_w, y), vec2(chip_w, row_h)).shrink2(vec2(2.0, 2.0));
+    egui::ScrollArea::horizontal().id_salt("hp_year").auto_shrink([false, true]).show(ui, |ui| {
+        let (rect, _) = ui.allocate_exact_size(vec2(label_w + chip_w * weeks.len() as f32, YEAR_STRIP_H), Sense::hover());
+        let p = ui.painter().clone();
+        let month_y = rect.top() + 8.0;
+        let chips_top = rect.top() + 18.0;
+        p.text(Pos2::new(rect.left(), month_y), Align2::LEFT_CENTER, format!("{}–{:02}", start.year(), end.year() % 100), FontId::proportional(10.5), theme::TEXT_MUTED());
+        for (k, mon) in weeks.iter().enumerate() {
+            let x = rect.left() + label_w + k as f32 * chip_w;
+            // Mois : séparateur et libellé à la première semaine du mois (libellé omis si le mois
+            // n'a qu'une semaine, faute de place).
+            if k == 0 || weeks[k - 1].month() != mon.month() {
+                if k > 0 {
+                    p.vline(x, rect.top() + 2.0..=rect.bottom() - 2.0, Stroke::new(1.0, theme::overlay(14)));
+                }
+                let run = weeks[k..].iter().take_while(|w| w.month() == mon.month()).count();
+                if run >= 2 || chip_w >= 30.0 {
+                    p.text(Pos2::new(x + 4.0, month_y), Align2::LEFT_CENTER, crate::tabs::month_short(mon.month()).to_uppercase(), FontId::proportional(10.0), theme::TEXT_FAINT());
+                }
+            }
+            let cell = Rect::from_min_size(Pos2::new(x, chips_top), vec2(chip_w, 24.0)).shrink2(vec2(1.0, 0.0));
             let resp = ui.interact(cell, ui.scope_id().with(("hp_year_week", *mon)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tf!(
                 "Semaine du {}",
                 "Week of {}",
                 crate::tabs::long_date(*mon)
             ));
-            let current = (0..7).any(|k| *mon + Duration::days(k) == today);
-            let visible = (0..7).any(|k| shown.contains(&(*mon + Duration::days(k))));
+            let current = (0..7).any(|j| *mon + Duration::days(j) == today);
+            let visible = (0..7).any(|j| shown.contains(&(*mon + Duration::days(j))));
             let color = if current {
                 p.rect_filled(cell, CornerRadius::same(6), theme::TODAY());
                 Color32::WHITE
@@ -153,12 +162,12 @@ pub fn school_year(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
             if visible && current {
                 p.rect_stroke(cell, CornerRadius::same(6), Stroke::new(1.5, Color32::WHITE), egui::StrokeKind::Inside);
             }
-            p.text(cell.center(), Align2::CENTER_CENTER, mon.iso_week().week().to_string(), FontId::proportional(11.5), color);
+            p.text(cell.center(), Align2::CENTER_CENTER, mon.iso_week().week().to_string(), FontId::proportional(10.5), color);
             if resp.clicked() {
                 go = Some(*mon);
             }
         }
-    }
+    });
     if let Some(mon) = go {
         if st.view == View::Month {
             st.view = View::Days(7);

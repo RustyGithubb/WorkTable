@@ -198,6 +198,8 @@ pub struct Prefs {
     pub shared_files: u8,
     /// Polices et tailles par groupe (titres, interface, texte, code).
     pub fonts: crate::theme::FontPrefs,
+    /// Plannings HYPERPLANNING mis en favoris : (type, clé), dans l'ordre d'ajout.
+    pub hp_favorites: Vec<(u8, u32)>,
     /// Thème de couleurs (Réglages › Apparence).
     pub theme: crate::theme::ThemeId,
     /// Notifications désactivées par type (toutes actives par défaut), avance des rappels (min, 0 = 10).

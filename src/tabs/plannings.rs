@@ -9,7 +9,7 @@
 //! - Planning d'une salle : cliquer-glisser sur la grille pour demander le créneau (voir `book`).
 
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime};
-use eframe::egui::{self, Align, Align2, CornerRadius, FontId, Key, Layout, Pos2, Rect, RichText, Stroke, StrokeKind, vec2};
+use eframe::egui::{self, Align, Align2, CornerRadius, FontId, Key, Layout, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, vec2};
 
 use crate::hyperplanning::HyperPlanning;
 use crate::hyperplanning::cache::{Seance, Snapshot};
@@ -34,6 +34,10 @@ pub enum Kind {
 
 impl Kind {
     pub const ALL: [Kind; 5] = [Kind::Enseignant, Kind::Salle, Kind::Promotion, Kind::TDOption, Kind::Regroupement];
+
+    fn from_u8(i: u8) -> Option<Kind> {
+        Kind::ALL.get(i as usize).copied()
+    }
 
     /// Nom au singulier (résultats de la recherche).
     pub fn singular(self) -> &'static str {
@@ -77,6 +81,30 @@ pub(super) enum View {
 }
 
 /// Séances de l'élément affiché sur la période affichée (recalculées quand l'un change).
+/// Onglet de la colonne de gauche.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum SideTab {
+    Favorites,
+    #[default]
+    Directory,
+}
+
+/// Favoris (préférences) : (type, clé).
+type Favs = Vec<(u8, u32)>;
+
+fn is_fav(favs: &Favs, kind: Kind, k: u32) -> bool {
+    favs.contains(&(kind as u8, k))
+}
+
+fn toggle_fav(favs: &mut Favs, kind: Kind, k: u32) {
+    let e = (kind as u8, k);
+    if favs.contains(&e) {
+        favs.retain(|x| *x != e);
+    } else {
+        favs.push(e);
+    }
+}
+
 #[derive(Default)]
 struct RangeCache {
     key: Option<((Kind, u32), NaiveDate, NaiveDate, i64)>,
@@ -91,6 +119,11 @@ pub struct PlanningsState {
     /// Message bref sous la barre (créneau occupé…).
     notice: Option<(String, std::time::Instant)>,
     kind: Kind,
+    side_tab: SideTab,
+    /// Onglet de gauche choisi au premier affichage (Favoris s'il y en a).
+    side_tab_set: bool,
+    /// Panneau des types (Enseignants, Salles…) déplié.
+    kind_open: bool,
     filter: String,
     selected: Option<(Kind, u32)>,
     view: View,
@@ -113,6 +146,9 @@ impl Default for PlanningsState {
             drag: None,
             notice: None,
             kind: Kind::default(),
+            side_tab: SideTab::default(),
+            side_tab_set: false,
+            kind_open: false,
             filter: String::new(),
             selected: None,
             view: View::Days(7),
@@ -282,7 +318,7 @@ pub(super) fn matiere(d: &Snapshot, s: &Seance) -> String {
     d.matieres.get(&s.matiere).filter(|m| !m.trim().is_empty()).cloned().unwrap_or_else(|| t!("(Sans matière)", "(No subject)").into())
 }
 
-pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, hp: &mut HyperPlanning) {
+pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, hp: &mut HyperPlanning, favs: &mut Favs) {
     header(ui, st, hp);
     if !hp.is_configured() {
         widgets::card(ui, "", 0.0, |ui| {
@@ -298,6 +334,12 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, hp: &mut HyperPlanning) 
         widgets::card(ui, "", 0.0, |ui| widgets::empty_state(ui, t!("Pas encore de données", "No data yet"), t!("Première synchronisation en cours…", "First sync in progress…")));
         return;
     };
+    if !st.side_tab_set {
+        st.side_tab_set = true;
+        if !favs.is_empty() {
+            st.side_tab = SideTab::Favorites;
+        }
+    }
     if !st.book.is_open() {
         shortcuts(ui, st);
     }
@@ -337,8 +379,8 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, hp: &mut HyperPlanning) 
     }
     let offset = if side_w > 0.0 { 0 } else { 1 };
     widgets::pane_columns(ui, &fixed, |i, ui| match i + offset {
-        0 => widgets::animated_column(ui, side_w, SIDE_W, k, |ui| side(ui, st, d)),
-        1 => center(ui, st, d, &seances),
+        0 => widgets::animated_column(ui, side_w, SIDE_W, k, |ui| side(ui, st, d, favs)),
+        1 => center(ui, st, d, &seances, favs),
         _ => widgets::animated_column(ui, panel_w, PANEL_W, kp, |ui| {
             if let Some(which) = st.detail.or(st.detail_last) {
                 detail(ui, st, d, &seances, which);
@@ -417,15 +459,91 @@ fn shortcuts(ui: &mut egui::Ui, st: &mut PlanningsState) {
     }
 }
 
-/// Colonne de gauche : mini-calendrier puis liste des plannings.
-fn side(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
-    month::school_year(ui, st, d);
-    ui.add_space(14.0);
-    list(ui, st, d);
+/// Colonne de gauche : onglets Favoris / Répertoire.
+fn side(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &mut Favs) {
+    ui.spacing_mut().item_spacing.y = 6.0;
+    let tabs = [(SideTab::Favorites, t!("★  Favoris", "★  Favourites")), (SideTab::Directory, t!("Répertoire", "Directory"))];
+    widgets::segmented(ui, "hp_side_tab", &tabs, &mut st.side_tab);
+    match st.side_tab {
+        SideTab::Favorites => favorites(ui, st, d, favs),
+        SideTab::Directory => list(ui, st, d, favs),
+    }
 }
 
-/// Barre d'outils (comme le Calendrier) puis la vue.
-fn center(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(u32, Seance)]) {
+/// Favoris de tous types, rangés par type.
+fn favorites(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &mut Favs) {
+    if favs.is_empty() {
+        ui.add_space(20.0);
+        widgets::empty_state(
+            ui,
+            t!("Aucun favori", "No favourites"),
+            t!("Dans le Répertoire, survole un planning et clique ☆ pour l'ajouter.", "In the Directory, hover a timetable and click ☆ to add it."),
+        );
+        return;
+    }
+    ui.add(egui::TextEdit::singleline(&mut st.filter).hint_text(t!("Filtrer…", "Filter…")).desired_width(f32::INFINITY));
+    ui.add_space(4.0);
+    let needle = st.filter.trim().to_lowercase();
+    let mut groups: Vec<(Kind, Vec<(u32, String)>)> = Vec::new();
+    for kind in Kind::ALL {
+        let mut items: Vec<(u32, String)> = favs
+            .iter()
+            .filter(|(t, _)| Kind::from_u8(*t) == Some(kind))
+            .map(|(_, k)| (*k, name_of(d, kind, *k)))
+            .filter(|(_, n)| needle.is_empty() || n.to_lowercase().contains(&needle))
+            .collect();
+        items.sort_by_key(|(_, n)| n.to_lowercase());
+        if !items.is_empty() {
+            groups.push((kind, items));
+        }
+    }
+    egui::ScrollArea::vertical().id_salt("hp_favs").auto_shrink([false, false]).show(ui, |ui| {
+        ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+            for (kind, items) in &groups {
+                ui.add_space(4.0);
+                ui.label(RichText::new(kind.label().to_uppercase()).small().color(theme::TEXT_FAINT()));
+                for (k, name) in items {
+                    item_button(ui, st, d, favs, *kind, *k, name);
+                }
+            }
+        });
+    });
+}
+
+/// Choix du type (Enseignants, Salles, Promos, TD, Regroup.) dans un panneau dépliable.
+fn kind_picker(ui: &mut egui::Ui, st: &mut PlanningsState) {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let p = ui.painter();
+    if st.kind_open || resp.hovered() {
+        p.rect_filled(rect, CornerRadius::same(8), theme::SURFACE_HI());
+    } else {
+        p.rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0, theme::BORDER()), StrokeKind::Inside);
+    }
+    p.text(rect.left_center() + vec2(10.0, 0.0), Align2::LEFT_CENTER, t!("Type", "Type"), FontId::proportional(11.0), theme::TEXT_FAINT());
+    p.text(rect.left_center() + vec2(48.0, 0.0), Align2::LEFT_CENTER, st.kind.label(), FontId::proportional(13.0), theme::TEXT());
+    p.text(rect.right_center() - vec2(10.0, 0.0), Align2::RIGHT_CENTER, if st.kind_open { "▴" } else { "▾" }, FontId::proportional(12.0), theme::TEXT_MUTED());
+    if resp.clicked() {
+        st.kind_open = !st.kind_open;
+    }
+    let k = widgets::reveal(ui.ctx(), "hp_kind_open", st.kind_open);
+    if k > 0.0 {
+        ui.scope(|ui| {
+            ui.multiply_opacity(k);
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                for kind in Kind::ALL {
+                    if ui.add(egui::Button::selectable(st.kind == kind, kind.label()).min_size(vec2(0.0, 22.0))).clicked() {
+                        st.kind = kind;
+                        st.kind_open = false;
+                    }
+                }
+            });
+        });
+    }
+}
+
+/// Barre d'outils (comme le Calendrier), la vue, puis le bandeau de l'année scolaire.
+fn center(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(u32, Seance)], favs: &mut Favs) {
     ui.horizontal(|ui| {
         let (icon, tip) = if st.side_hidden {
             ("»", t!("Afficher le panneau de gauche (S)", "Show the left panel (S)"))
@@ -452,6 +570,11 @@ fn center(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(
                 && let Some(c) = d.salles.get(&k).map(|s| s.capacity).filter(|c| *c > 0)
             {
                 title = format!("{title}  ·  {}", tf!("{c} places", "{c} seats"));
+            }
+            let fav = is_fav(favs, kind, k);
+            let tip = if fav { t!("Retirer des favoris", "Remove from favourites") } else { t!("Ajouter aux favoris", "Add to favourites") };
+            if ui.add(egui::Button::new(if fav { "★" } else { "☆" }).frame(false)).on_hover_text(tip).clicked() {
+                toggle_fav(favs, kind, k);
             }
             let w = (ui.available_width() - 270.0).max(0.0);
             ui.allocate_ui(vec2(w, 24.0), |ui| ui.add(egui::Label::new(widgets::section_title(&title)).truncate()));
@@ -491,18 +614,24 @@ fn center(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(
         }
     }
     ui.add_space(10.0);
-    if st.selected.is_none() {
-        widgets::empty_state(
-            ui,
-            t!("Choisis un planning", "Pick a timetable"),
-            t!("Enseignant, salle, promotion… dans la liste de gauche (S pour l'afficher).", "Teacher, room, group… in the list on the left (S to show it)."),
-        );
-        return;
-    }
-    match st.view {
-        View::Month => month::show(ui, st, d, seances),
-        View::Days(_) => grid::show(ui, st, d, seances),
-    }
+    let view_h = (ui.available_height() - month::YEAR_STRIP_H - 10.0).max(120.0);
+    ui.allocate_ui(vec2(ui.available_width(), view_h), |ui| {
+        ui.set_min_height(view_h);
+        if st.selected.is_none() {
+            widgets::empty_state(
+                ui,
+                t!("Choisis un planning", "Pick a timetable"),
+                t!("Enseignant, salle, promotion… dans la liste de gauche (S pour l'afficher).", "Teacher, room, group… in the list on the left (S to show it)."),
+            );
+            return;
+        }
+        match st.view {
+            View::Month => month::show(ui, st, d, seances),
+            View::Days(_) => grid::show(ui, st, d, seances),
+        }
+    });
+    ui.add_space(6.0);
+    month::school_year(ui, st, d);
 }
 
 /// État de la synchronisation dans l'en-tête, avec le bouton pour la relancer.
@@ -523,11 +652,8 @@ fn sync_badge(ui: &mut egui::Ui, hp: &mut HyperPlanning) {
     }
 }
 
-fn list(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
-    let options: Vec<(Kind, &str)> = Kind::ALL.iter().map(|k| (*k, k.label())).collect();
-    ui.spacing_mut().item_spacing.y = 6.0;
-    widgets::segmented(ui, "hp_kind", &options[..2], &mut st.kind);
-    widgets::segmented(ui, "hp_kind2", &options[2..], &mut st.kind);
+fn list(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &mut Favs) {
+    kind_picker(ui, st);
     ui.add(egui::TextEdit::singleline(&mut st.filter).hint_text(t!("Filtrer…", "Filter…")).desired_width(f32::INFINITY));
     ui.add_space(4.0);
     let needle = st.filter.trim().to_lowercase();
@@ -541,30 +667,45 @@ fn list(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
     }
     .filter(|c| !c.is_empty() && needle.is_empty());
     if let Some(cats) = cats {
-        grouped_list(ui, st, d, &items, cats);
+        grouped_list(ui, st, d, favs, &items, cats);
         return;
     }
     egui::ScrollArea::vertical().id_salt("hp_list").auto_shrink([false, false]).show_rows(ui, 24.0, items.len(), |ui, range| {
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             for (k, name) in &items[range] {
-                item_button(ui, st, d, *k, name);
+                item_button(ui, st, d, favs, st.kind, *k, name);
             }
         });
     });
 }
 
-/// Un élément de la liste (salle : avec sa capacité).
-fn item_button(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, k: u32, name: &str) {
-    let on = st.selected == Some((st.kind, k));
+/// Un élément de la liste (salle : avec sa capacité) ; étoile à droite (favori, ou au survol).
+fn item_button(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &mut Favs, kind: Kind, k: u32, name: &str) {
+    let on = st.selected == Some((kind, k));
     let mut label = name.to_string();
-    if st.kind == Kind::Salle
+    if kind == Kind::Salle
         && let Some(s) = d.salles.get(&k)
         && s.capacity > 0
     {
         label = format!("{label}  ·  {}", s.capacity);
     }
-    if ui.add(egui::Button::selectable(on, label).truncate().min_size(vec2(0.0, 22.0))).clicked() {
-        st.show_entity(st.kind, k);
+    let fav = is_fav(favs, kind, k);
+    let resp = ui.add(egui::Button::selectable(on, label).truncate().min_size(vec2(ui.available_width(), 22.0)));
+    let star = egui::Rect::from_center_size(resp.rect.right_center() - vec2(12.0, 0.0), vec2(20.0, resp.rect.height()));
+    let star_resp = ui
+        .interact(star, ui.scope_id().with(("hp_fav", kind as u8, k)), Sense::click())
+        .on_hover_text(if fav { t!("Retirer des favoris", "Remove from favourites") } else { t!("Ajouter aux favoris", "Add to favourites") });
+    if fav || ui.rect_contains_pointer(resp.rect) {
+        let color = if fav { theme::TEXT() } else if star_resp.hovered() { theme::TEXT() } else { theme::TEXT_FAINT() };
+        // Fond sous l'étoile pour masquer la fin d'un nom long.
+        let bg = if on { ui.visuals().selection.bg_fill } else if ui.rect_contains_pointer(resp.rect) { ui.visuals().widgets.hovered.weak_bg_fill } else { theme::SURFACE() };
+        ui.painter().rect_filled(star.shrink2(vec2(0.0, 2.0)), CornerRadius::same(4), bg);
+        ui.painter().text(star.center(), Align2::CENTER_CENTER, if fav { "★" } else { "☆" }, FontId::proportional(13.0), color);
+    }
+    if star_resp.clicked() {
+        toggle_fav(favs, kind, k);
+    } else if resp.clicked() {
+        st.show_entity(kind, k);
     }
 }
 
@@ -574,6 +715,7 @@ fn grouped_list(
     ui: &mut egui::Ui,
     st: &mut PlanningsState,
     d: &Snapshot,
+    favs: &mut Favs,
     items: &[(u32, String)],
     cats: &std::collections::BTreeMap<u32, Vec<crate::hyperplanning::cache::Category>>,
 ) {
@@ -593,7 +735,7 @@ fn grouped_list(
     let kind = st.kind;
     egui::ScrollArea::vertical().id_salt(("hp_tree", kind as u8)).auto_shrink([false, false]).show(ui, |ui| {
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-            let rubriques = |ui: &mut egui::Ui, st: &mut PlanningsState, famille: &str, rubs: &BTreeMap<&str, Vec<&(u32, String)>>| {
+            let rubriques = |ui: &mut egui::Ui, st: &mut PlanningsState, favs: &mut Favs, famille: &str, rubs: &BTreeMap<&str, Vec<&(u32, String)>>| {
                 for (rubrique, list) in rubs {
                     let open_sel = list.iter().any(|(k, _)| st.selected == Some((kind, *k)));
                     egui::CollapsingHeader::new(RichText::new(format!("{rubrique}  ({})", list.len())))
@@ -601,18 +743,18 @@ fn grouped_list(
                         .default_open(open_sel)
                         .show(ui, |ui| {
                             for (k, name) in list {
-                                item_button(ui, st, d, *k, name);
+                                item_button(ui, st, d, favs, kind, *k, name);
                             }
                         });
                 }
             };
             if tree.len() == 1 {
                 let (famille, rubs) = tree.iter().next().unwrap();
-                rubriques(ui, st, famille, rubs);
+                rubriques(ui, st, favs, famille, rubs);
             } else {
                 for (famille, rubs) in &tree {
                     egui::CollapsingHeader::new(RichText::new(*famille).strong()).id_salt(("hp_fam", kind as u8, *famille)).default_open(true).show(ui, |ui| {
-                        rubriques(ui, st, famille, rubs);
+                        rubriques(ui, st, favs, famille, rubs);
                     });
                 }
             }
@@ -621,7 +763,7 @@ fn grouped_list(
                     .id_salt(("hp_other", kind as u8))
                     .show(ui, |ui| {
                         for (k, name) in &other {
-                            item_button(ui, st, d, *k, name);
+                            item_button(ui, st, d, favs, kind, *k, name);
                         }
                     });
             }
