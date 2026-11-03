@@ -1,25 +1,26 @@
 //! Onglet Plannings : emplois du temps HyperPlanning (enseignants, salles, promotions, TD/options,
-//! regroupements), lus dans la copie locale — aucune requête au serveur.
+//! regroupements), lus dans la copie locale — aucune requête au serveur. Même forme et mêmes
+//! déplacements que l'onglet Calendrier.
 //!
-//! - Colonne de gauche : type de planning, filtre, liste.
-//! - Grille de la semaine (lundi → samedi, dimanche s'il y a des séances).
-//! - Clic sur une séance : détail ; clic sur un nom du détail : planning de cet élément.
-//! - Mode « Salles libres » : salles disponibles sur un créneau (voir `free`).
+//! - Colonne de gauche masquable (S) : mini-calendrier, type de planning, filtre, liste (salles
+//!   et promotions rangées par catégories).
+//! - Vues Jour, 3 jours, Semaine (`grid`) et Mois (`month`) ; raccourcis T, J/K/←/→, D/W/M, 1–7.
+//! - Clic sur une séance : détail à droite ; clic sur un nom du détail : planning de cet élément.
+//! - Planning d'une salle : cliquer-glisser sur la grille pour demander le créneau (voir `book`).
 
-use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
-use eframe::egui::{self, Align2, CornerRadius, CursorIcon, FontId, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, vec2};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime};
+use eframe::egui::{self, Align, Align2, CornerRadius, FontId, Key, Layout, Pos2, Rect, RichText, Stroke, StrokeKind, vec2};
 
 use crate::hyperplanning::HyperPlanning;
 use crate::hyperplanning::cache::{Seance, Snapshot};
 use crate::{theme, widgets};
 
-mod free;
+mod book;
+mod grid;
+mod month;
 
-const GUTTER: f32 = 54.0;
-const HOUR_H: f32 = 46.0;
-const HEADER_H: f32 = 40.0;
-const LIST_W: f32 = 270.0;
-const DETAIL_W: f32 = 270.0;
+const SIDE_W: f32 = 250.0;
+const PANEL_W: f32 = 320.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Kind {
@@ -60,65 +61,176 @@ impl Kind {
         match self {
             Kind::Enseignant => t!("Enseignants", "Teachers"),
             Kind::Salle => t!("Salles", "Rooms"),
-            Kind::Promotion => "Promotions",
+            Kind::Promotion => t!("Promos", "Classes"),
             Kind::TDOption => t!("TD", "Groups"),
             Kind::Regroupement => t!("Regroup.", "Clusters"),
         }
     }
 }
 
-/// Séances de l'élément affiché pour la semaine affichée (recalculées quand l'un change).
+/// Vue affichée (comme l'onglet Calendrier).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum View {
+    /// N jours à partir de `anchor` (7 : semaine du lundi au dimanche).
+    Days(u8),
+    Month,
+}
+
+/// Séances de l'élément affiché sur la période affichée (recalculées quand l'un change).
 #[derive(Default)]
-struct WeekCache {
-    key: Option<((Kind, u32), NaiveDate, i64)>,
+struct RangeCache {
+    key: Option<((Kind, u32), NaiveDate, NaiveDate, i64)>,
     seances: Vec<(u32, Seance)>,
 }
 
-/// Affichage de l'onglet.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
-enum Mode {
-    #[default]
-    Plannings,
-    Free,
-}
-
-#[derive(Default)]
 pub struct PlanningsState {
-    mode: Mode,
-    free: free::FreeState,
+    /// Panneau de demande de réservation.
+    book: book::BookPanel,
+    /// Sélection en cours sur la grille : (jour, minute d'ancrage, minute courante).
+    drag: Option<(NaiveDate, u32, u32)>,
+    /// Message bref sous la barre (créneau occupé…).
+    notice: Option<(String, std::time::Instant)>,
     kind: Kind,
     filter: String,
     selected: Option<(Kind, u32)>,
-    /// Lundi de la semaine affichée (`None` : semaine en cours).
-    week: Option<NaiveDate>,
-    /// Séance ouverte dans le détail : (cours, début).
+    view: View,
+    /// Premier jour affiché (lundi en vue Semaine, 1er du mois en vue Mois).
+    anchor: NaiveDate,
+    side_hidden: bool,
+    /// Séance ouverte dans le détail : (cours, début) ; la dernière reste affichée pendant la
+    /// fermeture animée du panneau.
     detail: Option<(u32, NaiveDateTime)>,
+    detail_last: Option<(u32, NaiveDateTime)>,
     scroll_to_morning: bool,
-    cache: WeekCache,
+    cache: RangeCache,
+}
+
+impl Default for PlanningsState {
+    fn default() -> Self {
+        let today = Local::now().date_naive();
+        Self {
+            book: Default::default(),
+            drag: None,
+            notice: None,
+            kind: Kind::default(),
+            filter: String::new(),
+            selected: None,
+            view: View::Days(7),
+            anchor: monday_of(today),
+            side_hidden: false,
+            detail: None,
+            detail_last: None,
+            scroll_to_morning: true,
+            cache: RangeCache::default(),
+        }
+    }
 }
 
 impl PlanningsState {
-    /// Ouvre le planning d'un élément sur la semaine en cours (recherche, liens).
+    /// Ouvre le planning d'un élément sur la période en cours (recherche, liens).
     pub fn open(&mut self, kind: Kind, key: u32) {
-        self.mode = Mode::Plannings;
+        self.show_entity(kind, key);
+        self.go_to(Local::now().date_naive());
+    }
+
+    /// Affiche le planning d'un élément, sur la période affichée.
+    fn show_entity(&mut self, kind: Kind, key: u32) {
         self.kind = kind;
         self.selected = Some((kind, key));
-        self.week = None;
         self.detail = None;
         self.scroll_to_morning = true;
     }
 
-    fn monday(&self) -> NaiveDate {
-        self.week.unwrap_or_else(|| monday_of(Local::now().date_naive()))
+    /// Premier jour de la période qui contient `d`.
+    fn align(&self, d: NaiveDate) -> NaiveDate {
+        match self.view {
+            View::Days(7) => monday_of(d),
+            View::Days(_) => d,
+            View::Month => first_of_month(d),
+        }
+    }
+
+    fn go_to(&mut self, d: NaiveDate) {
+        self.anchor = self.align(d);
+        self.detail = None;
+    }
+
+    fn today(&mut self) {
+        self.go_to(Local::now().date_naive());
+        self.scroll_to_morning = true;
+    }
+
+    /// Période suivante (1) ou précédente (-1).
+    fn shift(&mut self, dir: i64) {
+        self.anchor = match self.view {
+            View::Days(n) => self.anchor + Duration::days(dir * n as i64),
+            View::Month => add_months(self.anchor, dir as i32),
+        };
+        self.detail = None;
+    }
+
+    fn set_view(&mut self, v: View) {
+        if self.view == v {
+            return;
+        }
+        // Garde aujourd'hui s'il est affiché, sinon le premier jour affiché.
+        let today = Local::now().date_naive();
+        let keep = if self.days().contains(&today) { today } else { self.anchor };
+        self.view = v;
+        self.anchor = self.align(keep);
+        self.detail = None;
+    }
+
+    /// Jours affichés (vue Mois : 6 semaines complètes).
+    pub(super) fn days(&self) -> Vec<NaiveDate> {
+        match self.view {
+            View::Days(n) => (0..n as i64).map(|i| self.anchor + Duration::days(i)).collect(),
+            View::Month => {
+                let start = monday_of(self.anchor);
+                (0..42).map(|i| start + Duration::days(i)).collect()
+            }
+        }
     }
 }
 
-fn monday_of(d: NaiveDate) -> NaiveDate {
+pub(super) fn monday_of(d: NaiveDate) -> NaiveDate {
     d - Duration::days(d.weekday().num_days_from_monday() as i64)
 }
 
+fn first_of_month(d: NaiveDate) -> NaiveDate {
+    d.with_day(1).unwrap_or(d)
+}
+
+pub(super) fn add_months(d: NaiveDate, n: i32) -> NaiveDate {
+    let m0 = d.month0() as i32 + n;
+    let y = d.year() + m0.div_euclid(12);
+    NaiveDate::from_ymd_opt(y, m0.rem_euclid(12) as u32 + 1, 1).unwrap_or(d)
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+}
+
+pub(super) fn month_title(d: NaiveDate) -> String {
+    format!("{} {}", capitalize(crate::tabs::month_name(d.month())), d.year())
+}
+
+fn range_seances(d: &Snapshot, sel: (Kind, u32), first: NaiveDate, last: NaiveDate) -> Vec<(u32, Seance)> {
+    let (from, to) = (first.and_hms_opt(0, 0, 0).unwrap_or_default(), (last + Duration::days(1)).and_hms_opt(0, 0, 0).unwrap_or_default());
+    let mut v: Vec<(u32, Seance)> = d
+        .cours
+        .iter()
+        .flat_map(|(k, c)| c.seances.iter().map(move |s| (*k, s)))
+        .filter(|(_, s)| s.start >= from && s.start < to && involves(d, s, sel.0, sel.1))
+        .map(|(k, s)| (k, s.clone()))
+        .collect();
+    v.sort_by_key(|(_, s)| s.start);
+    v
+}
+
 /// Nom d'un élément dans la copie locale.
-fn name_of(d: &Snapshot, kind: Kind, k: u32) -> String {
+pub(super) fn name_of(d: &Snapshot, kind: Kind, k: u32) -> String {
     let s = match kind {
         Kind::Enseignant => d.enseignants.get(&k).cloned(),
         Kind::Salle => d.salles.get(&k).map(|s| s.name.clone()),
@@ -144,7 +256,7 @@ pub fn entries(d: &Snapshot, kind: Kind) -> Vec<(u32, String)> {
 
 /// La séance concerne-t-elle l'élément ? Une salle est aussi occupée par son groupe de salles,
 /// et un groupe par ses salles.
-fn involves(d: &Snapshot, s: &Seance, kind: Kind, k: u32) -> bool {
+pub(super) fn involves(d: &Snapshot, s: &Seance, kind: Kind, k: u32) -> bool {
     match kind {
         Kind::Enseignant => s.enseignants.contains(&k),
         Kind::Salle => s.salles.iter().any(|r| *r == k || d.salles.get(&k).and_then(|x| x.group) == Some(*r) || d.salles.get(r).and_then(|x| x.group) == Some(k)),
@@ -154,42 +266,24 @@ fn involves(d: &Snapshot, s: &Seance, kind: Kind, k: u32) -> bool {
     }
 }
 
-fn week_seances(d: &Snapshot, sel: (Kind, u32), monday: NaiveDate) -> Vec<(u32, Seance)> {
-    let (from, to) = (monday.and_hms_opt(0, 0, 0).unwrap_or_default(), (monday + Duration::days(7)).and_hms_opt(0, 0, 0).unwrap_or_default());
-    let mut v: Vec<(u32, Seance)> = d
-        .cours
-        .iter()
-        .flat_map(|(k, c)| c.seances.iter().map(move |s| (*k, s)))
-        .filter(|(_, s)| s.start >= from && s.start < to && involves(d, s, sel.0, sel.1))
-        .map(|(k, s)| (k, s.clone()))
-        .collect();
-    v.sort_by_key(|(_, s)| s.start);
-    v
-}
-
-fn hhmm(t: NaiveDateTime) -> String {
+pub(super) fn hhmm(t: NaiveDateTime) -> String {
     t.format("%H:%M").to_string()
 }
 
-fn end_of(s: &Seance) -> NaiveDateTime {
+pub(super) fn end_of(s: &Seance) -> NaiveDateTime {
     s.start + Duration::minutes(s.minutes as i64)
 }
 
-fn names(d: &Snapshot, kind: Kind, ks: &[u32]) -> String {
+pub(super) fn names(d: &Snapshot, kind: Kind, ks: &[u32]) -> String {
     ks.iter().map(|k| name_of(d, kind, *k)).collect::<Vec<_>>().join(", ")
 }
 
-fn matiere(d: &Snapshot, s: &Seance) -> String {
+pub(super) fn matiere(d: &Snapshot, s: &Seance) -> String {
     d.matieres.get(&s.matiere).filter(|m| !m.trim().is_empty()).cloned().unwrap_or_else(|| t!("(Sans matière)", "(No subject)").into())
 }
 
 pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, hp: &mut HyperPlanning) {
-    widgets::page_header_with(ui, "HyperPlanning", "Plannings", |ui| {
-        ui.add_space(8.0);
-        widgets::segmented(ui, "hp_mode", &[(Mode::Plannings, "Plannings"), (Mode::Free, t!("Salles libres", "Free rooms"))], &mut st.mode);
-        ui.add_space(8.0);
-        sync_badge(ui, hp);
-    });
+    header(ui, st, hp);
     if !hp.is_configured() {
         widgets::card(ui, "", 0.0, |ui| {
             widgets::empty_state(
@@ -204,29 +298,211 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, hp: &mut HyperPlanning) 
         widgets::card(ui, "", 0.0, |ui| widgets::empty_state(ui, t!("Pas encore de données", "No data yet"), t!("Première synchronisation en cours…", "First sync in progress…")));
         return;
     };
-    if st.mode == Mode::Free {
-        let mut action = None;
-        let (web_url, status) = (&hp.config.web_url, &hp.request_status);
-        widgets::pane_columns(ui, &[LIST_W], |i, ui| match i {
-            0 => free::form(ui, &mut st.free),
-            _ => action = free::results(ui, &mut st.free, d, web_url, status),
-        });
-        match action {
-            Some(free::Action::Open(k)) => {
-                // Planning de la salle, sur la semaine du jour choisi.
-                let day = st.free.date();
-                st.open(Kind::Salle, k);
-                st.week = Some(monday_of(day));
-            }
-            Some(free::Action::Request(k, req)) => hp.request_room(k, req),
-            None => {}
+    if !st.book.is_open() {
+        shortcuts(ui, st);
+    }
+    ui.ctx().request_repaint_after(std::time::Duration::from_secs(30)); // ligne « maintenant »
+
+    // Séances de la période affichée.
+    let days = st.days();
+    if let Some(sel) = st.selected {
+        let key = (sel, days[0], *days.last().unwrap_or(&days[0]), d.synced_at);
+        if st.cache.key != Some(key) {
+            st.cache = RangeCache { key: Some(key), seances: range_seances(d, sel, key.1, key.2) };
         }
+    } else {
+        st.cache = RangeCache::default();
+    }
+    let seances = std::mem::take(&mut st.cache.seances);
+
+    // Colonnes : gauche masquable, centre, détail à droite (ouvertures animées comme le Calendrier).
+    let k = widgets::reveal(ui.ctx(), "hp_side", !st.side_hidden);
+    let side_w = widgets::reveal_width(SIDE_W, k);
+    if st.detail.is_some() {
+        st.detail_last = st.detail;
+    }
+    let kp = widgets::reveal(ui.ctx(), "hp_panel", st.detail.is_some());
+    let panel_w = if st.detail_last.is_some() { widgets::reveal_width(PANEL_W, kp) } else { 0.0 };
+    if st.detail.is_none() && panel_w == 0.0 {
+        st.detail_last = None;
+    }
+    let gaps = if side_w > 0.0 { 8.0 } else { 0.0 } + if panel_w > 0.0 { 8.0 } else { 0.0 };
+    let center_w = (ui.available_width() - side_w - panel_w - gaps).max(200.0);
+    let mut fixed = Vec::new();
+    if side_w > 0.0 {
+        fixed.push(side_w);
+    }
+    if panel_w > 0.0 {
+        fixed.push(center_w);
+    }
+    let offset = if side_w > 0.0 { 0 } else { 1 };
+    widgets::pane_columns(ui, &fixed, |i, ui| match i + offset {
+        0 => widgets::animated_column(ui, side_w, SIDE_W, k, |ui| side(ui, st, d)),
+        1 => center(ui, st, d, &seances),
+        _ => widgets::animated_column(ui, panel_w, PANEL_W, kp, |ui| {
+            if let Some(which) = st.detail.or(st.detail_last) {
+                detail(ui, st, d, &seances, which);
+            }
+        }),
+    });
+    st.cache.seances = seances;
+
+    // Panneau de réservation (par-dessus l'app).
+    if let Some((room, req)) = st.book.show(ui.ctx(), d, &hp.request_status) {
+        hp.request_room(room, req);
+    }
+}
+
+/// En-tête : mois et année en gros, numéro de semaine, état de la synchronisation.
+fn header(ui: &mut egui::Ui, st: &PlanningsState, hp: &mut HyperPlanning) {
+    let days = st.days();
+    let (a, b) = (days[0], *days.last().unwrap_or(&days[0]));
+    let (title, week) = match st.view {
+        View::Month => (month_title(st.anchor), None),
+        View::Days(_) => {
+            let w = Some(tf!("Semaine {}", "Week {}", a.iso_week().week()));
+            if a.month() == b.month() {
+                (month_title(a), w)
+            } else if a.year() == b.year() {
+                (format!("{} – {}", capitalize(crate::tabs::month_name(a.month())), month_title(b)), w)
+            } else {
+                (format!("{} – {}", month_title(a), month_title(b)), w)
+            }
+        }
+    };
+    widgets::page_header_with(ui, "Plannings", &title, |ui| {
+        if let Some(w) = week {
+            widgets::header_badge(ui, &w, false);
+        }
+        ui.add_space(8.0);
+        sync_badge(ui, hp);
+    });
+}
+
+/// Raccourcis du Calendrier (inactifs pendant la saisie de texte).
+fn shortcuts(ui: &mut egui::Ui, st: &mut PlanningsState) {
+    if ui.ctx().egui_wants_keyboard_input() {
         return;
     }
-    widgets::pane_columns(ui, &[LIST_W], |i, ui| match i {
-        0 => list(ui, st, d),
-        _ => planning(ui, st, d),
+    let pressed = |k: Key| ui.input(|i| i.key_pressed(k) && i.modifiers.is_none());
+    if pressed(Key::T) {
+        st.today();
+    }
+    if pressed(Key::D) {
+        st.set_view(View::Days(1));
+    }
+    if pressed(Key::W) {
+        st.set_view(View::Days(7));
+    }
+    if pressed(Key::M) {
+        st.set_view(View::Month);
+    }
+    for (k, n) in [(Key::Num1, 1), (Key::Num2, 2), (Key::Num3, 3), (Key::Num4, 4), (Key::Num5, 5), (Key::Num6, 6), (Key::Num7, 7)] {
+        if pressed(k) {
+            st.set_view(View::Days(n));
+        }
+    }
+    if pressed(Key::J) || pressed(Key::ArrowRight) {
+        st.shift(1);
+    }
+    if pressed(Key::K) || pressed(Key::ArrowLeft) {
+        st.shift(-1);
+    }
+    if pressed(Key::S) {
+        st.side_hidden = !st.side_hidden;
+    }
+    if pressed(Key::Escape) {
+        st.drag = None;
+        st.detail = None;
+    }
+}
+
+/// Colonne de gauche : mini-calendrier puis liste des plannings.
+fn side(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
+    month::school_year(ui, st, d);
+    ui.add_space(14.0);
+    list(ui, st, d);
+}
+
+/// Barre d'outils (comme le Calendrier) puis la vue.
+fn center(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(u32, Seance)]) {
+    ui.horizontal(|ui| {
+        let (icon, tip) = if st.side_hidden {
+            ("»", t!("Afficher le panneau de gauche (S)", "Show the left panel (S)"))
+        } else {
+            ("«", t!("Masquer le panneau de gauche (S)", "Hide the left panel (S)"))
+        };
+        if ui.button(icon).on_hover_text(tip).clicked() {
+            st.side_hidden = !st.side_hidden;
+        }
+        if ui.button(t!("Aujourd'hui", "Today")).on_hover_text("T").clicked() {
+            st.today();
+        }
+        if ui.button("‹").on_hover_text(t!("Précédent (K ou ←)", "Previous (K or ←)")).clicked() {
+            st.shift(-1);
+        }
+        if ui.button("›").on_hover_text(t!("Suivant (J ou →)", "Next (J or →)")).clicked() {
+            st.shift(1);
+        }
+        if let Some((kind, k)) = st.selected {
+            ui.add_space(6.0);
+            // Nom du planning, tronqué pour laisser la place au choix de la vue.
+            let mut title = name_of(d, kind, k);
+            if kind == Kind::Salle
+                && let Some(c) = d.salles.get(&k).map(|s| s.capacity).filter(|c| *c > 0)
+            {
+                title = format!("{title}  ·  {}", tf!("{c} places", "{c} seats"));
+            }
+            let w = (ui.available_width() - 270.0).max(0.0);
+            ui.allocate_ui(vec2(w, 24.0), |ui| ui.add(egui::Label::new(widgets::section_title(&title)).truncate()));
+        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let mut v = match st.view {
+                View::Days(1) => 1,
+                View::Days(7) => 7,
+                View::Days(n) => n as i32 + 100,
+                View::Month => 0,
+            };
+            let custom = match st.view {
+                View::Days(n) if n != 1 && n != 7 => tf!("{n} jours", "{n} days"),
+                _ => t!("3 jours", "3 days").into(),
+            };
+            let custom_v = match st.view {
+                View::Days(n) if n != 1 && n != 7 => n as i32 + 100,
+                _ => 103,
+            };
+            let opts = [(0, t!("Mois", "Month")), (7, t!("Semaine", "Week")), (custom_v, custom.as_str()), (1, t!("Jour", "Day"))];
+            if widgets::segmented(ui, "hp_view", &opts, &mut v) {
+                st.set_view(match v {
+                    0 => View::Month,
+                    1 => View::Days(1),
+                    7 => View::Days(7),
+                    n => View::Days((n - 100) as u8),
+                });
+            }
+        });
     });
+    if let Some((msg, t)) = &st.notice {
+        if t.elapsed().as_secs() < 4 {
+            ui.label(RichText::new(msg).small().color(theme::TODAY()));
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+        } else {
+            st.notice = None;
+        }
+    }
+    ui.add_space(10.0);
+    if st.selected.is_none() {
+        widgets::empty_state(
+            ui,
+            t!("Choisis un planning", "Pick a timetable"),
+            t!("Enseignant, salle, promotion… dans la liste de gauche (S pour l'afficher).", "Teacher, room, group… in the list on the left (S to show it)."),
+        );
+        return;
+    }
+    match st.view {
+        View::Month => month::show(ui, st, d, seances),
+        View::Days(_) => grid::show(ui, st, d, seances),
+    }
 }
 
 /// État de la synchronisation dans l'en-tête, avec le bouton pour la relancer.
@@ -257,85 +533,104 @@ fn list(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
     let needle = st.filter.trim().to_lowercase();
     let items: Vec<(u32, String)> = entries(d, st.kind).into_iter().filter(|(_, n)| needle.is_empty() || n.to_lowercase().contains(&needle)).collect();
     ui.label(RichText::new(tf!("{} élément(s)", "{} item(s)", items.len())).small().color(theme::TEXT_FAINT()));
+    // Salles et promotions : rangées par catégorie (familles HYPERPLANNING), sauf pendant un filtre.
+    let cats = match st.kind {
+        Kind::Salle => Some(&d.salle_cats),
+        Kind::Promotion => Some(&d.promo_cats),
+        _ => None,
+    }
+    .filter(|c| !c.is_empty() && needle.is_empty());
+    if let Some(cats) = cats {
+        grouped_list(ui, st, d, &items, cats);
+        return;
+    }
     egui::ScrollArea::vertical().id_salt("hp_list").auto_shrink([false, false]).show_rows(ui, 24.0, items.len(), |ui, range| {
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             for (k, name) in &items[range] {
-                let on = st.selected == Some((st.kind, *k));
-                let mut label = name.clone();
-                if st.kind == Kind::Salle
-                    && let Some(s) = d.salles.get(k)
-                    && s.capacity > 0
-                {
-                    label = format!("{label}  ·  {}", s.capacity);
-                }
-                if ui.add(egui::Button::selectable(on, label).truncate().min_size(vec2(0.0, 22.0))).clicked() {
-                    st.selected = Some((st.kind, *k));
-                    st.detail = None;
-                    st.scroll_to_morning = true;
-                }
+                item_button(ui, st, d, *k, name);
             }
         });
     });
 }
 
-fn planning(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
-    let Some(sel) = st.selected else {
-        widgets::empty_state(
-            ui,
-            t!("Choisis un planning", "Pick a timetable"),
-            t!("Enseignant, salle, promotion… dans la liste de gauche.", "Teacher, room, group… in the list on the left."),
-        );
-        return;
-    };
-    let monday = st.monday();
-    // Barre : nom, navigation de semaine.
-    ui.horizontal(|ui| {
-        ui.label(widgets::section_title(&name_of(d, sel.0, sel.1)));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("›").on_hover_text(t!("Semaine suivante", "Next week")).clicked() {
-                st.week = Some(monday + Duration::days(7));
-                st.detail = None;
+/// Un élément de la liste (salle : avec sa capacité).
+fn item_button(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, k: u32, name: &str) {
+    let on = st.selected == Some((st.kind, k));
+    let mut label = name.to_string();
+    if st.kind == Kind::Salle
+        && let Some(s) = d.salles.get(&k)
+        && s.capacity > 0
+    {
+        label = format!("{label}  ·  {}", s.capacity);
+    }
+    if ui.add(egui::Button::selectable(on, label).truncate().min_size(vec2(0.0, 22.0))).clicked() {
+        st.show_entity(st.kind, k);
+    }
+}
+
+/// Liste rangée par famille › rubrique (sections repliables) ; un élément peut figurer dans
+/// plusieurs rubriques. Une seule famille : ses rubriques directement.
+fn grouped_list(
+    ui: &mut egui::Ui,
+    st: &mut PlanningsState,
+    d: &Snapshot,
+    items: &[(u32, String)],
+    cats: &std::collections::BTreeMap<u32, Vec<crate::hyperplanning::cache::Category>>,
+) {
+    use std::collections::BTreeMap;
+    let mut tree: BTreeMap<&str, BTreeMap<&str, Vec<&(u32, String)>>> = BTreeMap::new();
+    let mut other = Vec::new();
+    for it in items {
+        match cats.get(&it.0).filter(|c| !c.is_empty()) {
+            Some(list) => {
+                for c in list {
+                    tree.entry(&c.famille).or_default().entry(&c.rubrique).or_default().push(it);
+                }
             }
-            if ui.button(t!("Aujourd'hui", "Today")).clicked() {
-                st.week = None;
-                st.detail = None;
-                st.scroll_to_morning = true;
-            }
-            if ui.button("‹").on_hover_text(t!("Semaine précédente", "Previous week")).clicked() {
-                st.week = Some(monday - Duration::days(7));
-                st.detail = None;
-            }
-            let sat = monday + Duration::days(5);
-            let range = if monday.month() == sat.month() {
-                format!("{} – {} {} {}", monday.day(), sat.day(), crate::tabs::month_name(sat.month()), sat.year())
-            } else {
-                format!("{} {} – {} {} {}", monday.day(), crate::tabs::month_short(monday.month()), sat.day(), crate::tabs::month_short(sat.month()), sat.year())
+            None => other.push(it),
+        }
+    }
+    let kind = st.kind;
+    egui::ScrollArea::vertical().id_salt(("hp_tree", kind as u8)).auto_shrink([false, false]).show(ui, |ui| {
+        ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+            let rubriques = |ui: &mut egui::Ui, st: &mut PlanningsState, famille: &str, rubs: &BTreeMap<&str, Vec<&(u32, String)>>| {
+                for (rubrique, list) in rubs {
+                    let open_sel = list.iter().any(|(k, _)| st.selected == Some((kind, *k)));
+                    egui::CollapsingHeader::new(RichText::new(format!("{rubrique}  ({})", list.len())))
+                        .id_salt(("hp_rub", kind as u8, famille, *rubrique))
+                        .default_open(open_sel)
+                        .show(ui, |ui| {
+                            for (k, name) in list {
+                                item_button(ui, st, d, *k, name);
+                            }
+                        });
+                }
             };
-            ui.label(RichText::new(range).color(theme::TEXT_MUTED()));
+            if tree.len() == 1 {
+                let (famille, rubs) = tree.iter().next().unwrap();
+                rubriques(ui, st, famille, rubs);
+            } else {
+                for (famille, rubs) in &tree {
+                    egui::CollapsingHeader::new(RichText::new(*famille).strong()).id_salt(("hp_fam", kind as u8, *famille)).default_open(true).show(ui, |ui| {
+                        rubriques(ui, st, famille, rubs);
+                    });
+                }
+            }
+            if !other.is_empty() {
+                egui::CollapsingHeader::new(RichText::new(tf!("Sans catégorie  ({})", "Uncategorised  ({})", other.len())).color(theme::TEXT_MUTED()))
+                    .id_salt(("hp_other", kind as u8))
+                    .show(ui, |ui| {
+                        for (k, name) in &other {
+                            item_button(ui, st, d, *k, name);
+                        }
+                    });
+            }
         });
     });
-    ui.add_space(6.0);
-
-    let key = (sel, monday, d.synced_at);
-    if st.cache.key != Some(key) {
-        st.cache = WeekCache { key: Some(key), seances: week_seances(d, sel, monday) };
-    }
-    let seances = std::mem::take(&mut st.cache.seances);
-    if st.detail.is_some() {
-        let full = ui.available_rect_before_wrap();
-        let grid_rect = Rect::from_min_max(full.min, Pos2::new(full.right() - DETAIL_W - 10.0, full.bottom()));
-        let detail_rect = Rect::from_min_max(Pos2::new(grid_rect.right() + 10.0, full.top()), full.max);
-        ui.scope_builder(egui::UiBuilder::new().max_rect(grid_rect), |ui| grid(ui, st, d, &seances, monday));
-        ui.scope_builder(egui::UiBuilder::new().max_rect(detail_rect), |ui| detail(ui, st, d, &seances));
-        ui.allocate_rect(full, Sense::hover());
-    } else {
-        grid(ui, st, d, &seances, monday);
-    }
-    st.cache.seances = seances;
 }
 
 /// Répartit les séances qui se chevauchent d'un même jour en colonnes : (indice, colonne, nb colonnes).
-fn layout(day: &[(usize, &Seance)]) -> Vec<(usize, usize, usize)> {
+pub(super) fn layout(day: &[(usize, &Seance)]) -> Vec<(usize, usize, usize)> {
     let mut out = Vec::new();
     let mut group: Vec<(usize, usize, NaiveDateTime)> = Vec::new(); // (indice, colonne, fin)
     let mut group_end = NaiveDateTime::MIN;
@@ -355,86 +650,21 @@ fn layout(day: &[(usize, &Seance)]) -> Vec<(usize, usize, usize)> {
     out
 }
 
-fn grid(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(u32, Seance)], monday: NaiveDate) {
-    let has_sunday = seances.iter().any(|(_, s)| s.start.weekday().num_days_from_monday() == 6);
-    let days: Vec<NaiveDate> = (0..if has_sunday { 7 } else { 6 }).map(|i| monday + Duration::days(i)).collect();
-    // Heures affichées : 8 h – 19 h, élargies aux séances de la semaine.
-    let first = seances.iter().map(|(_, s)| s.start.hour()).min().unwrap_or(8).min(8);
-    let last = seances.iter().map(|(_, s)| (end_of(s).hour() + u32::from(end_of(s).minute() > 0)).min(24)).max().unwrap_or(19).max(19);
-    let (h0, h1) = (first as i32, last as i32);
-    let width = ui.available_width();
-    let col_w = ((width - GUTTER - 10.0) / days.len() as f32).max(40.0);
-    let today = Local::now().date_naive();
-
-    let (head, _) = ui.allocate_exact_size(vec2(width, HEADER_H), Sense::hover());
-    for (i, day) in days.iter().enumerate() {
-        let r = Rect::from_min_size(Pos2::new(head.left() + GUTTER + i as f32 * col_w, head.top()), vec2(col_w, HEADER_H));
-        let label = format!("{} {}", crate::tabs::weekday_short(day.weekday()).to_uppercase(), day.day());
-        let color = if *day == today { theme::TODAY() } else { theme::TEXT_MUTED() };
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, label, theme::editor_font(13.0, *day == today), color);
-    }
-    ui.painter().hline(ui.min_rect().x_range(), ui.cursor().top(), Stroke::new(1.0, theme::BORDER()));
-
-    let mut area = egui::ScrollArea::vertical().id_salt("hp_grid").auto_shrink([false, false]);
-    if st.scroll_to_morning {
-        let start = seances.iter().map(|(_, s)| s.start.hour()).min().unwrap_or(8) as i32;
-        area = area.vertical_scroll_offset(((start - h0) as f32 - 0.5).max(0.0) * HOUR_H);
-        st.scroll_to_morning = false;
-    }
-    area.show(ui, |ui| {
-        let (rect, _) = ui.allocate_exact_size(vec2(width - 10.0, (h1 - h0) as f32 * HOUR_H), Sense::hover());
-        let p = ui.painter().clone();
-        let grid_left = rect.left() + GUTTER;
-        let y_of = |t: NaiveDateTime| rect.top() + ((t.hour() as i32 - h0) as f32 + t.minute() as f32 / 60.0) * HOUR_H;
-        for (i, day) in days.iter().enumerate() {
-            if *day == today {
-                p.rect_filled(Rect::from_min_size(Pos2::new(grid_left + i as f32 * col_w, rect.top()), vec2(col_w, rect.height())), CornerRadius::ZERO, theme::overlay(5));
-            }
-        }
-        for h in h0..=h1 {
-            let y = rect.top() + (h - h0) as f32 * HOUR_H;
-            if h > h0 {
-                p.hline(grid_left..=rect.right(), y, Stroke::new(1.0, theme::overlay(14)));
-            }
-            p.text(Pos2::new(grid_left - 8.0, y), Align2::RIGHT_CENTER, format!("{h:02}:00"), FontId::proportional(10.5), theme::TEXT_FAINT());
-        }
-        for i in 0..=days.len() {
-            p.vline(grid_left + i as f32 * col_w, rect.y_range(), Stroke::new(1.0, theme::overlay(12)));
-        }
-        // Heure actuelle.
-        let now = Local::now().naive_local();
-        if let Some(i) = days.iter().position(|day| *day == now.date())
-            && (h0..h1).contains(&(now.hour() as i32))
-        {
-            let x = grid_left + i as f32 * col_w;
-            p.hline(x..=x + col_w, y_of(now), Stroke::new(1.5, theme::TODAY()));
-        }
-
-        for (i, day) in days.iter().enumerate() {
-            let of_day: Vec<(usize, &Seance)> = seances.iter().enumerate().filter(|(_, (_, s))| s.start.date() == *day).map(|(j, (_, s))| (j, s)).collect();
-            for (j, col, cols) in layout(&of_day) {
-                let (cours, s) = &seances[j];
-                let c = Rect::from_min_size(Pos2::new(grid_left + i as f32 * col_w, rect.top()), vec2(col_w, rect.height()));
-                let w = (c.width() - 6.0) / cols as f32;
-                let r = Rect::from_min_max(
-                    Pos2::new(c.left() + 3.0 + col as f32 * w, y_of(s.start) + 1.0),
-                    Pos2::new(c.left() + 3.0 + (col + 1) as f32 * w - 2.0, (y_of(end_of(s)) - 1.0).max(y_of(s.start) + 18.0)),
-                );
-                let selected = st.detail == Some((*cours, s.start));
-                let resp = ui.interact(r, ui.scope_id().with(("hp_seance", *cours, s.start)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-                paint_seance(&p, r, d, s, st.selected.map(|x| x.0), selected || resp.hovered(), end_of(s) < now);
-                if resp.clicked() {
-                    st.detail = if selected { None } else { Some((*cours, s.start)) };
-                }
-            }
-        }
-    });
+/// Couleur fixe d'un enseignant : teintes réparties par le nombre d'or (voisines différentes),
+/// saturation et luminosité adaptées au thème.
+pub fn teacher_color(key: u32) -> egui::Color32 {
+    let hue = (key as f32 * 0.618_034).fract();
+    let (s, v) = if theme::is_light() { (0.55, 0.78) } else { (0.50, 0.92) };
+    egui::ecolor::Hsva::new(hue, s, v, 1.0).into()
 }
 
-fn paint_seance(p: &egui::Painter, r: Rect, d: &Snapshot, s: &Seance, viewing: Option<Kind>, hl: bool, past: bool) {
+pub(super) fn paint_seance(p: &egui::Painter, r: Rect, d: &Snapshot, s: &Seance, viewing: Option<Kind>, hl: bool, past: bool) {
     let ink = if past { theme::TEXT_MUTED() } else { theme::TEXT() };
-    p.rect_filled(r, CornerRadius::same(6), theme::overlay(if hl { 34 } else { 20 }));
-    p.rect_filled(Rect::from_min_size(r.min, vec2(3.0, r.height())), CornerRadius { nw: 6, sw: 6, ne: 0, se: 0 }, ink);
+    // Couleur du premier enseignant du cours (gris s'il n'y en a pas).
+    let color = s.enseignants.first().map(|k| teacher_color(*k)).unwrap_or(theme::TEXT_MUTED());
+    let color = if past { color.gamma_multiply(0.55) } else { color };
+    p.rect_filled(r, CornerRadius::same(6), color.gamma_multiply(if hl { 0.42 } else { 0.26 }));
+    p.rect_filled(Rect::from_min_size(r.min, vec2(3.0, r.height())), CornerRadius { nw: 6, sw: 6, ne: 0, se: 0 }, color);
     if hl {
         p.rect_stroke(r, CornerRadius::same(6), Stroke::new(1.0, theme::TEXT_MUTED()), StrokeKind::Inside);
     }
@@ -470,14 +700,15 @@ fn paint_seance(p: &egui::Painter, r: Rect, d: &Snapshot, s: &Seance, viewing: O
     }
 }
 
-fn detail(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(u32, Seance)]) {
-    let Some((cours, start)) = st.detail else { return };
+/// Détail d'une séance (panneau de droite) ; `which` : séance affichée (aussi pendant la fermeture).
+fn detail(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(u32, Seance)], which: (u32, NaiveDateTime)) {
+    let (cours, start) = which;
     let Some((_, s)) = seances.iter().find(|(c, s)| *c == cours && s.start == start) else {
         st.detail = None;
         return;
     };
     let mut go = None;
-    widgets::card(ui, "", 0.0, |ui| {
+    {
         ui.horizontal(|ui| {
             ui.label(widgets::section_title(&matiere(d, s)));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
@@ -523,12 +754,10 @@ fn detail(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(
             ui.label(RichText::new(t!("Mémo", "Memo")).small().color(theme::TEXT_FAINT()));
             ui.add(egui::Label::new(memo).wrap());
         }
-    });
+    }
     if let Some((kind, k)) = go {
-        // Même semaine, autre élément.
-        let week = st.week;
-        st.open(kind, k);
-        st.week = week;
+        // Même période, autre élément.
+        st.show_entity(kind, k);
     }
 }
 
