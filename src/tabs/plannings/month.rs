@@ -3,7 +3,7 @@
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use eframe::egui::{self, Align2, Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, vec2};
 
-use super::{PlanningsState, View, hhmm, matiere, monday_of, teacher_color};
+use super::{PlanningsState, View, hhmm, matiere, monday_of, seance_color};
 use crate::hyperplanning::cache::{Seance, Snapshot};
 use crate::theme;
 
@@ -59,7 +59,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &
             let er = Rect::from_min_size(cell.left_top() + vec2(4.0, 28.0 + j as f32 * 19.0), vec2(col_w - 8.0, 17.0));
             let selected = st.detail == Some((*cours, s.start));
             let resp = ui.interact(er, ui.scope_id().with(("hp_month_ev", k, j)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-            let col = s.enseignants.first().map(|t| teacher_color(*t)).unwrap_or(theme::TEXT_MUTED());
+            let col = seance_color(st, d, s);
             if selected {
                 p.rect_filled(er, CornerRadius::same(4), col.gamma_multiply(0.45));
             } else if resp.hovered() {

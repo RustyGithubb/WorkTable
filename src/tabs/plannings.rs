@@ -107,7 +107,7 @@ fn toggle_fav(favs: &mut Favs, kind: Kind, k: u32) {
 
 #[derive(Default)]
 struct RangeCache {
-    key: Option<((Kind, u32), NaiveDate, NaiveDate, i64)>,
+    key: Option<(Vec<(Kind, u32)>, NaiveDate, NaiveDate, i64)>,
     seances: Vec<(u32, Seance)>,
 }
 
@@ -125,7 +125,8 @@ pub struct PlanningsState {
     /// Panneau des types (Enseignants, Salles…) déplié.
     kind_open: bool,
     filter: String,
-    selected: Option<(Kind, u32)>,
+    /// Plannings affichés ensemble (Ctrl+clic pour en ajouter) ; une salle est toujours seule.
+    selected: Vec<(Kind, u32)>,
     view: View,
     /// Premier jour affiché (lundi en vue Semaine, 1er du mois en vue Mois).
     anchor: NaiveDate,
@@ -150,7 +151,7 @@ impl Default for PlanningsState {
             side_tab_set: false,
             kind_open: false,
             filter: String::new(),
-            selected: None,
+            selected: Vec::new(),
             view: View::Days(7),
             anchor: monday_of(today),
             side_hidden: false,
@@ -172,9 +173,36 @@ impl PlanningsState {
     /// Affiche le planning d'un élément, sur la période affichée.
     fn show_entity(&mut self, kind: Kind, key: u32) {
         self.kind = kind;
-        self.selected = Some((kind, key));
+        self.selected = vec![(kind, key)];
         self.detail = None;
         self.scroll_to_morning = true;
+    }
+
+    /// Ctrl+clic : ajoute ou retire un planning de l'affichage. Une salle ne se combine pas.
+    fn toggle_entity(&mut self, kind: Kind, key: u32) {
+        if self.selected.is_empty() {
+            return self.show_entity(kind, key);
+        }
+        if kind == Kind::Salle || self.selected.iter().any(|(k, _)| *k == Kind::Salle) {
+            let msg = t!("Un planning de salle s'affiche seul (pas de combinaison)", "A room timetable is shown on its own (no combining)");
+            self.notice = Some((msg.to_string(), std::time::Instant::now()));
+            return;
+        }
+        let e = (kind, key);
+        if self.selected.contains(&e) {
+            self.selected.retain(|x| *x != e);
+        } else {
+            self.selected.push(e);
+        }
+        self.detail = None;
+    }
+
+    /// Le planning affiché quand il est seul.
+    pub(super) fn single(&self) -> Option<(Kind, u32)> {
+        match self.selected.as_slice() {
+            [one] => Some(*one),
+            _ => None,
+        }
     }
 
     /// Premier jour de la période qui contient `d`.
@@ -252,13 +280,13 @@ pub(super) fn month_title(d: NaiveDate) -> String {
     format!("{} {}", capitalize(crate::tabs::month_name(d.month())), d.year())
 }
 
-fn range_seances(d: &Snapshot, sel: (Kind, u32), first: NaiveDate, last: NaiveDate) -> Vec<(u32, Seance)> {
+fn range_seances(d: &Snapshot, sel: &[(Kind, u32)], first: NaiveDate, last: NaiveDate) -> Vec<(u32, Seance)> {
     let (from, to) = (first.and_hms_opt(0, 0, 0).unwrap_or_default(), (last + Duration::days(1)).and_hms_opt(0, 0, 0).unwrap_or_default());
     let mut v: Vec<(u32, Seance)> = d
         .cours
         .iter()
         .flat_map(|(k, c)| c.seances.iter().map(move |s| (*k, s)))
-        .filter(|(_, s)| s.start >= from && s.start < to && involves(d, s, sel.0, sel.1))
+        .filter(|(_, s)| s.start >= from && s.start < to && sel.iter().any(|(kind, k)| involves(d, s, *kind, *k)))
         .map(|(k, s)| (k, s.clone()))
         .collect();
     v.sort_by_key(|(_, s)| s.start);
@@ -347,10 +375,11 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, hp: &mut HyperPlanning, 
 
     // Séances de la période affichée.
     let days = st.days();
-    if let Some(sel) = st.selected {
-        let key = (sel, days[0], *days.last().unwrap_or(&days[0]), d.synced_at);
-        if st.cache.key != Some(key) {
-            st.cache = RangeCache { key: Some(key), seances: range_seances(d, sel, key.1, key.2) };
+    if !st.selected.is_empty() {
+        let key = (st.selected.clone(), days[0], *days.last().unwrap_or(&days[0]), d.synced_at);
+        if st.cache.key.as_ref() != Some(&key) {
+            let seances = range_seances(d, &key.0, key.1, key.2);
+            st.cache = RangeCache { key: Some(key), seances };
         }
     } else {
         st.cache = RangeCache::default();
@@ -562,7 +591,10 @@ fn center(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(
         if ui.button("›").on_hover_text(t!("Suivant (J ou →)", "Next (J or →)")).clicked() {
             st.shift(1);
         }
-        if let Some((kind, k)) = st.selected {
+        if st.selected.len() > 1 {
+            ui.add_space(6.0);
+            selection_chips(ui, st, d);
+        } else if let Some((kind, k)) = st.single() {
             ui.add_space(6.0);
             // Nom du planning, tronqué pour laisser la place au choix de la vue.
             let mut title = name_of(d, kind, k);
@@ -621,7 +653,7 @@ fn center(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(
     let view_h = (ui.available_height() - month::YEAR_STRIP_H - 10.0).max(120.0);
     ui.allocate_ui(vec2(ui.available_width(), view_h), |ui| {
         ui.set_min_height(view_h);
-        if st.selected.is_none() {
+        if st.selected.is_empty() {
             widgets::empty_state(
                 ui,
                 t!("Choisis un planning", "Pick a timetable"),
@@ -685,7 +717,7 @@ fn list(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &mut Fav
 
 /// Un élément de la liste (salle : avec sa capacité) ; étoile à droite (favori, ou au survol).
 fn item_button(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &mut Favs, kind: Kind, k: u32, name: &str) {
-    let on = st.selected == Some((kind, k));
+    let on = st.selected.contains(&(kind, k));
     let mut label = name.to_string();
     if kind == Kind::Salle
         && let Some(s) = d.salles.get(&k)
@@ -696,20 +728,38 @@ fn item_button(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &
     let fav = is_fav(favs, kind, k);
     let resp = ui.add(egui::Button::selectable(on, label).truncate().min_size(vec2(ui.available_width(), 22.0)));
     let star = egui::Rect::from_center_size(resp.rect.right_center() - vec2(12.0, 0.0), vec2(20.0, resp.rect.height()));
-    let star_resp = ui
-        .interact(star, ui.scope_id().with(("hp_fav", kind as u8, k)), Sense::click())
-        .on_hover_text(if fav { t!("Retirer des favoris", "Remove from favourites") } else { t!("Ajouter aux favoris", "Add to favourites") });
+    let star_resp = ui.interact(star, ui.scope_id().with(("hp_fav", kind as u8, k)), Sense::click()).on_hover_text(if fav {
+        t!("Retirer des favoris", "Remove from favourites")
+    } else {
+        t!("Ajouter aux favoris", "Add to favourites")
+    });
     if fav || ui.rect_contains_pointer(resp.rect) {
-        let color = if fav { theme::TEXT() } else if star_resp.hovered() { theme::TEXT() } else { theme::TEXT_FAINT() };
+        let color = if fav {
+            theme::TEXT()
+        } else if star_resp.hovered() {
+            theme::TEXT()
+        } else {
+            theme::TEXT_FAINT()
+        };
         // Fond sous l'étoile pour masquer la fin d'un nom long.
-        let bg = if on { ui.visuals().selection.bg_fill } else if ui.rect_contains_pointer(resp.rect) { ui.visuals().widgets.hovered.weak_bg_fill } else { theme::SURFACE() };
+        let bg = if on {
+            ui.visuals().selection.bg_fill
+        } else if ui.rect_contains_pointer(resp.rect) {
+            ui.visuals().widgets.hovered.weak_bg_fill
+        } else {
+            theme::SURFACE()
+        };
         ui.painter().rect_filled(star.shrink2(vec2(0.0, 2.0)), CornerRadius::same(4), bg);
         widgets::paint_star(ui.painter(), star.center(), 6.0, color, fav);
     }
     if star_resp.clicked() {
         toggle_fav(favs, kind, k);
     } else if resp.clicked() {
-        st.show_entity(kind, k);
+        if ui.input(|i| i.modifiers.command) {
+            st.toggle_entity(kind, k);
+        } else {
+            st.show_entity(kind, k);
+        }
     }
 }
 
@@ -741,7 +791,7 @@ fn grouped_list(
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             let rubriques = |ui: &mut egui::Ui, st: &mut PlanningsState, favs: &mut Favs, famille: &str, rubs: &BTreeMap<&str, Vec<&(u32, String)>>| {
                 for (rubrique, list) in rubs {
-                    let open_sel = list.iter().any(|(k, _)| st.selected == Some((kind, *k)));
+                    let open_sel = list.iter().any(|(k, _)| st.selected.contains(&(kind, *k)));
                     egui::CollapsingHeader::new(RichText::new(format!("{rubrique}  ({})", list.len())))
                         .id_salt(("hp_rub", kind as u8, famille, *rubrique))
                         .default_open(open_sel)
@@ -804,10 +854,52 @@ pub fn teacher_color(key: u32) -> egui::Color32 {
     egui::ecolor::Hsva::new(hue, s, v, 1.0).into()
 }
 
-pub(super) fn paint_seance(p: &egui::Painter, r: Rect, d: &Snapshot, s: &Seance, viewing: Option<Kind>, hl: bool, past: bool) {
+/// Couleur du n-ième planning affiché (plusieurs plannings ensemble).
+pub fn planning_color(i: usize) -> egui::Color32 {
+    let hue = (0.08 + i as f32 * 0.618_034).fract();
+    let (s, v) = if theme::is_light() { (0.60, 0.75) } else { (0.55, 0.95) };
+    egui::ecolor::Hsva::new(hue, s, v, 1.0).into()
+}
+
+/// Couleur d'une séance : celle de son planning quand plusieurs sont affichés, sinon celle du
+/// premier enseignant (gris s'il n'y en a pas).
+pub(super) fn seance_color(st: &PlanningsState, d: &Snapshot, s: &Seance) -> egui::Color32 {
+    if st.selected.len() > 1
+        && let Some(i) = st.selected.iter().position(|(kind, k)| involves(d, s, *kind, *k))
+    {
+        return planning_color(i);
+    }
+    s.enseignants.first().map(|k| teacher_color(*k)).unwrap_or(theme::TEXT_MUTED())
+}
+
+/// Plusieurs plannings affichés : une pastille par planning (sa couleur), clic pour le retirer.
+fn selection_chips(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
+    let w = (ui.available_width() - 270.0).max(0.0);
+    let mut remove = None;
+    ui.allocate_ui(vec2(w, 26.0), |ui| {
+        egui::ScrollArea::horizontal().id_salt("hp_sel_chips").auto_shrink([false, true]).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                for (i, (kind, k)) in st.selected.iter().enumerate() {
+                    let name = name_of(d, *kind, *k);
+                    let text = egui::text::LayoutJob::simple_singleline(format!("{name}   ✕"), FontId::proportional(12.5), theme::TEXT());
+                    let resp = ui
+                        .add(egui::Button::new(text).fill(planning_color(i).gamma_multiply(0.30)).stroke(Stroke::new(1.0, planning_color(i))).corner_radius(CornerRadius::same(10)))
+                        .on_hover_text(tf!("{} · retirer de l'affichage", "{} · remove from view", kind.singular()));
+                    if resp.clicked() {
+                        remove = Some(i);
+                    }
+                }
+            });
+        });
+    });
+    if let Some(i) = remove {
+        st.selected.remove(i);
+        st.detail = None;
+    }
+}
+
+pub(super) fn paint_seance(p: &egui::Painter, r: Rect, d: &Snapshot, s: &Seance, viewing: Option<Kind>, color: egui::Color32, hl: bool, past: bool) {
     let ink = if past { theme::TEXT_MUTED() } else { theme::TEXT() };
-    // Couleur du premier enseignant du cours (gris s'il n'y en a pas).
-    let color = s.enseignants.first().map(|k| teacher_color(*k)).unwrap_or(theme::TEXT_MUTED());
     let color = if past { color.gamma_multiply(0.55) } else { color };
     p.rect_filled(r, CornerRadius::same(6), color.gamma_multiply(if hl { 0.42 } else { 0.26 }));
     p.rect_filled(Rect::from_min_size(r.min, vec2(3.0, r.height())), CornerRadius { nw: 6, sw: 6, ne: 0, se: 0 }, color);

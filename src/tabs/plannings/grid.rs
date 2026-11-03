@@ -5,7 +5,7 @@
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use eframe::egui::{self, Align2, Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, vec2};
 
-use super::{Kind, PlanningsState, View, book, end_of, layout, paint_seance};
+use super::{Kind, PlanningsState, View, book, end_of, layout, paint_seance, seance_color};
 use crate::hyperplanning::cache::{Seance, Snapshot};
 use crate::theme;
 
@@ -70,7 +70,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &
     }
     area.show(ui, |ui| {
         // Réservation : seulement sur le planning d'une salle.
-        let room = st.selected.filter(|s| s.0 == Kind::Salle).map(|s| s.1);
+        let room = st.single().filter(|s| s.0 == Kind::Salle).map(|s| s.1);
         let (rect, bg) = ui.allocate_exact_size(vec2(width - 10.0, 24.0 * HOUR_H), if room.is_some() { Sense::click_and_drag() } else { Sense::hover() });
         let p = ui.painter().clone();
         let grid_left = rect.left() + GUTTER;
@@ -135,7 +135,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &
                 );
                 let selected = st.detail == Some((*cours, s.start));
                 let resp = ui.interact(r, ui.scope_id().with(("hp_seance", *cours, s.start)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-                paint_seance(&p, r, d, s, st.selected.map(|x| x.0), selected || resp.hovered(), end_of(s) < now);
+                paint_seance(&p, r, d, s, st.single().map(|x| x.0), seance_color(st, d, s), selected || resp.hovered(), end_of(s) < now);
                 if resp.clicked() {
                     st.detail = if selected { None } else { Some((*cours, s.start)) };
                 }
