@@ -5,6 +5,31 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.4.2
+
+### Ajouté
+- Recherche (Ctrl+Espace) : cours HyperPlanning (matière, enseignant, salle, groupe). Un clic ouvre
+  le planning au jour de la séance, séance sélectionnée.
+- Recherche : mot-clé de catégorie en tête (`hpp`, `cal`, `msg`, `mail`, `drive`, `sheet`, `doc`,
+  `note` et leurs variantes) pour ne chercher que dans cette catégorie.
+- Recherche : pastilles. Un mot reconnu (catégorie, groupe / salle / enseignant HPP, action comme
+  « nouvelle note », « rdv », « réglages ») devient une pastille ; un clic sur un élément HPP proposé
+  en crée une. Plusieurs pastilles HPP : « Ouvrir ensemble » (plannings combinés) et cours communs.
+- Recherche : avec une pastille de groupe, les cours et éléments rattachés passent en premier ; un
+  clic sur un cours liste toutes ses séances (à venir puis passées).
+- Messages : les demandes de chat reçues (conversation d'une personne qui ne t'a jamais écrit)
+  apparaissent dans « Demandes de chat », sous le nom de leur auteur, avec un bandeau pour y
+  répondre dans Google Chat (Google ne permet pas d'accepter depuis une autre application) et un
+  bouton « Actualiser ».
+
+### Modifié
+- L'onglet Plannings s'appelle **HyperPlanning** (HPP en abrégé).
+- HyperPlanning : ouvert depuis la recherche, un planning s'affiche sur sa prochaine séance et
+  l'élément est montré dans le répertoire (type, catégorie dépliée, ligne surlignée).
+
+### Corrigé
+- HyperPlanning : la grille ne saute plus quand on change de planning dans le répertoire.
+
 ## 0.4.1
 
 ### Ajouté

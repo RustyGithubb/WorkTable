@@ -430,7 +430,7 @@ fn hyperplanning_card(ui: &mut egui::Ui, hp: &mut crate::hyperplanning::HyperPla
     widgets::card(ui, "HyperPlanning", 0.0, |ui| {
         ui.label(
             RichText::new(t!(
-                "Plannings de l'école (lecture seule). Connexion en HTTP : identifiants non chiffrés sur le réseau.",
+                "HPP de l'école (lecture seule). Connexion en HTTP : identifiants non chiffrés sur le réseau.",
                 "School timetables (read-only). HTTP connection: credentials are not encrypted on the network."
             ))
             .small()

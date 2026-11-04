@@ -99,6 +99,12 @@ pub struct ChatState {
     people_pending: HashSet<String>,
     pub members: HashMap<String, Vec<String>>,
     members_pending: HashSet<String>,
+    /// Personnes invitées sans avoir rejoint, par conversation (demandes de chat : soi-même).
+    invited: HashMap<String, Vec<String>>,
+
+    /// Conversations dont Google refuse de lister les membres (souvent : on n'en est pas encore
+    /// membre, demande de chat).
+    members_failed: HashSet<String>,
     /// Messages par espace, du plus ancien au plus récent.
     pub msgs: HashMap<String, Vec<ChatMessage>>,
     pub has_more: HashMap<String, bool>,
@@ -459,13 +465,17 @@ impl ChatState {
                 for (sp, m) in list {
                     self.members_pending.remove(&sp);
                     let Some(m) = m else {
+                        self.members_failed.insert(sp.clone());
                         // Lecture impossible : nouvel essai plus tard (vérification en arrière-plan).
                         let n = self.members_retry.get(&sp).map(|r| r.1).unwrap_or(0) + 1;
                         self.members_retry.insert(sp, (Instant::now(), n));
                         continue;
                     };
+                    self.members_failed.remove(&sp);
+                    // Invités (sans avoir rejoint) : demandes de chat.
+                    self.invited.insert(sp.clone(), m.iter().filter(|(_, _, inv)| *inv).map(|(id, _, _)| id.clone()).collect());
                     // Nom affiché fourni avec les membres : repris si la personne n'en a pas.
-                    for (id, name) in &m {
+                    for (id, name, _) in &m {
                         if name.trim().is_empty() {
                             continue;
                         }
@@ -474,7 +484,10 @@ impl ChatState {
                             p.name = name.clone();
                         }
                     }
-                    let ids: Vec<String> = m.into_iter().map(|(id, _)| id).collect();
+                    // Invités gardés seulement en conversation privée (demande de chat) : un groupe
+                    // reste nommé d'après ceux qui l'ont rejoint.
+                    let dm = self.space(&sp).is_some_and(|x| x.kind == SpaceKind::Dm);
+                    let ids: Vec<String> = m.into_iter().filter(|(_, _, inv)| dm || !inv).map(|(id, _, _)| id).collect();
                     // Conversation privée sans l'autre personne : membres à relire plus tard.
                     if ids.iter().all(|u| Some(u.as_str()) == self.me.as_deref()) {
                         let n = self.members_retry.get(&sp).map(|r| r.1).unwrap_or(0) + 1;
@@ -1132,7 +1145,11 @@ impl ChatState {
             .spaces
             .iter()
             .filter(|s| s.kind != SpaceKind::Space && s.display_name.is_empty())
-            .filter(|s| !self.members.contains_key(&s.name) && !self.members_pending.contains(&s.name))
+            // Conversations privées : état d'invitation (demandes de chat) relu une fois par
+            // session, même si les membres sont déjà connus (copie locale).
+            .filter(|s| {
+                (!self.members.contains_key(&s.name) || (s.kind == SpaceKind::Dm && !s.bot_dm && !self.invited.contains_key(&s.name))) && !self.members_pending.contains(&s.name)
+            })
             .filter(|s| retry_due(self.members_retry.get(&s.name)))
             .take(AUDIT_MEMBERS)
             .map(|s| s.name.clone())
@@ -1253,6 +1270,68 @@ impl ChatState {
     }
 
     /// Autres membres d'une conversation (sans soi-même).
+    /// Demande de chat reçue : conversation privée où c'est soi-même qui est invité (quelqu'un
+    /// nous a écrit). Une conversation qu'on a ouverte et que l'autre n'a pas encore acceptée
+    /// (l'autre est l'invité) n'en est pas une.
+    pub fn is_request(&self, sp: &Space) -> bool {
+        if sp.kind != SpaceKind::Dm || sp.bot_dm {
+            return false;
+        }
+        // Membres illisibles (on n'est pas membre) : reçue si quelqu'un d'autre a écrit et
+        // jamais soi-même.
+        if self.members_failed.contains(&sp.name) && !self.invited.contains_key(&sp.name) {
+            return self.request_sender(sp).is_some();
+        }
+        let Some(inv) = self.invited.get(&sp.name).filter(|i| !i.is_empty()) else { return false };
+        if inv.iter().any(|u| self.is_me(u)) {
+            return true;
+        }
+        if self.me.is_some() {
+            // Identité connue et l'invité n'est pas soi : demande envoyée, pas reçue.
+            return false;
+        }
+        // Identité pas encore connue : reçue si les messages viennent de l'autre et jamais de
+        // l'invité (on ne s'écrit pas avant d'avoir accepté).
+        let senders: HashSet<&str> = self.msgs.get(&sp.name).into_iter().flatten().map(|m| m.sender.as_str()).collect();
+        !senders.is_empty() && inv.iter().all(|u| !senders.contains(u.as_str()))
+    }
+
+    /// Auteur d'une conversation privée où l'on n'a jamais écrit (une seule autre personne).
+    fn request_sender(&self, sp: &Space) -> Option<String> {
+        let msgs = self.msgs.get(&sp.name)?;
+        if msgs.is_empty() || msgs.iter().any(|m| self.is_me(&m.sender)) {
+            return None;
+        }
+        let first = &msgs[0].sender;
+        msgs.iter().all(|m| m.sender == *first).then(|| first.clone())
+    }
+
+    /// Demande ouverte dans Google Chat (seul endroit où l'accepter ou la bloquer) : état
+    /// relu dès la prochaine passe, puis à nouveau peu après.
+    pub fn recheck_request(&mut self, space: &str) {
+        self.members_retry.remove(space);
+        self.invited.remove(space);
+    }
+
+    /// « Actualiser » (après avoir accepté dans Google Chat) : relit tout de suite les membres
+    /// de la conversation, la liste des conversations et ses messages.
+    pub fn refresh_request(&mut self, acc: &Account, space: &str) {
+        if self.members_pending.contains(space) {
+            return;
+        }
+        self.recheck_request(space);
+        self.members_pending.insert(space.to_string());
+        let todo = vec![space.to_string()];
+        run(acc, move |s| chat::members(s, &todo).map(ChatEvent::Members));
+        self.last_spaces = None;
+        self.refresh_window(acc, space);
+    }
+
+    /// Relecture de la demande en cours (« Actualiser »).
+    pub fn request_refreshing(&self, space: &str) -> bool {
+        self.members_pending.contains(space)
+    }
+
     pub fn others(&self, space: &str) -> Vec<String> {
         self.members.get(space).map(|m| m.iter().filter(|u| Some(u.as_str()) != self.me.as_deref()).cloned().collect()).unwrap_or_default()
     }
@@ -1275,7 +1354,14 @@ impl ChatState {
         if !sp.display_name.is_empty() {
             return Some(sp.display_name.clone());
         }
-        let others = self.others(&sp.name);
+        let mut others = self.others(&sp.name);
+        // Conversation privée aux membres illisibles (demande de chat) : son auteur.
+        if others.is_empty()
+            && sp.kind == SpaceKind::Dm
+            && let Some(u) = self.request_sender(sp)
+        {
+            others.push(u);
+        }
         let names = || others.iter().map(|u| self.name_of(u)).collect::<Vec<_>>().join(", ");
         let all_known = others.iter().all(|u| self.people.get(u).is_some_and(|p| !p.name.is_empty() || !p.email.is_empty()));
         if !others.is_empty() && all_known {

@@ -33,7 +33,7 @@ impl Tab {
             Tab::Messages => "Messages",
             Tab::Notes => t!("Prise de notes", "Notes"),
             Tab::Files => t!("Fichiers", "Files"),
-            Tab::Plannings => "Plannings",
+            Tab::Plannings => "HyperPlanning",
             Tab::Blueprint => "Blueprint",
             Tab::Settings => t!("Réglages", "Settings"),
             Tab::Custom(_) => t!("Onglet personnalisé", "Custom tab"),
@@ -673,6 +673,14 @@ impl WorkTableApp {
             Target::Tab(t) => self.current = t,
             Target::Planning(kind, key) => {
                 self.plannings.open(kind, key);
+                self.current = Tab::Plannings;
+            }
+            Target::Plannings(list) => {
+                self.plannings.open_many(list);
+                self.current = Tab::Plannings;
+            }
+            Target::Seance { sel, cours, start } => {
+                self.plannings.open_seance(sel, cours, start);
                 self.current = Tab::Plannings;
             }
             Target::Note(id) => {

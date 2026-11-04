@@ -89,6 +89,23 @@ enum SideTab {
     Directory,
 }
 
+/// Plannings affichables ensemble : sans doublon ; une salle avec d'autres plannings est
+/// retirée (une salle s'affiche seule).
+fn combinable(list: Vec<(Kind, u32)>) -> Option<Vec<(Kind, u32)>> {
+    let mut out: Vec<(Kind, u32)> = Vec::new();
+    for e in &list {
+        if !out.contains(e) {
+            out.push(*e);
+        }
+    }
+    if out.len() > 1 && out.iter().any(|(k, _)| *k != Kind::Salle) {
+        out.retain(|(k, _)| *k != Kind::Salle);
+    } else if out.len() > 1 {
+        out.truncate(1);
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 /// Favoris (préférences) : (type, clé).
 type Favs = Vec<(u8, u32)>;
 
@@ -136,6 +153,12 @@ pub struct PlanningsState {
     detail: Option<(u32, NaiveDateTime)>,
     detail_last: Option<(u32, NaiveDateTime)>,
     scroll_to_morning: bool,
+    /// Défilement vers l'heure d'une séance (ouverture depuis la recherche).
+    scroll_to: Option<NaiveDateTime>,
+    /// Élément à montrer dans le répertoire (catégorie dépliée, ligne visible), une fois.
+    reveal: Option<(Kind, u32)>,
+    /// Aller à la prochaine séance du planning ouvert (ouverture depuis la recherche).
+    goto_next: bool,
     cache: RangeCache,
 }
 
@@ -158,24 +181,62 @@ impl Default for PlanningsState {
             detail: None,
             detail_last: None,
             scroll_to_morning: true,
+            scroll_to: None,
+            reveal: None,
+            goto_next: false,
             cache: RangeCache::default(),
         }
     }
 }
 
 impl PlanningsState {
-    /// Ouvre le planning d'un élément sur la période en cours (recherche, liens).
+    /// Recherche : ouvre un planning sur sa prochaine séance (sinon aujourd'hui), montré dans
+    /// le répertoire.
     pub fn open(&mut self, kind: Kind, key: u32) {
-        self.show_entity(kind, key);
-        self.go_to(Local::now().date_naive());
+        self.open_many(vec![(kind, key)]);
     }
 
-    /// Affiche le planning d'un élément, sur la période affichée.
+    /// Recherche : ouvre plusieurs plannings ensemble (une salle reste seule) sur leur
+    /// prochaine séance commune (sinon la prochaine de l'un d'eux, sinon aujourd'hui).
+    pub fn open_many(&mut self, list: Vec<(Kind, u32)>) {
+        let Some(sel) = combinable(list) else { return };
+        let first = sel[0];
+        self.kind = first.0;
+        self.selected = sel;
+        self.detail = None;
+        self.go_to(Local::now().date_naive());
+        self.scroll_to_morning = true;
+        self.goto_next = true;
+        self.reveal_in_directory(first.0, first.1);
+    }
+
+    /// Montre l'élément dans le répertoire : onglet Répertoire, son type, sans filtre.
+    fn reveal_in_directory(&mut self, kind: Kind, key: u32) {
+        self.side_tab = SideTab::Directory;
+        self.side_tab_set = true;
+        self.kind_open = false;
+        self.filter.clear();
+        self.reveal = Some((kind, key));
+    }
+
+    /// Ouvre le planning d'un élément sur le jour d'une séance, séance sélectionnée (recherche).
+    pub fn open_seance(&mut self, sel: Vec<(Kind, u32)>, cours: u32, start: NaiveDateTime) {
+        let Some(sel) = combinable(sel) else { return };
+        let (kind, key) = sel[0];
+        self.kind = kind;
+        self.selected = sel;
+        self.go_to(start.date());
+        self.detail = Some((cours, start));
+        self.scroll_to = Some(start);
+        self.scroll_to_morning = true;
+        self.reveal_in_directory(kind, key);
+    }
+
+    /// Affiche le planning d'un élément, sur la période affichée (sans changer le défilement).
     fn show_entity(&mut self, kind: Kind, key: u32) {
         self.kind = kind;
         self.selected = vec![(kind, key)];
         self.detail = None;
-        self.scroll_to_morning = true;
     }
 
     /// Ctrl+clic : ajoute ou retire un planning de l'affichage. Une salle ne se combine pas.
@@ -184,7 +245,7 @@ impl PlanningsState {
             return self.show_entity(kind, key);
         }
         if kind == Kind::Salle || self.selected.iter().any(|(k, _)| *k == Kind::Salle) {
-            let msg = t!("Un planning de salle s'affiche seul (pas de combinaison)", "A room timetable is shown on its own (no combining)");
+            let msg = t!("Un HPP de salle s'affiche seul (pas de combinaison)", "A room HPP is shown on its own (no combining)");
             self.notice = Some((msg.to_string(), std::time::Instant::now()));
             return;
         }
@@ -294,7 +355,7 @@ fn range_seances(d: &Snapshot, sel: &[(Kind, u32)], first: NaiveDate, last: Naiv
 }
 
 /// Nom d'un élément dans la copie locale.
-pub(super) fn name_of(d: &Snapshot, kind: Kind, k: u32) -> String {
+pub(crate) fn name_of(d: &Snapshot, kind: Kind, k: u32) -> String {
     let s = match kind {
         Kind::Enseignant => d.enseignants.get(&k).cloned(),
         Kind::Salle => d.salles.get(&k).map(|s| s.name.clone()),
@@ -320,7 +381,7 @@ pub fn entries(d: &Snapshot, kind: Kind) -> Vec<(u32, String)> {
 
 /// La séance concerne-t-elle l'élément ? Une salle est aussi occupée par son groupe de salles,
 /// et un groupe par ses salles.
-pub(super) fn involves(d: &Snapshot, s: &Seance, kind: Kind, k: u32) -> bool {
+pub(crate) fn involves(d: &Snapshot, s: &Seance, kind: Kind, k: u32) -> bool {
     match kind {
         Kind::Enseignant => s.enseignants.contains(&k),
         Kind::Salle => s.salles.iter().any(|r| *r == k || d.salles.get(&k).and_then(|x| x.group) == Some(*r) || d.salles.get(r).and_then(|x| x.group) == Some(k)),
@@ -330,11 +391,11 @@ pub(super) fn involves(d: &Snapshot, s: &Seance, kind: Kind, k: u32) -> bool {
     }
 }
 
-pub(super) fn hhmm(t: NaiveDateTime) -> String {
+pub(crate) fn hhmm(t: NaiveDateTime) -> String {
     t.format("%H:%M").to_string()
 }
 
-pub(super) fn end_of(s: &Seance) -> NaiveDateTime {
+pub(crate) fn end_of(s: &Seance) -> NaiveDateTime {
     s.start + Duration::minutes(s.minutes as i64)
 }
 
@@ -342,7 +403,7 @@ pub(super) fn names(d: &Snapshot, kind: Kind, ks: &[u32]) -> String {
     ks.iter().map(|k| name_of(d, kind, *k)).collect::<Vec<_>>().join(", ")
 }
 
-pub(super) fn matiere(d: &Snapshot, s: &Seance) -> String {
+pub(crate) fn matiere(d: &Snapshot, s: &Seance) -> String {
     d.matieres.get(&s.matiere).filter(|m| !m.trim().is_empty()).cloned().unwrap_or_else(|| t!("(Sans matière)", "(No subject)").into())
 }
 
@@ -366,6 +427,18 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, hp: &mut HyperPlanning, 
         st.side_tab_set = true;
         if !favs.is_empty() {
             st.side_tab = SideTab::Favorites;
+        }
+    }
+    if std::mem::take(&mut st.goto_next) && !st.selected.is_empty() {
+        let now = Local::now().naive_local();
+        let sel = &st.selected;
+        let upcoming = || d.cours.values().flat_map(|c| &c.seances).filter(|s| end_of(s) >= now);
+        let common = upcoming().filter(|s| sel.iter().all(|(kind, k)| involves(d, s, *kind, *k))).map(|s| s.start).min();
+        let next = common.or_else(|| upcoming().filter(|s| sel.iter().any(|(kind, k)| involves(d, s, *kind, *k))).map(|s| s.start).min());
+        if let Some(start) = next {
+            st.go_to(start.date());
+            st.scroll_to = Some(start);
+            st.scroll_to_morning = true;
         }
     }
     if !st.book.is_open() {
@@ -417,6 +490,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, hp: &mut HyperPlanning, 
         }),
     });
     st.cache.seances = seances;
+    st.reveal = None;
 
     // Panneau de réservation (par-dessus l'app).
     if let Some((room, req)) = st.book.show(ui.ctx(), d, &hp.request_status) {
@@ -441,7 +515,7 @@ fn header(ui: &mut egui::Ui, st: &PlanningsState, hp: &mut HyperPlanning) {
             }
         }
     };
-    widgets::page_header_with(ui, "Plannings", &title, |ui| {
+    widgets::page_header_with(ui, "HyperPlanning", &title, |ui| {
         if let Some(w) = week {
             widgets::header_badge(ui, &w, false);
         }
@@ -506,7 +580,7 @@ fn favorites(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &mu
         widgets::empty_state(
             ui,
             t!("Aucun favori", "No favourites"),
-            t!("Dans le Répertoire, survole un planning et clique sur l'étoile pour l'ajouter.", "In the Directory, hover a timetable and click the star to add it."),
+            t!("Dans le Répertoire, survole un HPP et clique sur l'étoile pour l'ajouter.", "In the Directory, hover an HPP and click the star to add it."),
         );
         return;
     }
@@ -656,7 +730,7 @@ fn center(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(
         if st.selected.is_empty() {
             widgets::empty_state(
                 ui,
-                t!("Choisis un planning", "Pick a timetable"),
+                t!("Choisis un HPP", "Pick an HPP"),
                 t!("Enseignant, salle, promotion… dans la liste de gauche (S pour l'afficher).", "Teacher, room, group… in the list on the left (S to show it)."),
             );
             return;
@@ -706,7 +780,16 @@ fn list(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &mut Fav
         grouped_list(ui, st, d, favs, &items, cats);
         return;
     }
-    egui::ScrollArea::vertical().id_salt("hp_list").auto_shrink([false, false]).show_rows(ui, 24.0, items.len(), |ui, range| {
+    let mut area = egui::ScrollArea::vertical().id_salt("hp_list").auto_shrink([false, false]);
+    // Élément ouvert depuis la recherche : sa ligne vers le haut de la liste.
+    if let Some((kind, k)) = st.reveal
+        && kind == st.kind
+        && let Some(i) = items.iter().position(|(x, _)| *x == k)
+    {
+        let row = 24.0 + ui.spacing().item_spacing.y;
+        area = area.vertical_scroll_offset((i as f32 - 3.0).max(0.0) * row);
+    }
+    area.show_rows(ui, 24.0, items.len(), |ui, range| {
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             for (k, name) in &items[range] {
                 item_button(ui, st, d, favs, st.kind, *k, name);
@@ -727,6 +810,9 @@ fn item_button(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &
     }
     let fav = is_fav(favs, kind, k);
     let resp = ui.add(egui::Button::selectable(on, label).truncate().min_size(vec2(ui.available_width(), 22.0)));
+    if st.reveal == Some((kind, k)) {
+        resp.scroll_to_me(Some(Align::Center));
+    }
     let star = egui::Rect::from_center_size(resp.rect.right_center() - vec2(12.0, 0.0), vec2(20.0, resp.rect.height()));
     let star_resp = ui.interact(star, ui.scope_id().with(("hp_fav", kind as u8, k)), Sense::click()).on_hover_text(if fav {
         t!("Retirer des favoris", "Remove from favourites")
@@ -787,6 +873,9 @@ fn grouped_list(
         }
     }
     let kind = st.kind;
+    // Élément ouvert depuis la recherche : ses sections dépliées.
+    let reveal = st.reveal.filter(|(k, _)| *k == kind).map(|(_, k)| k);
+    let opens = |list: &[&(u32, String)]| reveal.filter(|r| list.iter().any(|(k, _)| k == r)).map(|_| true);
     egui::ScrollArea::vertical().id_salt(("hp_tree", kind as u8)).auto_shrink([false, false]).show(ui, |ui| {
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             let rubriques = |ui: &mut egui::Ui, st: &mut PlanningsState, favs: &mut Favs, famille: &str, rubs: &BTreeMap<&str, Vec<&(u32, String)>>| {
@@ -795,6 +884,7 @@ fn grouped_list(
                     egui::CollapsingHeader::new(RichText::new(format!("{rubrique}  ({})", list.len())))
                         .id_salt(("hp_rub", kind as u8, famille, *rubrique))
                         .default_open(open_sel)
+                        .open(opens(list))
                         .show(ui, |ui| {
                             for (k, name) in list {
                                 item_button(ui, st, d, favs, kind, *k, name);
@@ -807,7 +897,8 @@ fn grouped_list(
                 rubriques(ui, st, favs, famille, rubs);
             } else {
                 for (famille, rubs) in &tree {
-                    egui::CollapsingHeader::new(RichText::new(*famille).strong()).id_salt(("hp_fam", kind as u8, *famille)).default_open(true).show(ui, |ui| {
+                    let all: Vec<&(u32, String)> = rubs.values().flatten().copied().collect();
+                    egui::CollapsingHeader::new(RichText::new(*famille).strong()).id_salt(("hp_fam", kind as u8, *famille)).default_open(true).open(opens(&all)).show(ui, |ui| {
                         rubriques(ui, st, favs, famille, rubs);
                     });
                 }
@@ -815,6 +906,7 @@ fn grouped_list(
             if !other.is_empty() {
                 egui::CollapsingHeader::new(RichText::new(tf!("Sans catégorie  ({})", "Uncategorised  ({})", other.len())).color(theme::TEXT_MUTED()))
                     .id_salt(("hp_other", kind as u8))
+                    .open(opens(&other))
                     .show(ui, |ui| {
                         for (k, name) in &other {
                             item_button(ui, st, d, favs, kind, *k, name);
@@ -981,7 +1073,7 @@ fn detail(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &[(
                     {
                         text = format!("{text} ({c})");
                     }
-                    if ui.link(text).on_hover_text(t!("Voir son planning", "Show its timetable")).clicked() {
+                    if ui.link(text).on_hover_text(t!("Voir son HPP", "Show its HPP")).clicked() {
                         go = Some((kind, *k));
                     }
                 }

@@ -65,6 +65,10 @@ enum Action {
     Manage(String, super::manage::Mode),
     TogglePeople,
     Mute(String),
+    /// Demande de chat : ouverte dans Google Chat (pour l'accepter ou la bloquer).
+    AnswerInChat(Space),
+    /// Demande de chat : relire son état (après l'avoir acceptée dans Google Chat).
+    RefreshRequest(String),
     PickIcon(String),
     ClearIcon(String),
     PickFiles,
@@ -273,6 +277,12 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
             Action::MoveSpace(space, sec) => chat.move_space(acc, &space, &sec),
             Action::CreateGroup => chat.create_group(acc),
             Action::Manage(space, mode) => chat.open_manage(ui.ctx(), acc, &space, mode),
+            Action::AnswerInChat(space) => {
+                let _ = webbrowser::open(&space.web_link());
+                chat.recheck_request(&space.name);
+                chat.info(t!("Accepte ou bloque dans Google Chat : WorkTable se met à jour ensuite", "Accept or block in Google Chat: WorkTable updates afterwards"));
+            }
+            Action::RefreshRequest(space) => chat.refresh_request(acc, &space),
             Action::RetrySend(n) => chat.retry_send(acc, &n),
             Action::DiscardFailed(n) => chat.discard_failed(&n),
             Action::TogglePeople => prefs.chat_people_hidden = !prefs.chat_people_hidden,
@@ -589,8 +599,11 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
             || crate::tabs::mail::contacts::fold(&chat.title(s)).contains(&q)
             || chat.others(&s.name).first().and_then(|u| chat.email_of(u)).is_some_and(|e| e.to_lowercase().contains(&q))
     };
-    let recents: Vec<Space> = chat.recent_people().into_iter().filter(|s| matches(chat, s)).cloned().collect();
-    let mut all: Vec<(String, Space)> = people.into_iter().filter(|s| matches(chat, s)).map(|s| (crate::tabs::mail::contacts::fold(&chat.title(&s)), s)).collect();
+    // Demandes de chat : à part, en tête (comme « Invitations à discuter » dans Google Chat).
+    let requests: Vec<Space> = people.iter().filter(|s| chat.is_request(s) && matches(chat, s)).cloned().collect();
+    let recents: Vec<Space> = chat.recent_people().into_iter().filter(|s| !chat.is_request(s) && matches(chat, s)).cloned().collect();
+    let mut all: Vec<(String, Space)> =
+        people.into_iter().filter(|s| !chat.is_request(s) && matches(chat, s)).map(|s| (crate::tabs::mail::contacts::fold(&chat.title(&s)), s)).collect();
     all.sort_by(|a, b| a.0.cmp(&b.0));
 
     // Recherche : conversations existantes d'abord ; sinon contacts de l'annuaire avec qui en démarrer une.
@@ -615,7 +628,7 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
             actions.push(Action::OpenDm(e.clone()));
         }
     }
-    if all.is_empty() && starts.is_empty() {
+    if all.is_empty() && starts.is_empty() && requests.is_empty() {
         let hint = if !q.is_empty() {
             t!("Aucune conversation ni contact : tape une adresse complète", "No conversation or contact: type a full address")
         } else if chat.loading {
@@ -629,6 +642,15 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
 
     egui::ScrollArea::vertical().id_salt("chat_people").auto_shrink([false, false]).show(ui, |ui| {
         let mut hl = Liquid::begin(ui, "chat_people_nav");
+        if !requests.is_empty() {
+            let open = section_header(ui, chat, "requests", &tf!("Demandes de chat · {}", "Chat requests · {}", requests.len()), &requests);
+            liquid::collapse(ui, "chat_requests", open, |ui| {
+                for s in &requests {
+                    person_entry(ui, chat, s, false, &mut hl, actions);
+                }
+            });
+            section_rule(ui);
+        }
         if !recents.is_empty() && q.is_empty() {
             let open = section_header(ui, chat, "recent", t!("Récents", "Recent"), &recents);
             liquid::collapse(ui, "chat_recent", open, |ui| {
@@ -1175,13 +1197,66 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
         }
     });
 
-    // Compositeur.
+    // Compositeur (demande de chat : bandeau Accepter / Refuser à la place, comme Google Chat).
     let start = ui.cursor().top();
     ui.add_space(6.0);
-    composer(ui, chat, &space, &title, false, actions);
+    if chat.is_request(&space) {
+        request_banner(ui, chat, &space, &title, actions);
+    } else {
+        composer(ui, chat, &space, &title, false, actions);
+    }
     let h = ui.cursor().top() - start;
     ui.ctx().data_mut(|d| d.insert_temp(comp_id, h));
     let _ = acc;
+}
+
+/// Bandeau d'une demande de chat : la personne veut te contacter. Google ne permet pas de
+/// l'accepter ou de la bloquer depuis une autre application : le bouton ouvre la demande dans
+/// Google Chat, et la conversation redevient normale ici une fois acceptée.
+fn request_banner(ui: &mut egui::Ui, chat: &ChatState, space: &Space, title: &str, actions: &mut Vec<Action>) {
+    egui::Frame::new()
+        .fill(theme::TODAY().gamma_multiply(0.18))
+        .stroke(Stroke::new(1.0, theme::TODAY()))
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(egui::Margin::symmetric(14, 10))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - 330.0).max(160.0);
+                ui.vertical(|ui| {
+                    ui.set_max_width(w);
+                    ui.label(RichText::new(t!("Demande de chat", "Chat request")).strong().color(theme::TEXT()));
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(tf!(
+                                "{title} veut te contacter. Google ne permet d'accepter ou de bloquer que dans Google Chat ; la conversation redevient normale ici ensuite.",
+                                "{title} wants to contact you. Google only lets you accept or block in Google Chat; the conversation becomes normal here afterwards."
+                            ))
+                            .small()
+                            .color(theme::TEXT_MUTED()),
+                        )
+                        .wrap(),
+                    );
+                });
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui
+                        .add(egui::Button::new(RichText::new(t!("Répondre dans Google Chat ↗", "Answer in Google Chat ↗")).strong()).corner_radius(CornerRadius::same(255)))
+                        .clicked()
+                    {
+                        actions.push(Action::AnswerInChat(space.clone()));
+                    }
+                    if chat.request_refreshing(&space.name) {
+                        ui.add(egui::Spinner::new().size(14.0));
+                    } else if ui
+                        .add(egui::Button::new(t!("⟳ Actualiser", "⟳ Refresh")).corner_radius(CornerRadius::same(255)))
+                        .on_hover_text(t!("Relire la conversation après l'avoir acceptée dans Google Chat", "Reload the conversation after accepting it in Google Chat"))
+                        .clicked()
+                    {
+                        actions.push(Action::RefreshRequest(space.name.clone()));
+                    }
+                });
+            });
+        });
 }
 
 fn day_of(ms: i64) -> chrono::NaiveDate {

@@ -369,14 +369,15 @@ pub fn mark_read(s: &Session, space: &str, at: i64) -> Result<(), String> {
 }
 
 /// Membres (humains) de plusieurs espaces.
-/// Membres d'une conversation : (espace, `Some` liste de (identifiant, nom affiché) ou `None` si
-/// la lecture a échoué).
-pub type SpaceMembers = (String, Option<Vec<(String, String)>>);
+/// Membres d'une conversation : (espace, `Some` liste de (identifiant, nom affiché, invité sans
+/// avoir encore rejoint) ou `None` si la lecture a échoué).
+pub type SpaceMembers = (String, Option<Vec<(String, String, bool)>>);
 
 pub fn members(s: &Session, spaces: &[String]) -> Result<Vec<SpaceMembers>, String> {
     let mut out = Vec::new();
     for sp in spaces {
-        let Ok(v) = s.get(&format!("{API}/{sp}/members"), &[("pageSize", "100")]) else {
+        // Invités compris : une « demande de chat » est une conversation où l'on est invité.
+        let Ok(v) = s.get(&format!("{API}/{sp}/members"), &[("pageSize", "100"), ("showInvited", "true")]) else {
             out.push((sp.clone(), None));
             continue;
         };
@@ -386,7 +387,8 @@ pub fn members(s: &Session, spaces: &[String]) -> Result<Vec<SpaceMembers>, Stri
             .flatten()
             .filter_map(|m| {
                 let id = m["member"]["name"].as_str()?;
-                Some((id.to_string(), m["member"]["displayName"].as_str().unwrap_or_default().to_string()))
+                let invited = m["state"].as_str() == Some("INVITED");
+                Some((id.to_string(), m["member"]["displayName"].as_str().unwrap_or_default().to_string(), invited))
             })
             .collect();
         out.push((sp.clone(), Some(users)));

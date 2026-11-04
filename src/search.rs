@@ -42,6 +42,184 @@ pub enum Target {
     NewNote,
     /// Planning HyperPlanning d'un enseignant, d'une salle, d'une promotion…
     Planning(crate::tabs::plannings::Kind, u32),
+    /// Plusieurs plannings HyperPlanning ouverts ensemble.
+    Plannings(Vec<(crate::tabs::plannings::Kind, u32)>),
+    /// Séance HyperPlanning : ouvre ces plannings au jour de la séance, séance sélectionnée.
+    Seance {
+        sel: Vec<(crate::tabs::plannings::Kind, u32)>,
+        cours: u32,
+        start: chrono::NaiveDateTime,
+    },
+}
+
+/// Mot reconnu dans la recherche, affiché en pastille : catégorie, élément HyperPlanning
+/// (groupe, salle, prof…) ou action.
+#[derive(Clone, PartialEq, Debug)]
+enum Pill {
+    Scope(Scope),
+    Entity(crate::tabs::plannings::Kind, u32, String),
+    /// Nom de cours (matière) : toutes ses séances en liste. (nom replié, nom affiché)
+    Course(String, String),
+    Action(Action),
+}
+
+/// Actions cachées derrière un mot (« rdv », « nouvelle note », « réglages »…).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Action {
+    Compose,
+    NewEvent,
+    NewNote,
+    Tab(Tab),
+}
+
+impl Action {
+    fn target(self) -> Target {
+        match self {
+            Action::Compose => Target::Compose,
+            Action::NewEvent => Target::NewEvent,
+            Action::NewNote => Target::NewNote,
+            Action::Tab(t) => Target::Tab(t),
+        }
+    }
+
+    fn label(self) -> String {
+        match self {
+            Action::Compose => t!("Nouveau mail", "New mail").into(),
+            Action::NewEvent => t!("Nouvel événement", "New event").into(),
+            Action::NewNote => t!("Nouvelle note", "New note").into(),
+            Action::Tab(t) => t.label().into(),
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            Action::Compose => "✉️",
+            Action::NewEvent => "🗓️",
+            Action::NewNote => "📝",
+            Action::Tab(Tab::Dashboard) => "🏠",
+            Action::Tab(Tab::Settings) => "⚙️",
+            Action::Tab(Tab::Blueprint) => "🧩",
+            Action::Tab(_) => "📁",
+        }
+    }
+}
+
+/// Mots (repliés, sans accents) qui cachent une action ; « nouveau/nouvelle… » + mot ci-dessous.
+const ACTION_WORDS: [(&str, Action); 14] = [
+    ("ecrire", Action::Compose),
+    ("rediger", Action::Compose),
+    ("compose", Action::Compose),
+    ("rdv", Action::NewEvent),
+    ("reunion", Action::NewEvent),
+    ("dashboard", Action::Tab(Tab::Dashboard)),
+    ("tdb", Action::Tab(Tab::Dashboard)),
+    ("accueil", Action::Tab(Tab::Dashboard)),
+    ("reglages", Action::Tab(Tab::Settings)),
+    ("settings", Action::Tab(Tab::Settings)),
+    ("parametres", Action::Tab(Tab::Settings)),
+    ("blueprint", Action::Tab(Tab::Blueprint)),
+    ("fichiers", Action::Tab(Tab::Files)),
+    ("files", Action::Tab(Tab::Files)),
+];
+const NEW_WORDS: [&str; 6] = ["nouveau", "nouvelle", "nouvel", "new", "creer", "create"];
+const NEW_WHAT: [(&str, Action); 9] = [
+    ("mail", Action::Compose),
+    ("message", Action::Compose),
+    ("courriel", Action::Compose),
+    ("note", Action::NewNote),
+    ("evenement", Action::NewEvent),
+    ("event", Action::NewEvent),
+    ("rdv", Action::NewEvent),
+    ("reunion", Action::NewEvent),
+    ("rendez-vous", Action::NewEvent),
+];
+
+/// Reconnaît un mot (ou plusieurs : « nouvelle note », « Bachelor 2 JV ») au début de `words`
+/// (repliés) : (pastille, nombre de mots).
+fn recognize(
+    words: &[String],
+    names: &std::collections::HashMap<String, (crate::tabs::plannings::Kind, u32, String)>,
+    courses: &std::collections::HashMap<String, String>,
+) -> Option<(Pill, usize)> {
+    if words.len() >= 2
+        && NEW_WORDS.contains(&words[0].as_str())
+        && let Some((_, a)) = NEW_WHAT.iter().find(|(w, _)| *w == words[1])
+    {
+        return Some((Pill::Action(*a), 2));
+    }
+    if words.len() >= 3 && words[..3].join(" ") == "tableau de bord" {
+        return Some((Pill::Action(Action::Tab(Tab::Dashboard)), 3));
+    }
+    // Élément HyperPlanning : nom exact, le plus long d'abord.
+    for n in (1..=words.len().min(6)).rev() {
+        let key = words[..n].join(" ");
+        if let Some((kind, k, name)) = names.get(&key) {
+            return Some((Pill::Entity(*kind, *k, name.clone()), n));
+        }
+        if let Some(name) = courses.get(&key) {
+            return Some((Pill::Course(key, name.clone()), n));
+        }
+    }
+    let w = words.first()?;
+    if let Some((scope, ..)) = SCOPES.iter().find(|(_, list, _, _)| list.contains(&w.as_str())) {
+        return Some((Pill::Scope(*scope), 1));
+    }
+    ACTION_WORDS.iter().find(|(x, _)| x == w).map(|(_, a)| (Pill::Action(*a), 1))
+}
+
+/// Catégorie ciblée par le premier mot de la recherche (« mail facture », « hpp 101 »).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Scope {
+    Hpp,
+    Calendar,
+    Messages,
+    Mail,
+    Drive,
+    Sheets,
+    Docs,
+    Notes,
+}
+
+/// Mots-clés (et abréviations) de chaque catégorie, puis son nom affiché.
+const SCOPES: [(Scope, &[&str], &str, &str); 8] = [
+    (Scope::Hpp, &["hyperplanning", "hpp", "hp"], "HyperPlanning", "HyperPlanning"),
+    (Scope::Calendar, &["calendrier", "calendar", "agenda", "cal"], "Calendrier", "Calendar"),
+    (Scope::Messages, &["messages", "message", "msg", "chat"], "Messages", "Messages"),
+    (Scope::Mail, &["mails", "mail", "gmail", "ml"], "Mail", "Mail"),
+    (Scope::Drive, &["drive", "drv"], "Drive", "Drive"),
+    (Scope::Sheets, &["sheets", "sheet", "gsheet", "gsheets", "tableur", "sht"], "Sheets", "Sheets"),
+    (Scope::Docs, &["docs", "doc", "gdoc", "gdocs"], "Docs", "Docs"),
+    (Scope::Notes, &["notes", "note", "nt"], "Notes", "Notes"),
+];
+
+/// Sépare un mot-clé de catégorie en tête de la requête : (catégorie, reste de la requête).
+fn split_scope(q: &str) -> (Option<Scope>, String) {
+    let q = q.trim();
+    let (first, rest) = q.split_once(char::is_whitespace).unwrap_or((q, ""));
+    let first = fold(first);
+    match SCOPES.iter().find(|(_, words, _, _)| words.contains(&first.as_str())) {
+        Some((scope, ..)) => (Some(*scope), rest.trim().to_string()),
+        None => (None, q.to_string()),
+    }
+}
+
+fn scope_name(scope: Scope) -> &'static str {
+    SCOPES.iter().find(|(s, ..)| *s == scope).map(|(_, _, fr, en)| t!(*fr, *en)).unwrap_or("")
+}
+
+/// Le résultat appartient-il à la catégorie ? (actions : celles de l'onglet correspondant).
+fn in_scope(h: &Hit, scope: Scope) -> bool {
+    let drive_mime = |pred: fn(&str) -> bool| matches!(&h.target, Target::Drive(f) if pred(&f.mime));
+    match scope {
+        Scope::Hpp => matches!(h.target, Target::Planning(..) | Target::Plannings(_) | Target::Seance { .. } | Target::Tab(Tab::Plannings)),
+        Scope::Calendar => matches!(h.target, Target::Event(_) | Target::Date(_) | Target::NewEvent | Target::Tab(Tab::Calendar)),
+        Scope::Messages => matches!(h.target, Target::Space(_) | Target::Tab(Tab::Messages)),
+        Scope::Mail => matches!(h.target, Target::Mail(_) | Target::Compose | Target::Tab(Tab::Mail)),
+        Scope::Drive => matches!(h.target, Target::Drive(_) | Target::Tab(Tab::Files)),
+        Scope::Sheets => drive_mime(|m| m == "application/vnd.google-apps.spreadsheet" || m.contains("sheet") || m.contains("excel") || m.contains("csv")),
+        Scope::Docs => drive_mime(|m| m == "application/vnd.google-apps.document" || m.contains("word")),
+        Scope::Notes => matches!(h.target, Target::Note(_) | Target::NewNote | Target::Tab(Tab::Notes)),
+    }
 }
 
 #[derive(Clone)]
@@ -67,6 +245,10 @@ pub struct Palette {
     /// Recherche Google Drive (même requête).
     drive: Vec<DriveFile>,
     edited: Option<Instant>,
+    /// Mots reconnus, sortis du texte et affichés en pastilles.
+    pills: Vec<Pill>,
+    /// Texte réécrit (pastilles) : curseur à replacer en fin de texte.
+    cursor_end: bool,
 }
 
 /// Fond d'un overlay (recherche, fiche contact) : capture floutée de l'app, voile sombre,
@@ -146,6 +328,7 @@ impl Palette {
         }
         self.open = true;
         self.query.clear();
+        self.pills.clear();
         self.selected = 0;
         self.bg.start(ctx);
     }
@@ -153,6 +336,57 @@ impl Palette {
     fn close(&mut self) {
         self.open = false;
         self.bg.clear();
+    }
+
+    /// Mots terminés (suivis d'une espace) reconnus : sortis du texte, ajoutés en pastilles.
+    fn absorb(&mut self, hp: Option<&crate::hyperplanning::cache::Snapshot>) {
+        let complete = self.query.ends_with(char::is_whitespace);
+        let raw: Vec<String> = self.query.split_whitespace().map(str::to_string).collect();
+        let usable = if complete { raw.len() } else { raw.len().saturating_sub(1) };
+        if usable == 0 {
+            return;
+        }
+        let folded: Vec<String> = raw.iter().map(|w| fold(w)).collect();
+        let mut names = std::collections::HashMap::new();
+        let mut courses = std::collections::HashMap::new();
+        if let Some(d) = hp {
+            for name in d.matieres.values().filter(|n| !n.trim().is_empty()) {
+                courses.entry(course_key(name)).or_insert_with(|| name.clone());
+            }
+            for kind in crate::tabs::plannings::Kind::ALL {
+                for (k, name) in crate::tabs::plannings::entries(d, kind) {
+                    names.entry(fold(&name).split_whitespace().collect::<Vec<_>>().join(" ")).or_insert((kind, k, name));
+                }
+            }
+        }
+        let mut keep: Vec<String> = Vec::new();
+        let mut found = false;
+        let mut i = 0;
+        while i < usable {
+            match recognize(&folded[i..usable], &names, &courses) {
+                Some((pill, n)) => {
+                    if !self.pills.contains(&pill) {
+                        self.pills.push(pill);
+                    }
+                    found = true;
+                    i += n;
+                }
+                None => {
+                    keep.push(raw[i].clone());
+                    i += 1;
+                }
+            }
+        }
+        if !found {
+            return;
+        }
+        keep.extend(raw[usable..].iter().cloned());
+        self.query = keep.join(" ");
+        if complete && !keep.is_empty() {
+            self.query.push(' ');
+        }
+        // Le curseur suit la fin du texte modifié.
+        self.cursor_end = true;
     }
 
     /// Résultats de la recherche Google Drive.
@@ -191,7 +425,10 @@ impl Palette {
         let (k, mut close) = self.bg.show(ctx, "wt_search_backdrop");
 
         // Recherche Gmail après une courte pause de frappe.
-        let q = self.query.trim().to_string();
+        let (text_scope, q) = split_scope(&self.query);
+        let pills = self.pills.clone();
+        let has_entity = pills.iter().any(|p| matches!(p, Pill::Entity(..) | Pill::Course(..)));
+        let scope = pills.iter().find_map(|p| if let Pill::Scope(s) = p { Some(*s) } else { None }).or(text_scope).or(has_entity.then_some(Scope::Hpp));
         if q.chars().count() >= 3 && q != self.remote_query && self.edited.is_some_and(|t| t.elapsed() > Duration::from_millis(350)) {
             self.remote_query = q.clone();
             self.remote.clear();
@@ -210,11 +447,16 @@ impl Palette {
             ctx.request_repaint_after(Duration::from_millis(120));
         }
 
-        let hits = if q.is_empty() { suggestions(cal, prefs) } else { search(&q, mail, cal, chat, tasks, notes, people, prefs, &self.remote, &self.drive, hp) };
+        let hits = if q.is_empty() && scope.is_none() && pills.is_empty() {
+            suggestions(cal, prefs)
+        } else {
+            search(&q, scope, &pills, mail, cal, chat, tasks, notes, people, prefs, &self.remote, &self.drive, hp)
+        };
         if self.selected >= hits.len() {
             self.selected = hits.len().saturating_sub(1);
         }
         let mut go = None;
+        let mut picked: Option<Hit> = None;
         ctx.input_mut(|i| {
             if i.consume_key(Modifiers::NONE, Key::Escape) {
                 close = true;
@@ -227,6 +469,7 @@ impl Palette {
             }
             if i.consume_key(Modifiers::NONE, Key::Enter) {
                 go = hits.get(self.selected).map(|h| h.target.clone());
+                picked = hits.get(self.selected).cloned();
             }
         });
 
@@ -239,17 +482,57 @@ impl Palette {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
                     magnifier(ui.painter(), r.center(), theme::TEXT_MUTED());
-                    let te = ui.add(
-                        egui::TextEdit::singleline(&mut self.query)
-                            .hint_text(t!("Rechercher un mail, une date, un événement, une personne, une tâche…", "Search a mail, a date, an event, a person, a task…"))
-                            .font(FontId::proportional(18.0))
-                            .frame(egui::Frame::NONE)
-                            .desired_width(f32::INFINITY),
-                    );
+                    // Pastilles (mots reconnus) : clic pour retirer.
+                    let mut remove = None;
+                    let mut entity_i = 0;
+                    for (i, p) in self.pills.iter().enumerate() {
+                        let (label, fill, stroke) = match p {
+                            Pill::Scope(s) => (scope_name(*s).to_string(), theme::overlay(16), theme::BORDER()),
+                            Pill::Entity(_, _, name) => {
+                                let c = crate::tabs::plannings::planning_color(entity_i);
+                                entity_i += 1;
+                                (name.clone(), c.gamma_multiply(0.30), c)
+                            }
+                            Pill::Course(_, name) => (format!("📚 {name}"), theme::overlay(10), theme::TEXT_MUTED()),
+                            Pill::Action(a) => (a.label(), theme::TODAY().gamma_multiply(0.25), theme::TODAY()),
+                        };
+                        let text = egui::text::LayoutJob::simple_singleline(format!("{label}  ✕"), FontId::proportional(13.0), theme::TEXT());
+                        if ui
+                            .add(egui::Button::new(text).fill(fill).stroke(Stroke::new(1.0, stroke)).corner_radius(CornerRadius::same(10)))
+                            .on_hover_text(t!("Retirer", "Remove"))
+                            .clicked()
+                        {
+                            remove = Some(i);
+                        }
+                    }
+                    if let Some(i) = remove {
+                        self.pills.remove(i);
+                        self.selected = 0;
+                    }
+                    let was_empty = self.query.is_empty();
+                    let hint = if self.pills.is_empty() {
+                        t!("Rechercher un mail, une date, un événement, une personne, une tâche…", "Search a mail, a date, an event, a person, a task…")
+                    } else {
+                        t!("Ajouter un mot…", "Add a word…")
+                    };
+                    let te =
+                        ui.add(egui::TextEdit::singleline(&mut self.query).hint_text(hint).font(FontId::proportional(18.0)).frame(egui::Frame::NONE).desired_width(f32::INFINITY));
                     te.request_focus();
+                    if std::mem::take(&mut self.cursor_end)
+                        && let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), te.id)
+                    {
+                        let end = egui::text::CCursor::new(self.query.chars().count());
+                        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                        state.store(ui.ctx(), te.id);
+                    }
+                    // Retour arrière dans le champ vide : retire la dernière pastille.
+                    if was_empty && ui.input(|i| i.key_pressed(Key::Backspace)) && self.pills.pop().is_some() {
+                        self.selected = 0;
+                    }
                     if te.changed() {
                         self.selected = 0;
                         self.edited = Some(Instant::now());
+                        self.absorb(hp);
                     }
                 });
                 ui.add_space(8.0);
@@ -295,21 +578,54 @@ impl Palette {
                         }
                         if resp.clicked() {
                             go = Some(h.target.clone());
+                            picked = Some(h.clone());
                         }
                     }
                 });
                 ui.add_space(4.0);
-                ui.label(
-                    RichText::new(t!("↑ ↓ naviguer · Entrée ouvrir · Échap fermer · Ctrl+Espace", "↑ ↓ navigate · Enter open · Esc close · Ctrl+Space"))
-                        .small()
-                        .color(theme::TEXT_FAINT()),
-                );
+                let hint = match scope {
+                    Some(s) => tf!("Catégorie : {} · ↑ ↓ naviguer · Entrée ouvrir · Échap fermer", "Category: {} · ↑ ↓ navigate · Enter open · Esc close", scope_name(s)),
+                    None => t!(
+                        "↑ ↓ naviguer · Entrée ouvrir · Échap fermer · catégorie : hpp, cal, msg, mail, drive, sheet, doc, note + recherche",
+                        "↑ ↓ navigate · Enter open · Esc close · category: hpp, cal, msg, mail, drive, sheet, doc, note + search"
+                    )
+                    .to_string(),
+                };
+                ui.label(RichText::new(hint).small().color(theme::TEXT_FAINT()));
             });
         });
         // La boîte reste toujours au-dessus du fond : un clic sur le fond le fait passer au premier
         // plan de son niveau (comportement d'egui), et il recouvrait alors la boîte à la
         // réouverture (seul le flou s'affichait).
         ctx.move_to_top(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("wt_search_box")));
+        // Élément HyperPlanning proposé (pas encore en pastille) : devient une pastille, la
+        // recherche reste ouverte (la pastille elle-même, dans « Sélection », ouvre le planning).
+        if let Some(h) = &picked
+            && h.group == "HyperPlanning"
+            && let Target::Planning(kind, k) = h.target
+        {
+            let pill = Pill::Entity(kind, k, h.title.clone());
+            if !self.pills.contains(&pill) {
+                self.pills.push(pill);
+            }
+            self.query.clear();
+            self.selected = 0;
+            self.cursor_end = true;
+            return None;
+        }
+        // Cours choisi après une pastille de groupe : pastille du nom de cours, pour voir
+        // toutes ses séances en liste (une séance de cette liste ouvre ensuite le planning).
+        if let Some(h) = &picked
+            && h.group == "Cours HPP"
+            && self.pills.iter().any(|p| matches!(p, Pill::Entity(..)))
+            && !self.pills.iter().any(|p| matches!(p, Pill::Course(..)))
+        {
+            self.pills.push(Pill::Course(course_key(&h.title), h.title.clone()));
+            self.query.clear();
+            self.selected = 0;
+            self.cursor_end = true;
+            return None;
+        }
         if go.is_some() || close {
             self.close();
         }
@@ -358,6 +674,10 @@ fn group_label(group: &'static str) -> &'static str {
         "Tâches" => "Tasks",
         "Fichiers" => "Files",
         "À venir" => "Upcoming",
+        "Cours HPP" => "HPP classes",
+        "Raccourci" => "Shortcut",
+        "Sélection" => "Selection",
+        "Séances" => "Sessions",
         other => other,
     }
 }
@@ -462,7 +782,7 @@ fn commands() -> Vec<Hit> {
         c("💬", "Messages", "Google Chat", Target::Tab(Tab::Messages)),
         c("📝", t!("Prise de notes", "Notes"), t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Notes)),
         c("📁", t!("Fichiers", "Files"), t!("Aller à l'onglet", "Go to tab"), Target::Tab(Tab::Files)),
-        c("🗓️", "Plannings", t!("HyperPlanning · emplois du temps", "HyperPlanning · timetables"), Target::Tab(Tab::Plannings)),
+        c("🗓️", "HyperPlanning", t!("HPP · emplois du temps de l'école", "HPP · school timetables"), Target::Tab(Tab::Plannings)),
         c("🧩", "Blueprint", t!("Automatisations · graphs de nodes", "Automations · node graphs"), Target::Tab(Tab::Blueprint)),
         c("⚙️", t!("Réglages", "Settings"), t!("Compte Google, animations…", "Google account, animations…"), Target::Tab(Tab::Settings)),
     ]
@@ -471,6 +791,8 @@ fn commands() -> Vec<Hit> {
 #[allow(clippy::too_many_arguments)]
 fn search(
     q: &str,
+    scope: Option<Scope>,
+    pills: &[Pill],
     mail: &MailState,
     cal: &CalendarState,
     chat: &ChatState,
@@ -636,35 +958,253 @@ fn search(
         push(&mut out, Hit { group: "Drive", icon, title: f.name.clone(), sub, target: Target::Drive(f.clone()), score: s });
     }
 
+    // Actions des pastilles : en tête.
+    for p in pills {
+        if let Pill::Action(a) = p {
+            push(&mut out, Hit { group: "Raccourci", icon: a.icon(), title: a.label(), sub: t!("Action", "Action").into(), target: a.target(), score: 1000 });
+        }
+    }
+    // Pastilles d'action seules (sans texte ni catégorie) : rien d'autre.
+    if words.is_empty() && scope.is_none() {
+        out.retain(|h| h.group == "Raccourci");
+        return out;
+    }
+
     // Plannings HyperPlanning (copie locale) : enseignants, salles, promotions, TD, regroupements.
     // Le type compte comme un mot cherché (« salle 101 »).
+    let must: Vec<(crate::tabs::plannings::Kind, u32)> = pills.iter().filter_map(|p| if let Pill::Entity(kind, k, _) = p { Some((*kind, *k)) } else { None }).collect();
+    let course_pills: Vec<String> = pills.iter().filter_map(|p| if let Pill::Course(key, _) = p { Some(key.clone()) } else { None }).collect();
     if let Some(d) = hp {
         use crate::tabs::plannings::Kind;
+        // Pastilles d'éléments : chacun, puis tous ensemble (une salle reste seule).
+        let ents: Vec<(Kind, u32, String)> = pills.iter().filter_map(|p| if let Pill::Entity(kind, k, n) = p { Some((*kind, *k, n.clone())) } else { None }).collect();
+        let group: Vec<&(Kind, u32, String)> = ents.iter().filter(|(kind, ..)| *kind != Kind::Salle).collect();
+        if group.len() >= 2 {
+            let title = tf!("Ouvrir ensemble : {}", "Open together: {}", group.iter().map(|(_, _, n)| n.as_str()).collect::<Vec<_>>().join(" + "));
+            let sel = group.iter().map(|(kind, k, _)| (*kind, *k)).collect();
+            push(
+                &mut out,
+                Hit {
+                    group: "Sélection", icon: "🗓️", title, sub: t!("HPP · plannings combinés", "HPP · combined timetables").into(), target: Target::Plannings(sel), score: 1000
+                },
+            );
+        }
+        for (kind, k, name) in &ents {
+            push(
+                &mut out,
+                Hit {
+                    group: "Sélection", icon: "🗓️", title: name.clone(), sub: tf!("HPP · {}", "HPP · {}", kind.singular()), target: Target::Planning(*kind, *k), score: 900
+                },
+            );
+        }
+        // Éléments rattachés aux pastilles (présents dans leurs séances communes) : proposés en
+        // premier, les plus fréquents en tête.
+        let mut related: std::collections::HashMap<(u8, u32), i32> = std::collections::HashMap::new();
+        if !must.is_empty() {
+            for s in d.cours.values().flat_map(|c| &c.seances) {
+                if !must.iter().all(|(kind, k)| crate::tabs::plannings::involves(d, s, *kind, *k)) {
+                    continue;
+                }
+                let all = [
+                    (Kind::Enseignant, &s.enseignants),
+                    (Kind::Salle, &s.salles),
+                    (Kind::Promotion, &s.promotions),
+                    (Kind::TDOption, &s.tdoptions),
+                    (Kind::Regroupement, &s.regroupements),
+                ];
+                for (kind, ks) in all {
+                    for k in ks.iter() {
+                        if !must.contains(&(kind, *k)) {
+                            *related.entry((kind as u8, *k)).or_default() += 1;
+                        }
+                    }
+                }
+            }
+        }
         for kind in Kind::ALL {
             for (k, name) in crate::tabs::plannings::entries(d, kind) {
+                let rel = related.get(&(kind as u8, k)).copied();
+                // Avec des pastilles et sans texte : seulement les éléments rattachés.
+                if (!ents.is_empty() && words.is_empty() && rel.is_none()) || (!course_pills.is_empty() && words.is_empty()) {
+                    continue;
+                }
                 let Some(s) = score(&words, &[&name, kind.keywords()]) else { continue };
-                let mut sub = tf!("Planning · {}", "Timetable · {}", kind.singular());
+                let s = s + rel.map(|n| 500 + n.min(400)).unwrap_or(0);
+                let mut sub = tf!("HPP · {}", "HPP · {}", kind.singular());
                 if kind == Kind::Salle
                     && let Some(c) = d.salles.get(&k).map(|x| x.capacity).filter(|c| *c > 0)
                 {
                     sub.push_str(&tf!(" · {c} places", " · {c} seats"));
                 }
-                push(&mut out, Hit { group: "Plannings", icon: "🗓️", title: name, sub, target: Target::Planning(kind, k), score: s });
+                if ents.iter().any(|(kk, x, _)| *kk == kind && *x == k) {
+                    continue;
+                }
+                push(&mut out, Hit { group: "HyperPlanning", icon: "🗓️", title: name, sub, target: Target::Planning(kind, k), score: s });
             }
         }
+        if course_pills.is_empty() {
+            seances(d, &words, &must, &mut out);
+        } else {
+            course_list(d, &words, &must, &course_pills, &mut out);
+        }
+    }
+
+    // Catégorie demandée (« mail … », « hpp … ») : ses résultats seulement.
+    if let Some(scope) = scope {
+        out.retain(|h| h.group == "Raccourci" || in_scope(h, scope));
     }
 
     // Tri : par groupe (ordre ci-dessous), puis pertinence ; 6 résultats par groupe.
     // Priorité : contacts, agenda (événements puis dates), mails, chat, Drive, notes, puis le reste.
-    const ORDER: [&str; 12] = ["Fiches contact", "Plannings", "Calendrier", "Date", "Mails", "Google Chat", "Drive", "Notes", "Tâches", "Fichiers", "Actions", "À venir"];
-    out.sort_by_key(|h| (ORDER.iter().position(|g| *g == h.group).unwrap_or(99), -h.score));
+    // Avec des pastilles HPP : leurs cours avant les autres éléments HyperPlanning.
+    let hpp_first = if must.is_empty() { ["HyperPlanning", "Cours HPP"] } else { ["Cours HPP", "HyperPlanning"] };
+    let order: [&str; 16] = [
+        "Raccourci",
+        "Sélection",
+        "Séances",
+        "Fiches contact",
+        hpp_first[0],
+        hpp_first[1],
+        "Calendrier",
+        "Date",
+        "Mails",
+        "Google Chat",
+        "Drive",
+        "Notes",
+        "Tâches",
+        "Fichiers",
+        "Actions",
+        "À venir",
+    ];
+    out.sort_by_key(|h| (order.iter().position(|g| *g == h.group).unwrap_or(99), -h.score));
     let mut counts = std::collections::HashMap::new();
     out.retain(|h| {
         let n = counts.entry(h.group).or_insert(0);
         *n += 1;
-        *n <= if h.group == "Actions" { 3 } else { 6 }
+        // Liste de toutes les séances d'un cours : complète (défilement).
+        if h.group == "Séances" {
+            return true;
+        }
+        // Avec des pastilles HPP : 6 cours, pour voir aussi les éléments rattachés dessous.
+        *n <= if h.group == "Actions" || (h.group == "Cours HPP" && !must.is_empty()) {
+            if h.group == "Actions" { 3 } else { 6 }
+        } else if scope.is_some() {
+            20
+        } else {
+            6
+        }
     });
     out
+}
+
+/// Nom de cours comparable (replié, espaces simples) : « même nom probable ».
+fn course_key(name: &str) -> String {
+    fold(name).split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Toutes les séances des cours nommés (pastilles de cours), filtrées par les pastilles de
+/// groupe et le texte : à venir d'abord (la plus proche en tête), puis passées (la plus récente
+/// en tête).
+fn course_list(d: &crate::hyperplanning::cache::Snapshot, words: &[String], must: &[(crate::tabs::plannings::Kind, u32)], courses: &[String], out: &mut Vec<Hit>) {
+    use crate::tabs::plannings::{Kind, end_of, hhmm, involves, matiere, name_of};
+    let now = Local::now().naive_local();
+    for (cours, c) in &d.cours {
+        for s in &c.seances {
+            let title = matiere(d, s);
+            if !courses.contains(&course_key(&title)) || !must.iter().all(|(kind, k)| involves(d, s, *kind, *k)) {
+                continue;
+            }
+            let names: Vec<String> =
+                [(Kind::Enseignant, &s.enseignants), (Kind::Salle, &s.salles)].iter().flat_map(|(kind, ks)| ks.iter().map(|k| name_of(d, *kind, *k))).collect();
+            let mut fields: Vec<&str> = vec![&title, &s.type_cours];
+            fields.extend(names.iter().map(String::as_str));
+            if score(words, &fields).is_none() {
+                continue;
+            }
+            let past = end_of(s) < now;
+            let mut sub = format!("{}{} · {} – {}", if past { t!("Passée · ", "Past · ") } else { "" }, date_label(s.start.date()), hhmm(s.start), hhmm(end_of(s)));
+            for n in &names {
+                sub.push_str(&format!(" · {n}"));
+            }
+            let mins = (s.start - now).num_minutes().clamp(-100_000_000, 100_000_000) as i32;
+            let score = if past { -1_000_000_000 + mins } else { 1_000_000_000 - mins };
+            let sel = if must.is_empty() {
+                s.promotions.first().map(|k| vec![(Kind::Promotion, *k)]).or_else(|| s.enseignants.first().map(|k| vec![(Kind::Enseignant, *k)])).unwrap_or_default()
+            } else {
+                must.to_vec()
+            };
+            if sel.is_empty() {
+                continue;
+            }
+            out.push(Hit { group: "Séances", icon: if past { "🕘" } else { "📚" }, title, sub, target: Target::Seance { sel, cours: *cours, start: s.start }, score });
+        }
+    }
+}
+
+/// Séances HyperPlanning (matière, enseignants, salles, groupes) : pour chaque cours, sa prochaine
+/// séance (sinon la dernière). Ouvre le planning de l'élément cherché (sinon du premier
+/// enseignant, groupe ou salle) au jour de la séance. `must` (pastilles) : seulement les
+/// séances communes à tous ces éléments, ouvertes avec leurs plannings ensemble.
+fn seances(d: &crate::hyperplanning::cache::Snapshot, words: &[String], must: &[(crate::tabs::plannings::Kind, u32)], out: &mut Vec<Hit>) {
+    use crate::tabs::plannings::{Kind, end_of, hhmm, involves, matiere, name_of};
+    let now = Local::now().naive_local();
+    // Avec des pastilles : un résultat par nom de cours (sa séance la plus proche) ; le choisir
+    // liste toutes ses séances.
+    let mut by_name: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (cours, c) in &d.cours {
+        let ok = |s: &&crate::hyperplanning::cache::Seance| must.iter().all(|(kind, k)| involves(d, s, *kind, *k));
+        let Some(s) = c.seances.iter().filter(ok).find(|s| end_of(s) >= now).or(c.seances.iter().filter(ok).last()) else { continue };
+        let title = matiere(d, s);
+        let groups: [(Kind, &[u32]); 5] = [
+            (Kind::Enseignant, &s.enseignants),
+            (Kind::Promotion, &s.promotions),
+            (Kind::TDOption, &s.tdoptions),
+            (Kind::Regroupement, &s.regroupements),
+            (Kind::Salle, &s.salles),
+        ];
+        let named: Vec<(Kind, u32, String)> = groups.iter().flat_map(|(kind, ks)| ks.iter().map(|k| (*kind, *k, name_of(d, *kind, *k)))).collect();
+        let mut fields: Vec<&str> = vec![&title, &s.type_cours];
+        fields.extend(named.iter().map(|(_, _, n)| n.as_str()));
+        let Some(score) = score(words, &fields) else { continue };
+        // Planning à ouvrir : un élément dont le nom correspond à la recherche, sinon le premier.
+        let hit = named.iter().find(|(_, _, n)| words.iter().any(|w| fold(n).contains(w.as_str()))).or(named.first());
+        let Some((kind, key, _)) = hit else { continue };
+        let sel = if must.is_empty() { vec![(*kind, *key)] } else { must.to_vec() };
+        let mut sub = format!("HPP · {} · {} – {}", date_label(s.start.date()), hhmm(s.start), hhmm(end_of(s)));
+        for (kind, ks) in [(Kind::Salle, &s.salles), (Kind::Enseignant, &s.enseignants)] {
+            if let Some(k) = ks.first() {
+                sub.push_str(&format!(" · {}", name_of(d, kind, *k)));
+            }
+        }
+        // Les prochaines d'abord, les plus proches en tête.
+        let days = (s.start.date() - now.date()).num_days();
+        let bonus = if days >= 0 { 30 - days.min(29) as i32 } else { 0 };
+        let hit = Hit { group: "Cours HPP", icon: "📚", title, sub, target: Target::Seance { sel, cours: *cours, start: s.start }, score: score + bonus };
+        if must.is_empty() {
+            out.push(hit);
+            continue;
+        }
+        *counts.entry(course_key(&hit.title)).or_insert(0) += c.seances.iter().filter(ok).count();
+        match by_name.get(&course_key(&hit.title)) {
+            Some(&i) => {
+                if hit.score > out[i].score {
+                    out[i] = hit;
+                }
+            }
+            None => {
+                by_name.insert(course_key(&hit.title), out.len());
+                out.push(hit);
+            }
+        }
+    }
+    // Nombre de séances de chaque nom (clic : la liste complète).
+    for (key, i) in by_name {
+        if let Some(n) = counts.get(&key).filter(|n| **n > 1) {
+            let rest = out[i].sub.trim_start_matches("HPP · ").to_string();
+            out[i].sub = tf!("HPP · {n} séances (clic : toutes) · {rest}", "HPP · {n} sessions (click: all) · {rest}");
+        }
+    }
 }
 
 // --- Flou ----------------------------------------------------------------------------------

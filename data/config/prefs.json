@@ -14,7 +14,7 @@
     "opacity": 0.7,
     "curve": "Elastic"
   },
-  "categories_collapsed": true,
+  "categories_collapsed": false,
   "mail_list_hidden": false,
   "groups_collapsed": true,
   "hidden_calendars": [
@@ -158,12 +158,17 @@
       "h": 10,
       "panels": [
         {
-          "id": "reminders",
-          "share": 0.26511875
-        },
-        {
           "id": "tasks",
-          "share": 0.7348812
+          "share": 1.0
+        }
+      ]
+    },
+    {
+      "h": 10,
+      "panels": [
+        {
+          "id": "reminders",
+          "share": 1.0
         }
       ]
     },
@@ -204,6 +209,96 @@
       "scale": 1.0
     }
   },
+  "hp_favorites": [
+    [
+      2,
+      716
+    ],
+    [
+      2,
+      726
+    ],
+    [
+      2,
+      737
+    ],
+    [
+      2,
+      741
+    ],
+    [
+      2,
+      756
+    ],
+    [
+      2,
+      763
+    ],
+    [
+      2,
+      766
+    ],
+    [
+      2,
+      742
+    ],
+    [
+      2,
+      740
+    ],
+    [
+      3,
+      758
+    ],
+    [
+      3,
+      765
+    ],
+    [
+      3,
+      768
+    ],
+    [
+      3,
+      757
+    ],
+    [
+      3,
+      764
+    ],
+    [
+      3,
+      767
+    ],
+    [
+      3,
+      754
+    ],
+    [
+      3,
+      755
+    ],
+    [
+      3,
+      761
+    ],
+    [
+      3,
+      762
+    ],
+    [
+      3,
+      1190
+    ],
+    [
+      3,
+      1191
+    ],
+    [
+      1,
+      564
+    ]
+  ],
   "theme": "Monochrome",
   "notif_no_mail": false,
   "notif_no_chat": false,

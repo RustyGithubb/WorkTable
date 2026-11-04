@@ -64,7 +64,8 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, seances: &
     let mut area = egui::ScrollArea::vertical().id_salt("hp_grid").auto_shrink([false, false]);
     if st.scroll_to_morning {
         // Début des cours affichés (sinon 8 h), une demi-heure au-dessus.
-        let start = seances.iter().map(|(_, s)| s.start.hour()).min().unwrap_or(8) as f32;
+        // Séance ouverte depuis la recherche : son heure.
+        let start = st.scroll_to.take().map(|t| t.hour()).or_else(|| seances.iter().map(|(_, s)| s.start.hour()).min()).unwrap_or(8) as f32;
         area = area.vertical_scroll_offset((start - 0.5).max(0.0) * HOUR_H);
         st.scroll_to_morning = false;
     }
