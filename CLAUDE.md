@@ -12,8 +12,16 @@ App desktop Rust (egui) d'organisation de travail : tableau de bord, calendrier,
 ## Économie de tokens
 - Ne lis pas README.md (50 Ko), CHANGELOG.md, Cargo.lock, assets/, installer/, data/, target/.
 - Beaucoup de fichiers dépassent 40 Ko : utilise Grep pour trouver la fonction, puis Read avec offset/limit. Ne lis jamais un gros fichier en entier.
-- Agents : `explorateur` (où est le code), `build-fixer` (erreurs de compilation), `planificateur` (avant une fonctionnalité multi-fichiers), `relecteur` (avant de me donner les commandes de commit), `changelog` (préparer une version), `decoupeur` (uniquement si je le demande).
 - Vérifie avec `cargo check`, jamais `cargo build --release`.
+
+## Agents (`.claude/agents/`, versionnés : présents sur chaque poste après `git pull`)
+Utilise-les systématiquement pendant le dev :
+- `explorateur` : avant de lire du code, pour toute question « où est… / qui appelle… ».
+- `planificateur` : avant toute fonctionnalité sur plus d'un fichier ; son plan est celui que je valide.
+- `build-fixer` : dès que `cargo check` échoue.
+- `relecteur` : toujours, avant de me donner les commandes de commit.
+- `changelog` : quand je prépare une version (puis vérifie `cargo fmt --check`, exigé par la CI).
+- `decoupeur` : uniquement si je le demande.
 
 ## Carte du code (src/)
 - main.rs, app.rs : démarrage et boucle principale
