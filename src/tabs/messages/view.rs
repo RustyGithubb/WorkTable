@@ -573,13 +573,32 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
     if let Some(addr) = &mut chat.new_dm {
         let _ = recipients::field(ui, "", addr, "chat_new_dm", t!("Nom ou adresse (annuaire)", "Name or address (directory)"), book, &mut chat.suggest);
         let email = crate::tabs::mail::contacts::parse_mailbox(addr.trim().trim_end_matches(',')).map(|(_, e)| e).unwrap_or_else(|| addr.trim().trim_end_matches(',').to_string());
+        // Nom tapé : personnes de l'annuaire de l'organisation (la première s'ouvre avec « Ouvrir »).
+        let typed = addr.clone();
+        // Sans les personnes avec qui une conversation existe déjà (elles sont dans la liste).
+        let known: std::collections::HashSet<String> =
+            chat.spaces.iter().filter(|s| is_person(s)).filter_map(|s| chat.others(&s.name).first().and_then(|u| chat.email_of(u))).map(|e| e.to_lowercase()).collect();
+        let found: Vec<(String, String)> =
+            if email.contains('@') { Vec::new() } else { chat.directory_for(&typed).into_iter().filter(|(_, e)| !known.contains(&e.to_lowercase())).collect() };
+        let target = if email.contains('@') { Some(email.clone()) } else { found.first().map(|(_, e)| e.clone()) };
+        let searching = !email.contains('@') && found.is_empty() && chat.dir_inflight.as_deref() == Some(typed.trim().trim_end_matches(',').trim());
         let mut cancel = false;
         ui.horizontal(|ui| {
-            if ui.add_enabled(email.contains('@'), egui::Button::new(t!("Ouvrir", "Open"))).clicked() {
-                actions.push(Action::OpenDm(email.clone()));
+            if ui.add_enabled(target.is_some(), egui::Button::new(t!("Ouvrir", "Open"))).clicked()
+                && let Some(e) = &target
+            {
+                actions.push(Action::OpenDm(e.clone()));
             }
             cancel = ui.button(t!("Annuler", "Cancel")).clicked();
+            if searching {
+                ui.add(egui::Spinner::new().size(12.0)).on_hover_text(t!("Recherche dans l'annuaire…", "Searching the directory…"));
+            }
         });
+        for (name, e) in &found {
+            if ui.selectable_label(false, format!("{name}  ·  {e}")).on_hover_text(t!("Démarrer une conversation privée", "Start a direct conversation")).clicked() {
+                actions.push(Action::OpenDm(e.clone()));
+            }
+        }
         if cancel {
             chat.new_dm = None;
         }
@@ -616,6 +635,12 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
                 starts.push((c.display_name().to_string(), c.email.clone()));
             }
         }
+        // Annuaire de l'organisation : personnes avec qui aucune conversation n'existe encore.
+        for (name, email) in chat.directory_for(&chat.people_query) {
+            if !known.contains(&email.to_lowercase()) && !starts.iter().any(|(_, e)| e.eq_ignore_ascii_case(&email)) {
+                starts.push((name, email));
+            }
+        }
         let typed = chat.people_query.trim().to_lowercase();
         if typed.contains('@') && typed.contains('.') && !known.contains(&typed) && !starts.iter().any(|(_, e)| e.eq_ignore_ascii_case(&typed)) {
             starts.push((typed.clone(), typed));
@@ -629,7 +654,9 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
         }
     }
     if all.is_empty() && starts.is_empty() && requests.is_empty() {
-        let hint = if !q.is_empty() {
+        let hint = if !q.is_empty() && chat.dir_inflight.as_deref() == Some(chat.people_query.trim()) {
+            t!("Recherche dans l'annuaire…", "Searching the directory…")
+        } else if !q.is_empty() {
             t!("Aucune conversation ni contact : tape une adresse complète", "No conversation or contact: type a full address")
         } else if chat.loading {
             t!("Chargement…", "Loading…")
