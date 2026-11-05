@@ -708,8 +708,8 @@ fn keywords_widget(ui: &mut egui::Ui, cam: &Cam, r: Rect, node: &mut Node, pd: &
     let hint = if words.is_empty() { t!(hint_fr, hint_en) } else { "+" };
     let edit = egui::TextEdit::singleline(&mut draft).id(id).hint_text(hint).font(cam.font(11.5)).margin(cam.v(5.0, 1.0)).desired_width(at(input).width());
     let resp = ui.put(at(input), edit).on_hover_text(t!(
-        "Entrée ou virgule : ajouter le mot-clé. Le mot entier doit figurer dans le texte (« ren » ne trouve pas « rendez-vous »).",
-        "Enter or comma: add the keyword. The whole word must appear in the text (“meet” doesn't match “meeting”)."
+        "Entrée ou virgule : ajouter le mot-clé. Le mot entier doit figurer dans le texte (« ren » ne trouve pas « rendez-vous »). Mail : cherché aussi dans l'expéditeur, son adresse et sa fiche contact ; « @artfx » : seulement le domaine de l'adresse de l'expéditeur.",
+        "Enter or comma: add the keyword. The whole word must appear in the text (“meet” doesn't match “meeting”). Mail: also searched in the sender, their address and contact card; “@artfx”: only the domain of the sender's address."
     ));
     let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
     if draft.contains(',') || enter || (resp.lost_focus() && !draft.trim().is_empty()) {

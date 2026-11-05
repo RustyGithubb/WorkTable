@@ -358,7 +358,7 @@ impl Notifier {
             clicked
         } else {
             // Écran où se trouve l'app (écrans côte à côte), en haut au centre.
-            let (monitor, outer) = ctx.input(|i| (i.viewport().monitor_size, i.viewport().outer_rect));
+            let (monitor, outer) = crate::background::screen(ctx);
             let mw = monitor.map(|m| m.x).filter(|w| *w > 0.0).unwrap_or(1920.0);
             let mh = monitor.map(|m| m.y).filter(|h| *h > 0.0).unwrap_or(1080.0);
             let left = outer.map(|r| (r.center().x / mw).floor() * mw).unwrap_or(0.0);

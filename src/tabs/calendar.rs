@@ -611,7 +611,7 @@ pub fn show(ui: &mut egui::Ui, cal: &mut CalendarState, acc: &mut Account, prefs
 
     // Colonne de gauche masquable : l'agenda prend alors toute la largeur.
     // Ouverture / fermeture rapide avec un léger rebond élastique.
-    const SIDE_W: f32 = 250.0;
+    const SIDE_W: f32 = widgets::SIDE_W;
     const PANEL_W: f32 = 360.0;
     let k = widgets::reveal(ui.ctx(), "wt_cal_side", !prefs.calendar_side_hidden);
     let side_w = widgets::reveal_width(SIDE_W, k);

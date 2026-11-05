@@ -556,6 +556,20 @@ impl MailState {
         self.info(tf!("Rangé dans « {} »", "Moved to “{}”", target.name));
     }
 
+    /// Range un mail dans un groupe (libellé), en le retirant ou non de la boîte de réception.
+    pub fn file_in_group(&mut self, acc: &Account, id: &str, target: &Label, hide_inbox: bool) {
+        let remove: &[&str] = if hide_inbox { &[INBOX] } else { &[] };
+        self.modify(acc, id, &[target.id.as_str()], remove);
+        self.info(tf!("Rangé dans « {} »", "Moved to “{}”", target.name));
+    }
+
+    /// Adresse de l'expéditeur d'un mail connu (minuscules).
+    pub fn sender_of(&self, id: &str) -> Option<String> {
+        let dir = self.dir_mails.iter().flat_map(|(_, list)| list.iter());
+        let m = self.messages.iter().chain(self.starred.iter()).chain(self.open.iter().map(|m| &m.summary)).chain(dir).find(|m| m.id == id)?;
+        contacts::parse_mailbox(&m.from).map(|(_, e)| e)
+    }
+
     /// Met un mail dans les spams (ou l'en sort : retour en boîte de réception).
     /// Gmail apprend de ce signalement pour les prochains mails de l'expéditeur.
     pub fn mark_spam(&mut self, acc: &Account, id: &str, spam: bool) {
@@ -896,4 +910,26 @@ impl MailState {
             other => self.labels.iter().find(|l| l.id == other).map(|l| l.name.clone()).unwrap_or_else(|| other.to_string()),
         }
     }
+}
+
+/// Mails de la boîte de réception venant d'une adresse en spam : déplacés dans les spams (aussi
+/// dans Gmail) ; leurs libellés sont mis à jour dans `list`. Renvoie leurs identifiants.
+pub fn divert_spam(acc: &Account, list: &mut [Summary], senders: &[String]) -> Vec<String> {
+    let mut diverted = Vec::new();
+    if senders.is_empty() {
+        return diverted;
+    }
+    for m in list.iter_mut() {
+        let inbox = m.labels.iter().any(|l| l == INBOX);
+        let blocked = contacts::parse_mailbox(&m.from).is_some_and(|(_, e)| senders.iter().any(|s| s.eq_ignore_ascii_case(&e)));
+        if !inbox || !blocked {
+            continue;
+        }
+        m.labels.retain(|l| l != INBOX);
+        m.labels.push("SPAM".to_string());
+        let id = m.id.clone();
+        diverted.push(id.clone());
+        acc.run(move |s| Ok(Event::Modified { labels: gmail::modify(s, &id, &["SPAM".to_string()], &[INBOX.to_string()])?, id }));
+    }
+    diverted
 }

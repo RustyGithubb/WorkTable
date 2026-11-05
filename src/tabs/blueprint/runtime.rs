@@ -187,6 +187,7 @@ pub fn mail_in(m: &Summary, names: &[Label]) -> MailIn {
         via: format!("{} {}", m.recipients, m.list_id),
         subject: m.subject.clone(),
         body: m.snippet.clone(),
+        contact: String::new(),
         to: m.recipients.split(',').map(|r| email_of(r.trim())).filter(|r| !r.is_empty()).collect(),
     }
 }
@@ -289,10 +290,12 @@ impl Engine {
         out
     }
 
-    /// Mail complet (contenu entier, pas seulement l'extrait) : exécute les graphs.
-    pub fn on_full_mail(&mut self, graphs: &mut [Graph], full: &crate::google::gmail::FullMessage, labels: &[Label], dnd: bool) {
+    /// Mail complet (contenu entier, pas seulement l'extrait) : exécute les graphs. `contact` :
+    /// nom de la fiche contact de l'expéditeur.
+    pub fn on_full_mail(&mut self, graphs: &mut [Graph], full: &crate::google::gmail::FullMessage, labels: &[Label], contact: &str, dnd: bool) {
         let m = &full.summary;
         let mut inc = mail_in(m, labels);
+        inc.contact = contact.to_string();
         if !full.body.trim().is_empty() {
             inc.body = full.body.trim().to_string();
         }
@@ -404,7 +407,7 @@ mod tests {
         let mut graphs = graphs.to_vec();
         for m in e.on_mails(&graphs, list, initial) {
             let full = crate::google::gmail::FullMessage { body: m.snippet.clone(), summary: m, ..Default::default() };
-            e.on_full_mail(&mut graphs, &full, &[], dnd);
+            e.on_full_mail(&mut graphs, &full, &[], "", dnd);
         }
     }
 

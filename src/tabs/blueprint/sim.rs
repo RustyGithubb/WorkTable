@@ -106,6 +106,8 @@ pub struct MailIn {
     pub subject: String,
     pub body: String,
     pub to: Vec<String>,
+    /// Nom de la fiche contact de l'expéditeur (vide si aucune).
+    pub contact: String,
     /// Catégorie de la boîte (Principale, Promotions…).
     pub category: String,
     /// Groupes (libellés) du mail.
@@ -177,6 +179,7 @@ fn sample_incoming(s: &Sample) -> Vec<Incoming> {
             via: s.mail_via.clone(),
             subject: s.mail_subject.clone(),
             body: s.mail_body.clone(),
+            contact: String::new(),
             to: keywords(&s.mail_to),
             category: t!("Principale", "Primary").into(),
             group: s.mail_via.clone(),
@@ -234,6 +237,8 @@ pub enum Effect {
     Group {
         mail: String,
         group: String,
+        /// Le mail quitte aussi la boîte de réception.
+        hide_inbox: bool,
     },
     /// Catégorie Gmail (`CATEGORY_…`).
     Category {
@@ -426,6 +431,17 @@ pub fn has_word(text: &str, keyword: &str) -> bool {
     !k.is_empty() && t.windows(k.len()).any(|w| w == k.as_slice())
 }
 
+/// Un mot-clé trouve-t-il le mail ? « @ecole » cherche le mot dans le domaine de l'adresse de
+/// l'expéditeur seulement (« @artfx » trouve « x@artfx.fr », pas le mot « artfx » d'un texte) ;
+/// un autre mot-clé (ou tout mot-clé sans adresse `addr` : messages, rappels…) est cherché dans
+/// tous les textes.
+pub fn keyword_hit(keyword: &str, addr: Option<&str>, texts: &[&str]) -> bool {
+    match (keyword.trim().strip_prefix('@'), addr) {
+        (Some(domain), Some(addr)) => addr.rsplit_once('@').is_some_and(|(_, d)| has_word(d, domain)),
+        _ => texts.iter().any(|t| has_word(t, keyword)),
+    }
+}
+
 fn contains_ci(hay: &str, needle: &str) -> bool {
     hay.to_lowercase().contains(&needle.to_lowercase())
 }
@@ -521,7 +537,8 @@ impl<'a> Run<'a> {
                     "address" => Some((m.from_email.eq_ignore_ascii_case(v.trim()), t!("l'adresse", "the address"))),
                     _ => None,
                 };
-                let ok = self.filter(source, &v, &n.text("keywords"), &[&m.subject, &m.body]);
+                let texts = [&m.subject, &m.body, &m.from_name, &m.from_email, &m.contact];
+                let ok = self.filter(source, &v, &n.text("keywords"), Some(&m.from_email), &texts.map(String::as_str));
                 let what = if real {
                     tf!("le mail de {from} « {} »", "the mail from {from} “{}”", m.subject)
                 } else {
@@ -552,7 +569,7 @@ impl<'a> Run<'a> {
                     "space" => Some((contains_ci(&c.space, &v), t!("la conversation", "the conversation"))),
                     _ => None,
                 };
-                let ok = self.filter(source, &v, &n.text("keywords"), &[&c.text]);
+                let ok = self.filter(source, &v, &n.text("keywords"), None, &[&c.text]);
                 let what = if real {
                     tf!("le message de {} dans « {} »", "the message from {} in “{}”", c.author, c.space)
                 } else {
@@ -567,7 +584,7 @@ impl<'a> Run<'a> {
                 o.insert("title", Val::Text(r.title.clone()));
                 o.insert("due", Val::Text(r.due.clone()));
                 o.insert("late", Val::Bool(r.late));
-                let ok = self.filter(None, "", &n.text("keywords"), &[&r.title]);
+                let ok = self.filter(None, "", &n.text("keywords"), None, &[&r.title]);
                 let late = if r.late { t!(", en retard", ", late") } else { "" };
                 let what = if real {
                     tf!("le rappel « {} » ({}{late})", "the reminder “{}” ({}{late})", r.title, r.due)
@@ -583,7 +600,7 @@ impl<'a> Run<'a> {
                 o.insert("title", Val::Text(e.title.clone()));
                 o.insert("start", Val::Text(e.start.clone()));
                 o.insert("location", Val::Text(e.location.clone()));
-                let ok = self.filter(None, "", &n.text("keywords"), &[&e.title]);
+                let ok = self.filter(None, "", &n.text("keywords"), None, &[&e.title]);
                 let when = if n.text("when") == "before" {
                     tf!("{} min avant le début", "{} min before the start", n.int("minutes"))
                 } else {
@@ -634,8 +651,9 @@ impl<'a> Run<'a> {
         self.event = None;
     }
 
-    /// Provenance (correspond ?, nom du critère) et mots-clés (au moins un, dans un des textes).
-    fn filter(&self, source: Option<(bool, &str)>, value: &str, kw: &str, texts: &[&str]) -> Result<(), String> {
+    /// Provenance (correspond ?, nom du critère) et mots-clés (au moins un, dans un des textes ;
+    /// « @ecole » : seulement le domaine de l'adresse `addr` de l'expéditeur).
+    fn filter(&self, source: Option<(bool, &str)>, value: &str, kw: &str, addr: Option<&str>, texts: &[&str]) -> Result<(), String> {
         if let Some((ok, what)) = source {
             if value.trim().is_empty() {
                 return Err(tf!("aucune valeur indiquée pour {what}", "no value given for {what}"));
@@ -645,7 +663,7 @@ impl<'a> Run<'a> {
             }
         }
         let kws = keywords(kw);
-        if !kws.is_empty() && !kws.iter().any(|k| texts.iter().any(|t| has_word(t, k))) {
+        if !kws.is_empty() && !kws.iter().any(|k| keyword_hit(k, addr, texts)) {
             return Err(tf!("aucun des mots-clés ({}) n'y figure", "none of the keywords ({}) appear", kws.join(", ")));
         }
         Ok(())
@@ -825,11 +843,13 @@ impl<'a> Run<'a> {
             "act_group" => {
                 let (m, item) = self.item(id, "mail");
                 let group = txt(self, "group");
+                let hide_inbox = self.input(id, "hide_inbox").truthy();
                 let fx = match item {
-                    Some(Item::Mail(mail)) if !group.trim().is_empty() => Some(Effect::Group { mail, group: group.trim().to_string() }),
+                    Some(Item::Mail(mail)) if !group.trim().is_empty() => Some(Effect::Group { mail, group: group.trim().to_string(), hide_inbox }),
                     _ => None,
                 };
-                (tf!("{m} → groupe « {group} »", "{m} → group “{group}”"), fx)
+                let out = if hide_inbox { t!(", retiré de la boîte de réception", ", removed from the inbox") } else { "" };
+                (tf!("{m} → groupe « {group} »{out}", "{m} → group “{group}”{out}"), fx)
             }
             "act_category" => {
                 let (m, item) = self.item(id, "mail");
@@ -1177,6 +1197,36 @@ mod tests {
         assert!(!has_word("Le rendez-vous est confirmé", "rendez-vous annulé"));
         assert!(!has_word("abc", "a"));
         assert!(!has_word("texte", ""));
+    }
+
+    #[test]
+    fn mail_keywords_search_sender_and_domain() {
+        let texts = ["Devis", "Bonjour", "Camille Martin", "camille@artfx.fr", "Camille (ArtFX)"];
+        assert!(keyword_hit("devis", Some("camille@artfx.fr"), &texts));
+        assert!(keyword_hit("martin", Some("camille@artfx.fr"), &texts));
+        assert!(keyword_hit("camille@artfx.fr", Some("camille@artfx.fr"), &texts));
+        assert!(keyword_hit("@artfx", Some("camille@artfx.fr"), &texts));
+        assert!(keyword_hit("@artfx.fr", Some("camille@artfx.fr"), &texts));
+        assert!(keyword_hit("@ArtFX", Some("camille@sub.artfx.fr"), &texts));
+        // « @artfx » : seulement le domaine de l'expéditeur, pas le mot dans un texte.
+        assert!(!keyword_hit("@artfx", Some("camille@gmail.com"), &["Stage chez ArtFX", "artfx"]));
+        assert!(!keyword_hit("@camille", Some("camille@artfx.fr"), &texts));
+        assert!(!keyword_hit("@", Some("camille@artfx.fr"), &texts));
+        // Sans adresse (messages, rappels…) : « @urgent » cherche le mot « urgent ».
+        assert!(keyword_hit("@urgent", None, &["C'est urgent"]));
+    }
+
+    #[test]
+    fn mail_event_keyword_in_contact_card() {
+        crate::i18n::set(crate::i18n::Language::French);
+        let mut g = Graph::new("t");
+        let ev = g.add_node("ev_mail", [0.0, 0.0]);
+        let note = g.add_node("act_note", [300.0, 0.0]);
+        g.connect(ev, "then", note, "exec");
+        g.node_mut(ev).unwrap().values.insert("keywords".into(), "direction".into());
+        let inc = |contact: &str| Incoming::Mail(MailIn { id: "m".into(), from_email: "a@b.fr".into(), subject: "s".into(), contact: contact.into(), ..MailIn::default() });
+        assert!(run_real(&g, ev, inc("Direction ArtFX"), false).fired);
+        assert!(!run_real(&g, ev, inc("Camille"), false).fired);
     }
 
     #[test]

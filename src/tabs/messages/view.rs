@@ -18,8 +18,8 @@ use crate::tabs::mail::recipients;
 use crate::tabs::mail::view::{draw_star, one_line, rich_para, short_date};
 use crate::{tabs, theme, widgets};
 
-const SIDE_W: f32 = 260.0;
-const PEOPLE_W: f32 = 260.0;
+const SIDE_W: f32 = widgets::SIDE_W;
+const PEOPLE_W: f32 = widgets::SIDE_W;
 const THREAD_W: f32 = 360.0;
 #[allow(non_snake_case)]
 fn SELECTED() -> Color32 {
@@ -1035,7 +1035,7 @@ fn user_avatar(p: &egui::Painter, chat: &ChatState, c: Pos2, r: f32, user: &str)
 }
 
 /// Dessine une image recadrée au centre, ronde (ou carrée arrondie). `false` si pas encore chargée.
-fn image_avatar(p: &egui::Painter, chat: &ChatState, key: &str, c: Pos2, r: f32, square: bool) -> bool {
+pub(crate) fn image_avatar(p: &egui::Painter, chat: &ChatState, key: &str, c: Pos2, r: f32, square: bool) -> bool {
     let Some(ImgState::Ready { texture: Some(t), .. }) = chat.images.peek(key) else { return false };
     let [w, h] = t.size();
     let (w, h) = (w as f32, h as f32);
@@ -2082,6 +2082,20 @@ fn toast(ui: &mut egui::Ui, chat: &mut ChatState) {
             });
     });
     ui.ctx().request_repaint_after(Duration::from_millis(300));
+}
+
+/// Crée les textures des photos de profil déjà téléchargées (recherche Ctrl+Espace), au plus
+/// quelques-unes par image pour ne pas ralentir l'affichage.
+pub fn prepare_photos(chat: &mut ChatState, ctx: &egui::Context) {
+    const PER_FRAME: usize = 8;
+    let todo: Vec<String> =
+        chat.people.keys().map(|u| format!("photo:{u}")).filter(|k| matches!(chat.images.peek(k), Some(ImgState::Ready { texture: None, .. }))).take(PER_FRAME + 1).collect();
+    if todo.len() > PER_FRAME {
+        ctx.request_repaint();
+    }
+    for k in todo.iter().take(PER_FRAME) {
+        let _ = chat.images.get(ctx, k);
+    }
 }
 
 /// Crée les textures des images reçues (appelé avant l'affichage, avec accès mutable).

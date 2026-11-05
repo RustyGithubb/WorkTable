@@ -238,6 +238,9 @@ pub struct Palette {
     pub open: bool,
     query: String,
     selected: usize,
+    /// Texte de la recherche modifié : la liste revient en haut (une seule fois). Sinon la vue
+    /// reste libre, même quand la sélection change (flèches, survol).
+    scroll_top: bool,
     bg: Backdrop,
     /// Recherche Gmail côté serveur (complète les mails déjà chargés).
     remote: Vec<Summary>,
@@ -531,6 +534,7 @@ impl Palette {
                     }
                     if te.changed() {
                         self.selected = 0;
+                        self.scroll_top = true;
                         self.edited = Some(Instant::now());
                         self.absorb(hp);
                     }
@@ -548,7 +552,12 @@ impl Palette {
                     });
                     ui.add_space(14.0);
                 }
-                egui::ScrollArea::vertical().max_height(screen.height() * 0.55).auto_shrink([false, true]).show(ui, |ui| {
+                let mut area = egui::ScrollArea::vertical().max_height(screen.height() * 0.55).auto_shrink([false, true]);
+                // Texte saisi : retour en haut de la liste (une fois). Sinon la vue reste libre.
+                if std::mem::take(&mut self.scroll_top) {
+                    area = area.vertical_scroll_offset(0.0);
+                }
+                area.show(ui, |ui| {
                     let mut group = "";
                     for (i, h) in hits.iter().enumerate() {
                         if h.group != group {
@@ -565,9 +574,16 @@ impl Palette {
                         let p = ui.painter();
                         if sel {
                             p.rect_filled(r, CornerRadius::same(8), crate::theme::overlay(14));
-                            ui.scroll_to_rect(r, None);
                         }
-                        crate::emoji_img::paint(p, Rect::from_center_size(Pos2::new(r.left() + 18.0, r.center().y), vec2(20.0, 20.0)), h.icon, theme::TEXT());
+                        let icon_r = Rect::from_center_size(Pos2::new(r.left() + 18.0, r.center().y), vec2(20.0, 20.0));
+                        match &h.target {
+                            // Fichier Drive : pastille de son type, comme dans l'onglet Fichiers.
+                            Target::Drive(f) => crate::tabs::files::file_icon(p, icon_r, f),
+                            // Personne : sa photo Google Chat si elle existe, sinon l'icône.
+                            Target::Person(key)
+                                if crate::people::photo_key(people, key, chat).is_some_and(|k| crate::tabs::messages::image_avatar(p, chat, &k, icon_r.center(), 10.0, false)) => {}
+                            _ => crate::emoji_img::paint(p, icon_r, h.icon, theme::TEXT()),
+                        }
                         let left = r.left() + 40.0;
                         let g = crate::tabs::mail::view::one_line(p, &h.title, theme::editor_font(14.0, sel), theme::TEXT(), r.right() - left - 70.0);
                         p.galley(Pos2::new(left, r.top() + 3.0), g, theme::TEXT());

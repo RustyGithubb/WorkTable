@@ -38,6 +38,7 @@ pub fn show(ui: &mut egui::Ui, acc: &mut Account, hp: &mut crate::hyperplanning:
             dashboard_card(ui, prefs);
             crate::tabs::timeline::settings(ui, prefs);
             group_colors(ui, prefs);
+            spam_senders(ui, prefs);
             widgets::card(ui, t!("Compte Google", "Google account"), 0.0, |ui| {
                 ui.label(
                     RichText::new(t!("Gmail (Calendar, Docs et Sheets utiliseront ce même compte)", "Gmail (Calendar, Docs and Sheets use this same account)"))
@@ -919,6 +920,40 @@ fn blueprint(ui: &mut egui::Ui, prefs: &mut Prefs) {
 }
 
 /// Couleurs des mails reçus via une adresse de groupe (liste de diffusion, alias).
+/// Adresses en spam : liste, retrait.
+fn spam_senders(ui: &mut egui::Ui, prefs: &mut Prefs) {
+    widgets::card(ui, t!("Adresses en spam", "Spam addresses"), 0.0, |ui| {
+        ui.label(
+            RichText::new(t!(
+                "Les mails de ces adresses vont directement dans les spams (aussi dans Gmail). Ajout avec « Spam » dans l'onglet Mail ; retirer une adresse ne sort pas ses mails déjà en spam.",
+                "Mails from these addresses go straight to spam (in Gmail too). Add them with “Spam” in the Mail tab; removing an address doesn't move its mails already in spam."
+            ))
+            .small()
+            .color(theme::TEXT_FAINT()),
+        );
+        ui.add_space(8.0);
+        if prefs.spam_senders.is_empty() {
+            ui.label(RichText::new(t!("Aucune adresse", "No address")).color(theme::TEXT_MUTED()));
+        }
+        let mut remove = None;
+        for (i, address) in prefs.spam_senders.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(address);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button(t!("Retirer", "Remove")).clicked() {
+                        remove = Some(i);
+                    }
+                });
+            });
+            ui.add_space(4.0);
+        }
+        if let Some(i) = remove {
+            prefs.spam_senders.remove(i);
+        }
+    });
+    ui.add_space(12.0);
+}
+
 fn group_colors(ui: &mut egui::Ui, prefs: &mut Prefs) {
     use crate::tabs::mail::groups;
     widgets::card(ui, t!("Couleurs des groupes", "Group colours"), 0.0, |ui| {

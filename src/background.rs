@@ -235,6 +235,19 @@ fn for_each_layer(ctx: &egui::Context, mut f: impl FnMut(&mut egui::layers::Pain
     });
 }
 
+/// Taille de l'écran de l'app et position de sa fenêtre (pour placer les notifications). Cachée,
+/// la fenêtre est hors de l'écran : on garde les valeurs de sa dernière image visible.
+pub fn screen(ctx: &egui::Context) -> (Option<egui::Vec2>, Option<egui::Rect>) {
+    static LAST: Mutex<(Option<egui::Vec2>, Option<egui::Rect>)> = Mutex::new((None, None));
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let (monitor, outer, minimized) = ctx.input(|i| (i.viewport().monitor_size, i.viewport().outer_rect, i.viewport().minimized == Some(true)));
+    // Ni cachée, ni réduite, ni en pleine animation (la fenêtre peut encore être hors écran).
+    if !hidden() && !minimized && anim().is_none() {
+        *last = (monitor, outer);
+    }
+    *last
+}
+
 fn hidden() -> bool {
     #[cfg(windows)]
     {

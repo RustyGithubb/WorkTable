@@ -23,7 +23,7 @@ use crate::tabs::mail::view::one_line;
 use crate::{theme, widgets};
 
 const REFRESH: Duration = Duration::from_secs(120);
-const SIDE_W: f32 = 230.0;
+const SIDE_W: f32 = widgets::SIDE_W;
 const DETAIL_W: f32 = 300.0;
 
 #[derive(Default)]
@@ -934,7 +934,7 @@ fn grid_tile(ui: &mut egui::Ui, st: &DriveState, f: &DriveFile, size: egui::Vec2
 }
 
 /// Pastille du type de fichier (couleurs des applications Google).
-fn file_icon(p: &egui::Painter, r: Rect, f: &DriveFile) {
+pub(crate) fn file_icon(p: &egui::Painter, r: Rect, f: &DriveFile) {
     if f.is_folder() {
         let c = crate::theme::gray(0x8C);
         let w = r.width();

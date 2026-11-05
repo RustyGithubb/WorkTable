@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(git checkout -b:*)"
+    ],
+    "deny": [
+      "Read(./target/**)",
+      "Read(./data/secrets/**)",
+      "Read(./data/cache/**)",
+      "Read(./installer/Output/**)",
+      "Read(./assets/**)",
+      "Read(./Cargo.lock)"
+    ]
+  }
+}

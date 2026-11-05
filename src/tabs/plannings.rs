@@ -19,7 +19,7 @@ mod book;
 mod grid;
 mod month;
 
-const SIDE_W: f32 = 250.0;
+const SIDE_W: f32 = widgets::SIDE_W;
 const PANEL_W: f32 = 320.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]

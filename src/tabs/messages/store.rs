@@ -165,6 +165,7 @@ fn load() -> Option<Snapshot> {
 pub fn clear() {
     let _ = std::fs::remove_file(file());
     let _ = std::fs::remove_file(crate::people::file());
+    let _ = std::fs::remove_dir_all(super::photos_dir());
     let _ = std::fs::remove_file(key_file());
 }
 
