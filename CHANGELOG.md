@@ -5,6 +5,14 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.4.4
+
+### Ajouté
+- Messages : recherche des personnes dans l'annuaire de l'école. Dans « Rechercher une personne »
+  et « Nouvelle conversation », un nom suffit : les personnes trouvées (avec qui aucune conversation
+  n'existe encore) s'affichent, un clic ou « Ouvrir » démarre la conversation. Plus besoin de taper
+  l'adresse complète.
+
 ## 0.4.3
 
 ### Ajouté
