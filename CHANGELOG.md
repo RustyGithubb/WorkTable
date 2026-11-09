@@ -5,6 +5,19 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.4.51
+
+### Ajouté
+- Messages et Mail : clic droit sur une image jointe › « Télécharger l'image… » (fenêtre
+  « Enregistrer sous », dossier Téléchargements par défaut). Dans Mail : pièces jointes images et
+  image de la fenêtre d'aperçu.
+- Mail › Annuaire : clic droit sur un contact › « Retirer de l'annuaire ».
+
+### Corrigé
+- Messages : Maj+Entrée revient à la ligne (il envoyait le message).
+- Mail : Maj+Entrée revient à la ligne dans le paragraphe (Entrée crée toujours un nouveau
+  paragraphe).
+
 ## 0.4.4
 
 ### Ajouté
