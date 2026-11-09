@@ -46,6 +46,8 @@ enum Action {
     Refresh,
     Attachment(Attachment),
     AttachmentExternal(Attachment),
+    /// Clic droit › Télécharger une image jointe.
+    SaveAttachment(Attachment),
     ClosePreview,
     Directory,
     Dir(directory::DirAction),
@@ -200,6 +202,7 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
             Action::Refresh => mail.refresh_folder(acc),
             Action::Attachment(a) => mail.activate_attachment(acc, &a),
             Action::AttachmentExternal(a) => mail.open_attachment_external(acc, &a),
+            Action::SaveAttachment(a) => mail.save_attachment(acc, &a),
             Action::ClosePreview => mail.attachments.preview = None,
         }
     }
@@ -1533,6 +1536,16 @@ fn body_image(ui: &mut egui::Ui, state: Option<&inline::ImgState>, alt: &str, sp
 
 // --- Pièces jointes --------------------------------------------------------
 
+/// Clic droit sur une image jointe : petit panneau « Télécharger ».
+fn image_menu(r: &egui::Response, a: &Attachment, actions: &mut Vec<Action>) {
+    r.context_menu(|ui| {
+        if ui.button(t!("⬇  Télécharger l'image…", "⬇  Download image…")).clicked() {
+            actions.push(Action::SaveAttachment(a.clone()));
+            ui.close();
+        }
+    });
+}
+
 fn attachment_chip(ui: &mut egui::Ui, a: &Attachment, atts: &attachments::Attachments, email: &str, actions: &mut Vec<Action>) -> Rect {
     let key = a.key();
     let ext = a.extension().to_uppercase();
@@ -1549,9 +1562,12 @@ fn attachment_chip(ui: &mut egui::Ui, a: &Attachment, atts: &attachments::Attach
     let resp = ui
         .add(egui::Button::new(text).fill(theme::SURFACE_HI()).stroke(Stroke::new(1.0, theme::BORDER())).corner_radius(CornerRadius::same(255)))
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(t!("Aperçu", "Preview"));
+        .on_hover_text(if attachments::is_image(a) { t!("Aperçu · clic droit : télécharger", "Preview · right-click: download") } else { t!("Aperçu", "Preview") });
     if resp.clicked() {
         actions.push(Action::Attachment(a.clone()));
+    }
+    if attachments::is_image(a) {
+        image_menu(&resp, a, actions);
     }
     if atts.pending.contains(&key) {
         ui.add(egui::Spinner::new().size(12.0));
@@ -1603,7 +1619,9 @@ fn preview_modal(ui: &mut egui::Ui, mail: &mut MailState, actions: &mut Vec<Acti
                     let scale = (avail.x / w as f32).min(avail.y / h as f32).min(1.0);
                     ui.vertical_centered(|ui| {
                         let r = ui.add(egui::Image::new((tex.id(), vec2(w as f32 * scale, h as f32 * scale))).sense(Sense::click()));
-                        if r.on_hover_text(t!("Agrandir", "Enlarge")).on_hover_cursor(egui::CursorIcon::ZoomIn).clicked() {
+                        let r = r.on_hover_text(t!("Agrandir · clic droit : télécharger", "Enlarge · right-click: download")).on_hover_cursor(egui::CursorIcon::ZoomIn);
+                        image_menu(&r, &p.att, actions);
+                        if r.clicked() {
                             crate::lightbox::open(ui.ctx(), format!("mail-att:{:?}", tex.id()), tex.clone(), p.att.filename.clone(), crate::lightbox::OpenWith::None);
                         }
                     });

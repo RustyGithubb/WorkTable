@@ -222,3 +222,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+/// Fenêtre « Enregistrer sous » pour un fichier reçu (image jointe…) : dossier Téléchargements
+/// par défaut, nom d'origine (caractères interdits remplacés).
+pub fn save_as(name: &str) -> Option<PathBuf> {
+    let safe: String = name.chars().map(|c| if c.is_control() || r#"\/:*?"<>|"#.contains(c) { '_' } else { c }).collect();
+    let mut d = rfd::FileDialog::new().set_file_name(if safe.trim().is_empty() { "image" } else { safe.trim() });
+    if let Some(dir) = directories::UserDirs::new().and_then(|u| u.download_dir().map(|p| p.to_path_buf())) {
+        d = d.set_directory(dir);
+    }
+    d.save_file()
+}

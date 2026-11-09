@@ -744,6 +744,12 @@ impl MailState {
         self.show_notice(n);
     }
 
+    /// Clic droit › Télécharger une image jointe.
+    pub fn save_attachment(&mut self, acc: &Account, att: &Attachment) {
+        let n = self.attachments.save(acc, att);
+        self.show_notice(n);
+    }
+
     pub fn open_attachment_external(&mut self, acc: &Account, att: &Attachment) {
         let n = self.attachments.open_external(acc, att);
         self.show_notice(n);

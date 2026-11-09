@@ -552,7 +552,9 @@ fn body(ui: &mut egui::Ui, d: &mut Draft, ed: &mut Editor, after: &mut dyn FnMut
                 if ctx.memory(|m| m.has_focus(id)) {
                     let cur = TextEditState::load(&ctx, id).and_then(|s| s.cursor.char_range()).map(|r| (r.primary.index.0, r.secondary.index.0));
                     if let Some((a, b)) = cur {
-                        if ui.input_mut(|inp| inp.consume_key(Modifiers::NONE, Key::Enter)) {
+                        // Entrée = nouveau paragraphe ; Maj+Entrée = retour à la ligne dans le
+                        // paragraphe (laissé au champ : `consume_key` ignore Maj, d'où le test).
+                        if ui.input_mut(|inp| !inp.modifiers.shift && inp.consume_key(Modifiers::NONE, Key::Enter)) {
                             ops.push(Op::Split(i, a.min(b)));
                         } else if a == 0 && b == 0 && i > 0 && ui.input_mut(|inp| inp.consume_key(Modifiers::NONE, Key::Backspace)) {
                             ops.push(Op::MergeBack(i));

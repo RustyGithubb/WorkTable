@@ -58,6 +58,11 @@ enum Kind {
     External,
 }
 
+/// Pièce jointe de type image.
+pub fn is_image(a: &Attachment) -> bool {
+    kind(a) == Kind::Image
+}
+
 fn kind(a: &Attachment) -> Kind {
     let ext = a.extension();
     if IMAGE_EXT.contains(&ext.as_str()) || matches!(a.mime.as_str(), "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/bmp") {
@@ -69,10 +74,12 @@ fn kind(a: &Attachment) -> Kind {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum Intent {
     Preview,
     OpenExternal,
+    /// Enregistrer sous ce chemin (clic droit › Télécharger).
+    Save(PathBuf),
 }
 
 pub enum Content {
@@ -93,7 +100,9 @@ pub struct Attachments {
     pub blocked: HashMap<String, String>,
     /// Téléchargements en cours.
     pub pending: HashSet<String>,
-    intents: HashMap<String, (Attachment, Intent)>,
+    /// Ce qu'il faut faire de chaque pièce jointe en cours de téléchargement (plusieurs
+    /// demandes possibles : aperçu puis « Télécharger », par exemple).
+    intents: HashMap<String, Vec<(Attachment, Intent)>>,
     /// Contenus déjà téléchargés (évite de reconsommer du quota).
     cache: HashMap<String, Arc<Vec<u8>>>,
 }
@@ -122,12 +131,18 @@ impl Attachments {
         self.fetch(acc, att, Intent::OpenExternal)
     }
 
+    /// Clic droit › Télécharger : demande où enregistrer, puis écrit la pièce jointe.
+    pub fn save(&mut self, acc: &Account, att: &Attachment) -> Notice {
+        let path = crate::paths::save_as(&att.filename)?;
+        self.fetch(acc, att, Intent::Save(path))
+    }
+
     fn fetch(&mut self, acc: &Account, att: &Attachment, intent: Intent) -> Notice {
         let key = att.key();
         if let Some(data) = self.cache.get(&key).cloned() {
             return self.use_data(att, intent, &data);
         }
-        self.intents.insert(key.clone(), (att.clone(), intent));
+        self.intents.entry(key.clone()).or_default().push((att.clone(), intent));
         if self.pending.insert(key.clone()) {
             let a = att.clone();
             acc.run(move |s| Ok(Event::AttachmentData { key, data: gmail::attachment(s, &a) }));
@@ -138,12 +153,20 @@ impl Attachments {
     /// Réception du contenu téléchargé.
     pub fn on_data(&mut self, key: String, data: Result<Vec<u8>, String>) -> Notice {
         self.pending.remove(&key);
-        let (att, intent) = self.intents.remove(&key)?;
+        let intents = self.intents.remove(&key)?;
+        let att = intents.first()?.0.clone();
         match data {
             Ok(bytes) => {
                 let bytes = Arc::new(bytes);
                 self.cache.insert(key, bytes.clone());
-                self.use_data(&att, intent, &bytes)
+                // Toutes les demandes sont traitées ; la dernière notification est affichée.
+                let mut notice = None;
+                for (att, intent) in intents {
+                    if let Some(n) = self.use_data(&att, intent, &bytes) {
+                        notice = Some(n);
+                    }
+                }
+                notice
             }
             Err(e) => {
                 self.close_preview_of(&att);
@@ -154,6 +177,12 @@ impl Attachments {
     }
 
     fn use_data(&mut self, att: &Attachment, intent: Intent, data: &[u8]) -> Notice {
+        if let Intent::Save(path) = &intent {
+            return Some(match std::fs::write(path, data) {
+                Ok(()) => (tf!("« {} » enregistrée : {}", "“{}” saved: {}", att.filename, path.display()), false),
+                Err(e) => (tf!("Impossible d'enregistrer « {} » : {e}", "Cannot save “{}”: {e}", att.filename), true),
+            });
+        }
         if intent == Intent::Preview {
             match kind(att) {
                 Kind::Image => {

@@ -70,7 +70,18 @@ fn row(ui: &mut egui::Ui, c: &Contact, selected: bool, separator: bool, hl: &mut
         out.push(DirAction::Select(c.email.clone()));
     }
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-    resp.context_menu(|ui| crate::people::menu_item(ui, &c.email, &c.name));
+    resp.context_menu(|ui| {
+        crate::people::menu_item(ui, &c.email, &c.name);
+        ui.separator();
+        if ui
+            .button(t!("🗑  Retirer de l'annuaire", "🗑  Remove from directory"))
+            .on_hover_text(t!("L'adresse sera de nouveau ajoutée si elle t'écrit", "The address will be added again if it writes to you"))
+            .clicked()
+        {
+            out.push(DirAction::Remove(c.email.clone()));
+            ui.close();
+        }
+    });
 
     let p = ui.painter();
     let inner = rect.shrink2(vec2(0.0, 2.0));

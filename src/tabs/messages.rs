@@ -569,6 +569,7 @@ impl ChatState {
                 }
                 self.images.on_loaded(key, image);
             }
+            ChatEvent::Saved { path } => self.info(&tf!("Image enregistrée : {}", "Image saved: {}", path.display())),
             ChatEvent::File { path } => {
                 if let Err(e) = open::that(&path) {
                     self.error(tf!("Impossible d'ouvrir le fichier : {e}", "Cannot open the file: {e}"));
@@ -1092,6 +1093,33 @@ impl ChatState {
             let image = chat::media(s, &res).and_then(|d| inline::decode(&d));
             Ok(Event::Chat(ChatEvent::Image { key, image }))
         });
+    }
+
+    /// Clic droit › Télécharger : enregistre l'image jointe (fichier d'origine, retéléchargé).
+    pub fn save_attachment(&mut self, acc: &Account, att: &chat::ChatAttachment) {
+        if att.resource.is_none() && att.download_uri.is_none() {
+            self.error(t!("Cette image ne peut pas être téléchargée", "This image cannot be downloaded").into());
+            return;
+        }
+        let Some(path) = crate::paths::save_as(&att.name) else { return };
+        self.info(&tf!("Téléchargement de « {} »…", "Downloading “{}”…", att.name));
+        if let Some(res) = att.resource.clone() {
+            run(acc, move |s| {
+                let data = chat::media(s, &res)?;
+                std::fs::write(&path, data).map_err(|e| e.to_string())?;
+                Ok(ChatEvent::Saved { path })
+            });
+        } else if let Some(url) = att.download_uri.clone() {
+            // GIF sans ressource Chat (lien direct), comme pour son affichage.
+            let agent = acc.agent();
+            acc.spawn(move || {
+                let event = match gif::fetch(&agent, &url).and_then(|d| std::fs::write(&path, d).map_err(|e| e.to_string())) {
+                    Ok(()) => ChatEvent::Saved { path },
+                    Err(e) => ChatEvent::Error(e),
+                };
+                Ok(Event::Chat(event))
+            });
+        }
     }
 
     /// Ouvre une pièce jointe : fichier Drive dans le navigateur, sinon téléchargement

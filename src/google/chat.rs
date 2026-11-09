@@ -177,6 +177,10 @@ pub enum ChatEvent {
     File {
         path: std::path::PathBuf,
     },
+    /// Image jointe enregistrée (clic droit › Télécharger).
+    Saved {
+        path: std::path::PathBuf,
+    },
     /// Conversation privée trouvée ou créée.
     Dm(Space),
     /// Sections de l'utilisateur (`Err` : indisponibles, ex. autorisation à accorder).

@@ -43,6 +43,8 @@ enum Action {
     Delete(ChatMessage),
     OpenAttachment(ChatAttachment),
     ViewImage(ChatAttachment),
+    /// Clic droit › Télécharger l'image.
+    SaveImage(ChatAttachment),
     Image(ChatAttachment),
     /// GIF à charger, à agrandir.
     Gif(ChatAttachment),
@@ -236,6 +238,7 @@ pub fn show(ui: &mut egui::Ui, chat: &mut ChatState, acc: &mut Account, prefs: &
                 }
             }
             Action::Image(a) => chat.request_image(acc, &a),
+            Action::SaveImage(a) => chat.save_attachment(acc, &a),
             Action::Gif(a) => chat.request_gif(acc, &a),
             Action::GifSearch(q) => chat.search_gifs(acc, q),
             Action::SendGif(g, in_thread) => chat.send_gif(acc, &g, in_thread),
@@ -1638,7 +1641,9 @@ fn attachments(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, actions: &m
                     let badge = Rect::from_min_size(r.rect.left_bottom() + vec2(6.0, -22.0), vec2(30.0, 16.0));
                     ui.painter().rect_filled(badge, CornerRadius::same(4), Color32::from_black_alpha(150));
                     ui.painter().text(badge.center(), Align2::CENTER_CENTER, "GIF", FontId::proportional(10.0), Color32::WHITE);
-                    if r.on_hover_text(t!("GIF — agrandir", "GIF — enlarge")).on_hover_cursor(egui::CursorIcon::ZoomIn).clicked() {
+                    let r = r.on_hover_text(t!("GIF — agrandir · clic droit : télécharger", "GIF — enlarge · right-click: download")).on_hover_cursor(egui::CursorIcon::ZoomIn);
+                    image_menu(&r, a, actions);
+                    if r.clicked() {
                         actions.push(Action::ViewGif(a.clone()));
                     }
                     // Visionneuse ouverte sur ce GIF : animée aussi.
@@ -1664,7 +1669,10 @@ fn attachments(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, actions: &m
                     let max = vec2(320.0_f32.min(ui.available_width()), 240.0);
                     let scale = (max.x / size.x).min(max.y / size.y).min(1.0);
                     let r = ui.add(egui::Image::new((tex, size * scale)).corner_radius(CornerRadius::same(8)).sense(Sense::click()));
-                    if r.on_hover_text(tf!("{} — agrandir", "{} — enlarge", a.name)).on_hover_cursor(egui::CursorIcon::ZoomIn).clicked() {
+                    let r =
+                        r.on_hover_text(tf!("{} — agrandir · clic droit : télécharger", "{} — enlarge · right-click: download", a.name)).on_hover_cursor(egui::CursorIcon::ZoomIn);
+                    image_menu(&r, a, actions);
+                    if r.clicked() {
                         actions.push(Action::ViewImage(a.clone()));
                     }
                 }
@@ -1677,6 +1685,16 @@ fn attachments(ui: &mut egui::Ui, chat: &ChatState, m: &ChatMessage, actions: &m
             file_chip(ui, a, actions);
         }
     }
+}
+
+/// Clic droit sur une image jointe : petit panneau « Télécharger ».
+fn image_menu(r: &egui::Response, a: &ChatAttachment, actions: &mut Vec<Action>) {
+    r.context_menu(|ui| {
+        if ui.button(t!("⬇  Télécharger l'image…", "⬇  Download image…")).clicked() {
+            actions.push(Action::SaveImage(a.clone()));
+            ui.close();
+        }
+    });
 }
 
 /// Texture d'une image déjà chargée (les textures sont créées par `prepare_images`).
@@ -1838,8 +1856,9 @@ fn composer(ui: &mut egui::Ui, chat: &mut ChatState, space: &Space, title: &str,
                     actions.push(Action::PickFiles);
                 }
             });
-            // Entrée = envoyer, Maj+Entrée = nouvelle ligne.
-            if focused && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+            // Entrée = envoyer, Maj+Entrée = nouvelle ligne (laissée au champ : `consume_key`
+            // ignore Maj, d'où le test).
+            if focused && ui.input_mut(|i| !i.modifiers.shift && i.consume_key(Modifiers::NONE, Key::Enter)) {
                 send = true;
             }
             ui.horizontal(|ui| {
