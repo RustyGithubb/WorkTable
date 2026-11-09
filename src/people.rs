@@ -537,12 +537,34 @@ impl People {
         };
         let mut out: Vec<Found> = Vec::new();
         let mut keys = HashSet::new();
+        // Une personne = une adresse (celle de la fiche, sinon celle de son compte Chat) : une seule
+        // fiche par adresse (la plus fournie), et l'annuaire n'ajoute pas une personne déjà trouvée.
+        let mut by_addr: HashMap<String, (usize, usize)> = HashMap::new();
         for c in &self.cards {
+            let addr = if c.email.is_empty() { chat.people.get(&c.chat_id).map(|p| p.email.trim().to_lowercase()).unwrap_or_default() } else { c.email.clone() };
             let name = display_name(c, contacts);
-            if let Some(s) = matches(&name, &c.email) {
-                let n = c.mails.len() + c.files.len() + c.events.len() + chat_spaces(c, chat).len();
-                keys.insert(c.key().to_string());
-                out.push(Found { key: c.key().to_string(), sub: summary_line(c, chat), name, score: s + n.min(30) as i32 });
+            let Some(s) = matches(&name, if c.email.is_empty() { &addr } else { &c.email }) else { continue };
+            let n = c.mails.len() + c.files.len() + c.events.len() + chat_spaces(c, chat).len();
+            let found = Found { key: c.key().to_string(), sub: summary_line(c, chat), name, score: s + n.min(30) as i32 };
+            keys.insert(c.key().to_string());
+            if addr.is_empty() {
+                out.push(found);
+                continue;
+            }
+            keys.insert(addr.clone());
+            match by_addr.get(&addr).copied() {
+                Some((i, richness)) => {
+                    let score = out[i].score.max(found.score);
+                    if n > richness {
+                        out[i] = found;
+                        by_addr.insert(addr, (i, n));
+                    }
+                    out[i].score = score;
+                }
+                None => {
+                    by_addr.insert(addr, (out.len(), n));
+                    out.push(found);
+                }
             }
         }
         for c in contacts.search(q, 8) {
@@ -568,6 +590,17 @@ pub fn display_name(c: &Card, contacts: &Contacts) -> String {
         _ if !c.email.is_empty() => c.email.clone(),
         _ => t!("Utilisateur", "User").into(),
     }
+}
+
+/// Photo Google Chat (clé du cache d'images) de la personne d'un résultat de recherche : sa
+/// fiche, sinon son adresse ou son identifiant Chat.
+pub fn photo_key(people: &People, key: &str, chat: &ChatState) -> Option<String> {
+    let id = match people.find(key) {
+        Some(c) => chat_id(c, chat)?,
+        None if key.contains('@') => chat.people.values().find(|p| p.email.eq_ignore_ascii_case(key))?.id.clone(),
+        None => key.to_string(),
+    };
+    chat.photo_key(&id)
 }
 
 /// Identifiant Google Chat de la personne (fiche, sinon d'après son adresse).

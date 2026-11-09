@@ -39,7 +39,7 @@ pub fn next_time(text: &str, now: chrono::DateTime<chrono::Local>) -> Option<i64
     Some(at.timestamp_millis())
 }
 
-const LIST_W: f32 = 270.0;
+const LIST_W: f32 = widgets::SIDE_W;
 /// Espace entre la liste et le graph, entre le graph et le journal.
 const GAP: f32 = 28.0;
 const LOG_H: f32 = 150.0;
@@ -244,10 +244,11 @@ impl BlueprintState {
         }
     }
 
-    /// Contenu complet d'un mail reçu : exécution des graphs.
-    pub fn on_full_mail(&mut self, full: &crate::google::gmail::FullMessage, labels: &[crate::google::gmail::Label], dnd: bool) {
+    /// Contenu complet d'un mail reçu : exécution des graphs. `contact` : nom de la fiche contact
+    /// de l'expéditeur.
+    pub fn on_full_mail(&mut self, full: &crate::google::gmail::FullMessage, labels: &[crate::google::gmail::Label], contact: &str, dnd: bool) {
         self.ensure_loaded();
-        self.engine.on_full_mail(&mut self.graphs, full, labels, dnd);
+        self.engine.on_full_mail(&mut self.graphs, full, labels, contact, dnd);
         self.engine_touched();
     }
 

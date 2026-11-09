@@ -5,6 +5,40 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.4.4
+
+### Ajouté
+- Messages : recherche des personnes dans l'annuaire de l'école. Dans « Rechercher une personne »
+  et « Nouvelle conversation », un nom suffit : les personnes trouvées (avec qui aucune conversation
+  n'existe encore) s'affichent, un clic ou « Ouvrir » démarre la conversation. Plus besoin de taper
+  l'adresse complète.
+
+## 0.4.3
+
+### Ajouté
+- Blueprint, action « Ranger un mail dans un groupe » : nouvelle option « Retirer de la boîte de
+  réception ».
+- Mail : liste des adresses en spam (Réglages › Adresses en spam, bouton Retirer). « Spam » ajoute
+  l'adresse de l'expéditeur, « Pas un spam » la retire. Les futurs mails de ces adresses partent
+  directement dans les spams de Gmail, sans notification.
+- Recherche (Ctrl+Espace) : photo de profil Google Chat des personnes. Les photos sont gardées en copie
+  locale chiffrée et ne sont téléchargées qu'une seule fois.
+- Recherche : pastille du type de fichier Drive (Docs, Sheets, Slides, PDF, dossier…), comme dans
+  l'onglet Fichiers.
+
+### Modifié
+- Blueprint, event « Mail reçu » : les mots-clés sont aussi cherchés dans le nom de l'expéditeur, son
+  adresse et sa fiche contact. « @artfx » ne correspond qu'au domaine de l'adresse de l'expéditeur.
+- Colonne de gauche de même largeur (260 px) dans tous les onglets (Mail, Calendrier, Notes, Fichiers,
+  Plannings, Blueprint, Messages).
+
+### Corrigé
+- Notifications : le bandeau apparaît bien quand l'app est cachée en arrière-plan (il s'ouvrait hors de
+  l'écran).
+- Recherche : une même personne n'apparaît plus deux fois (fiche contact et annuaire mail).
+- Recherche : la liste ne remonte plus toute seule quand on la fait défiler ; elle ne revient en haut
+  qu'à la saisie de texte.
+
 ## 0.4.2
 
 ### Ajouté

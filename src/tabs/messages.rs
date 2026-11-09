@@ -17,6 +17,8 @@ mod new_group;
 pub mod pins;
 pub mod store;
 mod view;
+// Photos de profil, aussi pour la recherche Ctrl+Espace.
+pub(crate) use view::{image_avatar, prepare_photos};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -122,6 +124,11 @@ pub struct ChatState {
     pub editing: Option<(String, String)>,
     pub query: String,
     pub new_dm: Option<String>,
+    /// Recherche dans l'annuaire de l'organisation : dernier résultat (texte cherché, personnes),
+    /// texte tapé en attente (lancé une fois la saisie arrêtée) et recherche en cours.
+    pub directory: (String, Vec<Person>),
+    dir_typed: Option<(String, Instant)>,
+    pub dir_inflight: Option<String>,
     /// Panneau de création de groupe (ouvert tant que `new_group` est `Some`).
     pub group_panel: new_group::Panel,
     /// Panneau de gestion d'un groupe (renommer, membres, supprimer).
@@ -279,6 +286,7 @@ impl ChatState {
         if let Some(email) = self.pending_dm.take() {
             self.open_dm(acc, &email);
         }
+        self.search_directory(acc, ctx);
         if self.last_sections.is_none_or(|t| t.elapsed() >= SECTIONS_EVERY) {
             self.last_sections = Some(Instant::now());
             acc.run(|s| Ok(Event::Chat(ChatEvent::Sections(chat::sections(s)))));
@@ -500,6 +508,13 @@ impl ChatState {
                 }
                 self.request_people(acc, users);
                 self.infer_me();
+            }
+            ChatEvent::Directory { query, list } => {
+                // Réponse d'une recherche dépassée (le texte a changé entre-temps) : ignorée.
+                if self.dir_inflight.as_deref() == Some(query.as_str()) {
+                    self.dir_inflight = None;
+                    self.directory = (query, list);
+                }
             }
             ChatEvent::People(list) => {
                 for p in list {
@@ -1485,7 +1500,51 @@ impl ChatState {
         None
     }
 
-    fn request_photos(&mut self, acc: &Account) {
+    /// Texte de recherche d'une personne (nouvelle conversation, sinon recherche) : cherché dans
+    /// l'annuaire de l'organisation une fois la saisie arrêtée (une requête par texte).
+    fn search_directory(&mut self, acc: &Account, ctx: &eframe::egui::Context) {
+        const PAUSE: Duration = Duration::from_millis(400);
+        let typed = self.new_dm.as_deref().filter(|t| !t.trim().is_empty()).unwrap_or(&self.people_query);
+        let typed = typed.trim().trim_end_matches(',').trim().to_string();
+        if typed.chars().count() < 2 {
+            self.dir_typed = None;
+            return;
+        }
+        if typed == self.directory.0 || self.dir_inflight.as_deref() == Some(typed.as_str()) {
+            return;
+        }
+        match &self.dir_typed {
+            Some((t, at)) if *t == typed => {
+                if at.elapsed() < PAUSE {
+                    ctx.request_repaint_after(PAUSE - at.elapsed());
+                    return;
+                }
+            }
+            _ => {
+                self.dir_typed = Some((typed, Instant::now()));
+                ctx.request_repaint_after(PAUSE);
+                return;
+            }
+        }
+        self.dir_typed = None;
+        self.dir_inflight = Some(typed.clone());
+        acc.run(move |s| {
+            let list = chat::search_directory(s, &typed).unwrap_or_default();
+            Ok(Event::Chat(ChatEvent::Directory { query: typed, list }))
+        });
+    }
+
+    /// Personnes de l'annuaire trouvées pour `typed` (résultat déjà reçu), sans `known`.
+    pub fn directory_for(&self, typed: &str) -> Vec<(String, String)> {
+        let typed = typed.trim().trim_end_matches(',').trim();
+        if self.directory.0 != typed {
+            return Vec::new();
+        }
+        self.directory.1.iter().filter(|p| !p.email.is_empty()).map(|p| (if p.name.is_empty() { p.email.clone() } else { p.name.clone() }, p.email.clone())).collect()
+    }
+
+    /// Télécharge les photos de profil manquantes (copie locale chiffrée d'abord, puis Google).
+    pub(crate) fn request_photos(&mut self, acc: &Account) {
         if self.photos_in_flight >= PHOTOS_IN_FLIGHT {
             return;
         }
@@ -1501,7 +1560,7 @@ impl ChatState {
             self.photos_in_flight += 1;
             let agent = acc.agent();
             acc.spawn(move || {
-                let image = chat::fetch_photo(&agent, &url).and_then(|d| inline::decode(&d));
+                let image = cached_photo(&url, || chat::fetch_photo(&agent, &url));
                 Ok(Event::Chat(ChatEvent::Image { key, image }))
             });
         }
@@ -1581,6 +1640,30 @@ pub const ME_LOCAL: &str = "users/local-me";
 
 pub fn draft_key(space: &str, thread: Option<&str>) -> String {
     thread.map(str::to_string).unwrap_or_else(|| space.to_string())
+}
+
+/// Dossier des photos de profil (copies chiffrées, une par adresse d'image).
+pub fn photos_dir() -> PathBuf {
+    crate::paths::cache().join("chat_photos")
+}
+
+const PHOTO_MAGIC: &[u8; 4] = b"WTP1";
+
+/// Photo de profil décodée : relue dans la copie locale chiffrée si elle existe (et se décode),
+/// sinon téléchargée (`fetch`), puis enregistrée chiffrée seulement si elle se décode. Une
+/// nouvelle photo a une autre adresse : nouveau fichier.
+fn cached_photo(url: &str, fetch: impl FnOnce() -> Result<Vec<u8>, String>) -> Result<std::sync::Arc<eframe::egui::ColorImage>, String> {
+    use sha2::Digest;
+    let name: String = sha2::Sha256::digest(url.as_bytes()).iter().take(16).map(|b| format!("{b:02x}")).collect();
+    let path = photos_dir().join(format!("{name}.wtc"));
+    if let Some(image) = store::read_sealed(&path, PHOTO_MAGIC).and_then(|d| inline::decode(&d).ok()) {
+        return Ok(image);
+    }
+    let data = fetch()?;
+    let image = inline::decode(&data)?;
+    let _ = std::fs::create_dir_all(photos_dir());
+    let _ = store::write_sealed(&path, PHOTO_MAGIC, &data);
+    Ok(image)
 }
 
 fn icons_dir() -> Option<PathBuf> {

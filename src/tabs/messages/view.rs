@@ -18,8 +18,8 @@ use crate::tabs::mail::recipients;
 use crate::tabs::mail::view::{draw_star, one_line, rich_para, short_date};
 use crate::{tabs, theme, widgets};
 
-const SIDE_W: f32 = 260.0;
-const PEOPLE_W: f32 = 260.0;
+const SIDE_W: f32 = widgets::SIDE_W;
+const PEOPLE_W: f32 = widgets::SIDE_W;
 const THREAD_W: f32 = 360.0;
 #[allow(non_snake_case)]
 fn SELECTED() -> Color32 {
@@ -576,13 +576,32 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
     if let Some(addr) = &mut chat.new_dm {
         let _ = recipients::field(ui, "", addr, "chat_new_dm", t!("Nom ou adresse (annuaire)", "Name or address (directory)"), book, &mut chat.suggest);
         let email = crate::tabs::mail::contacts::parse_mailbox(addr.trim().trim_end_matches(',')).map(|(_, e)| e).unwrap_or_else(|| addr.trim().trim_end_matches(',').to_string());
+        // Nom tapé : personnes de l'annuaire de l'organisation (la première s'ouvre avec « Ouvrir »).
+        let typed = addr.clone();
+        // Sans les personnes avec qui une conversation existe déjà (elles sont dans la liste).
+        let known: std::collections::HashSet<String> =
+            chat.spaces.iter().filter(|s| is_person(s)).filter_map(|s| chat.others(&s.name).first().and_then(|u| chat.email_of(u))).map(|e| e.to_lowercase()).collect();
+        let found: Vec<(String, String)> =
+            if email.contains('@') { Vec::new() } else { chat.directory_for(&typed).into_iter().filter(|(_, e)| !known.contains(&e.to_lowercase())).collect() };
+        let target = if email.contains('@') { Some(email.clone()) } else { found.first().map(|(_, e)| e.clone()) };
+        let searching = !email.contains('@') && found.is_empty() && chat.dir_inflight.as_deref() == Some(typed.trim().trim_end_matches(',').trim());
         let mut cancel = false;
         ui.horizontal(|ui| {
-            if ui.add_enabled(email.contains('@'), egui::Button::new(t!("Ouvrir", "Open"))).clicked() {
-                actions.push(Action::OpenDm(email.clone()));
+            if ui.add_enabled(target.is_some(), egui::Button::new(t!("Ouvrir", "Open"))).clicked()
+                && let Some(e) = &target
+            {
+                actions.push(Action::OpenDm(e.clone()));
             }
             cancel = ui.button(t!("Annuler", "Cancel")).clicked();
+            if searching {
+                ui.add(egui::Spinner::new().size(12.0)).on_hover_text(t!("Recherche dans l'annuaire…", "Searching the directory…"));
+            }
         });
+        for (name, e) in &found {
+            if ui.selectable_label(false, format!("{name}  ·  {e}")).on_hover_text(t!("Démarrer une conversation privée", "Start a direct conversation")).clicked() {
+                actions.push(Action::OpenDm(e.clone()));
+            }
+        }
         if cancel {
             chat.new_dm = None;
         }
@@ -619,6 +638,12 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
                 starts.push((c.display_name().to_string(), c.email.clone()));
             }
         }
+        // Annuaire de l'organisation : personnes avec qui aucune conversation n'existe encore.
+        for (name, email) in chat.directory_for(&chat.people_query) {
+            if !known.contains(&email.to_lowercase()) && !starts.iter().any(|(_, e)| e.eq_ignore_ascii_case(&email)) {
+                starts.push((name, email));
+            }
+        }
         let typed = chat.people_query.trim().to_lowercase();
         if typed.contains('@') && typed.contains('.') && !known.contains(&typed) && !starts.iter().any(|(_, e)| e.eq_ignore_ascii_case(&typed)) {
             starts.push((typed.clone(), typed));
@@ -632,7 +657,9 @@ fn people_block(ui: &mut egui::Ui, chat: &mut ChatState, prefs: &Prefs, book: &C
         }
     }
     if all.is_empty() && starts.is_empty() && requests.is_empty() {
-        let hint = if !q.is_empty() {
+        let hint = if !q.is_empty() && chat.dir_inflight.as_deref() == Some(chat.people_query.trim()) {
+            t!("Recherche dans l'annuaire…", "Searching the directory…")
+        } else if !q.is_empty() {
             t!("Aucune conversation ni contact : tape une adresse complète", "No conversation or contact: type a full address")
         } else if chat.loading {
             t!("Chargement…", "Loading…")
@@ -1038,7 +1065,7 @@ fn user_avatar(p: &egui::Painter, chat: &ChatState, c: Pos2, r: f32, user: &str)
 }
 
 /// Dessine une image recadrée au centre, ronde (ou carrée arrondie). `false` si pas encore chargée.
-fn image_avatar(p: &egui::Painter, chat: &ChatState, key: &str, c: Pos2, r: f32, square: bool) -> bool {
+pub(crate) fn image_avatar(p: &egui::Painter, chat: &ChatState, key: &str, c: Pos2, r: f32, square: bool) -> bool {
     let Some(ImgState::Ready { texture: Some(t), .. }) = chat.images.peek(key) else { return false };
     let [w, h] = t.size();
     let (w, h) = (w as f32, h as f32);
@@ -2101,6 +2128,20 @@ fn toast(ui: &mut egui::Ui, chat: &mut ChatState) {
             });
     });
     ui.ctx().request_repaint_after(Duration::from_millis(300));
+}
+
+/// Crée les textures des photos de profil déjà téléchargées (recherche Ctrl+Espace), au plus
+/// quelques-unes par image pour ne pas ralentir l'affichage.
+pub fn prepare_photos(chat: &mut ChatState, ctx: &egui::Context) {
+    const PER_FRAME: usize = 8;
+    let todo: Vec<String> =
+        chat.people.keys().map(|u| format!("photo:{u}")).filter(|k| matches!(chat.images.peek(k), Some(ImgState::Ready { texture: None, .. }))).take(PER_FRAME + 1).collect();
+    if todo.len() > PER_FRAME {
+        ctx.request_repaint();
+    }
+    for k in todo.iter().take(PER_FRAME) {
+        let _ = chat.images.get(ctx, k);
+    }
 }
 
 /// Crée les textures des images reçues (appelé avant l'affichage, avec accès mutable).

@@ -251,12 +251,13 @@ impl WorkTableApp {
                 }
             }
             Effect::Trash(id) => self.mail.trash(&self.account, &id, true),
-            Effect::Group { mail, group } => match self.mail.labels.iter().find(|l| l.user && l.name.eq_ignore_ascii_case(&group)).cloned() {
-                Some(label) => self.mail.move_to(&self.account, &mail, &label),
+            Effect::Group { mail, group, hide_inbox } => match self.mail.labels.iter().find(|l| l.user && l.name.eq_ignore_ascii_case(&group)).cloned() {
+                Some(label) => self.mail.file_in_group(&self.account, &mail, &label, hide_inbox),
                 // Groupe inconnu : créé dans Gmail, puis le mail y est rangé.
                 None => self.account.run(move |s| {
                     let label = crate::google::gmail::create_label(s, &group)?;
-                    let labels = crate::google::gmail::modify(s, &mail, &[label.id], &["INBOX".to_string()])?;
+                    let remove = if hide_inbox { vec!["INBOX".to_string()] } else { Vec::new() };
+                    let labels = crate::google::gmail::modify(s, &mail, &[label.id], &remove)?;
                     Ok(Event::Modified { id: mail, labels })
                 }),
             },
@@ -390,17 +391,32 @@ impl eframe::App for WorkTableApp {
                 }
                 // Mails : chargement complet (référence) ou relève (nouveaux mails à notifier, et
                 // à donner aux graphs actifs du Blueprint).
-                Event::Messages { label, list } => {
+                Event::Messages { label, mut list } => {
+                    // Adresses en spam : leurs mails quittent la boîte de réception (et Gmail).
+                    let diverted = tabs::mail::divert_spam(&self.account, &mut list, &self.prefs.spam_senders);
+                    // Retirés de la liste affichée (boîte, catégorie, groupe), sauf dans les spams.
+                    if label != "SPAM" {
+                        list.retain(|m| !diverted.contains(&m.id));
+                    }
                     self.notify.on_mails(&list, &self.prefs, true);
                     self.blueprint.on_mails(&list, true, &self.account);
                     self.mail.handle(Event::Messages { label, list }, &self.account);
                 }
-                Event::Delta { changed, deleted } => {
+                Event::Delta { mut changed, deleted } => {
+                    tabs::mail::divert_spam(&self.account, &mut changed, &self.prefs.spam_senders);
                     self.notify.on_mails(&changed, &self.prefs, false);
                     self.blueprint.on_mails(&changed, false, &self.account);
                     self.mail.handle(Event::Delta { changed, deleted }, &self.account);
                 }
-                Event::BlueprintMail(full) => self.blueprint.on_full_mail(&full, &self.mail.labels, self.prefs.do_not_disturb),
+                Event::BlueprintMail(full) => {
+                    // Nom de la fiche contact de l'expéditeur (mots-clés du Blueprint).
+                    let email = crate::tabs::mail::contacts::parse_mailbox(&full.summary.from).map(|(_, e)| e).unwrap_or_default();
+                    let contact = match self.people.find(&email) {
+                        Some(card) => crate::people::display_name(card, &self.mail.contacts),
+                        None => self.mail.contacts.get(&email).map(|k| k.name.clone()).unwrap_or_default(),
+                    };
+                    self.blueprint.on_full_mail(&full, &self.mail.labels, &contact, self.prefs.do_not_disturb);
+                }
                 Event::MailSearch { query, list } => {
                     if let Some(list) = self.notes.on_mail(&query, list) {
                         self.search.on_remote(query, list);
@@ -587,6 +603,11 @@ impl eframe::App for WorkTableApp {
         // 4. Recherche globale (Ctrl+Espace), par-dessus tout le reste.
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Space)) {
             self.search.toggle(ui.ctx());
+        }
+        // Photos de profil des personnes proposées (copie locale chiffrée, sinon Google Chat).
+        if self.search.open {
+            self.chat.request_photos(&self.account);
+            tabs::messages::prepare_photos(&mut self.chat, ui.ctx());
         }
         if let Some(t) =
             self.search.show(ui.ctx(), &self.account, &self.mail, &self.calendar, &self.chat, &self.tasks, &self.notes, &self.people, &self.prefs, self.hyperplanning.data())

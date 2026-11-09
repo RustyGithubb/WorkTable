@@ -1,32 +1,26 @@
 {
-  "groups": [
-    {
-      "address": "theothers@artfx.fr",
-      "color": [
-        178,
-        124,
-        255
-      ]
-    }
-  ],
+  "groups": [],
   "animation": {
-    "duration_ms": 350.0,
-    "opacity": 0.7,
-    "curve": "Elastic"
+    "duration_ms": 450.0,
+    "opacity": 1.0,
+    "curve": "EaseInOut"
   },
-  "categories_collapsed": false,
+  "categories_collapsed": true,
   "mail_list_hidden": false,
   "groups_collapsed": true,
+  "spam_senders": [],
   "hidden_calendars": [
+    "c_5e5b99e18ee5094322fb830bbd8cb505d59b7e5029e3e17d565d01515c6183ed@group.calendar.google.com",
     "dominique.peyronnet@artfx.fr",
+    "c_6923202aa8b7f540c066200ea439ee774b2d71eb3eedf1cb11d290f03a3cd7e0@group.calendar.google.com",
+    "fred.audouard@artfx.fr",
     "fr.french#holiday@group.v.calendar.google.com",
     "laurent.letz@artfx.fr",
     "lrousselle@artfx.fr",
-    "ng6210ilf9a37m1ohohlukm1j34243ut@import.calendar.google.com",
     "marie.legrand@artfx.fr",
     "sblanchot@artfx.fr",
-    "c_6923202aa8b7f540c066200ea439ee774b2d71eb3eedf1cb11d290f03a3cd7e0@group.calendar.google.com",
-    "fred.audouard@artfx.fr"
+    "ng6210ilf9a37m1ohohlukm1j34243ut@import.calendar.google.com",
+    "0dh1fqqte28jf8jvc2g1mlr08m26qm0f@import.calendar.google.com"
   ],
   "known_calendars": [
     "dnoirel@artfx.fr",
@@ -45,38 +39,12 @@
   ],
   "calendar_days": 7,
   "calendar_side_hidden": false,
-  "chat_favorites": [
-    "spaces/AAAA5LfFxmk",
-    "spaces/AAQA9SWfRNc",
-    "spaces/AAQA6L863KE"
-  ],
+  "chat_favorites": [],
   "chat_side_hidden": false,
   "chat_people_hidden": false,
-  "chat_muted": [
-    "spaces/AAQALmrxudE",
-    "spaces/AAQAFalIAF4",
-    "spaces/AAQAORoqlIg",
-    "spaces/AAQA0bEczqQ",
-    "spaces/AAQAvYEtcmg",
-    "spaces/AAQArLhmmP4",
-    "spaces/AAQAAZu5V5M",
-    "spaces/AAQAiAkK3JU",
-    "spaces/AAQAQz1f-Ko",
-    "spaces/AAQA_DlnxM8",
-    "spaces/AAQASelOdls",
-    "spaces/AAQAUFIaEs4",
-    "spaces/AAQAhvIvIJM",
-    "spaces/AAQAJHji_H0",
-    "spaces/AAQA_sUr_Xk",
-    "spaces/AAQATpqwYx0",
-    "spaces/AAQAAcgqan0",
-    "spaces/AAQAum1B0y0"
-  ],
+  "chat_muted": [],
   "chat_recent_emojis": [
-    "🫡",
-    "😐",
-    "🖥️",
-    "🏥"
+    "🫥"
   ],
   "emoji_tone": 0,
   "files_side_hidden": false,
@@ -88,69 +56,25 @@
     "title": "",
     "start": "",
     "end": "",
-    "highlights": [
-      {
-        "calendar": "dnoirel@artfx.fr",
-        "id": "bmhr5cn9ugk718rj4om4rih42k",
-        "title": "⚫ MILESTONE - PFE 1st PLAYABLE - M5-GA, M5-GD, M5-PROG",
-        "start": 1796025600000,
-        "end": 1796036400000,
-        "all_day": false
-      },
-      {
-        "calendar": "dnoirel@artfx.fr",
-        "id": "9e192hsti2gau260rji0mj6ph8",
-        "title": "⚫ MILESTONE - PFE BETA - M5-GA, M5-GD, M5-PROG",
-        "start": 1807516800000,
-        "end": 1807527600000,
-        "all_day": false
-      },
-      {
-        "calendar": "dnoirel@artfx.fr",
-        "id": "n9hmp7pu7ommnb0iujdvjdm6ms",
-        "title": "⚫ MILESTONE - PFE ALPHA - M5-GA, M5-GD, M5-PROG",
-        "start": 1803456000000,
-        "end": 1803466800000,
-        "all_day": false
-      },
-      {
-        "calendar": "dnoirel@artfx.fr",
-        "id": "3nmef71f35re8dogodnd9jm2rs",
-        "title": "⚫ JURY PFE MASTER - M5-GA, M5-GD, M5-PROG",
-        "start": 1810537200000,
-        "end": 1810548000000,
-        "all_day": false
-      }
-    ],
-    "holidays": [
-      {
-        "start": "2026-11-16",
-        "end": "2026-11-22",
-        "name": ""
-      },
-      {
-        "start": "2026-12-21",
-        "end": "2027-01-03",
-        "name": ""
-      }
-    ]
+    "highlights": [],
+    "holidays": []
   },
   "highlight_sets": [],
   "dashboard_rows": [
     {
-      "h": 9,
+      "h": 8,
       "panels": [
         {
           "id": "links",
-          "share": 0.2761988
+          "share": 0.28240427
         },
         {
           "id": "timeline",
-          "share": 0.4738012
+          "share": 0.43188873
         },
         {
           "id": "planning",
-          "share": 0.24999999
+          "share": 0.28570703
         }
       ]
     },
@@ -158,17 +82,16 @@
       "h": 10,
       "panels": [
         {
-          "id": "tasks",
-          "share": 1.0
-        }
-      ]
-    },
-    {
-      "h": 10,
-      "panels": [
+          "id": "pinned",
+          "share": 0.1926084
+        },
         {
           "id": "reminders",
-          "share": 1.0
+          "share": 0.2018479
+        },
+        {
+          "id": "tasks",
+          "share": 0.6055437
         }
       ]
     },
@@ -176,16 +99,12 @@
       "h": 8,
       "panels": [
         {
-          "id": "pinned",
-          "share": 0.28055057
-        },
-        {
           "id": "mails",
-          "share": 0.27840337
+          "share": 0.5
         },
         {
           "id": "files",
-          "share": 0.44104603
+          "share": 0.5
         }
       ]
     }
@@ -209,96 +128,7 @@
       "scale": 1.0
     }
   },
-  "hp_favorites": [
-    [
-      2,
-      716
-    ],
-    [
-      2,
-      726
-    ],
-    [
-      2,
-      737
-    ],
-    [
-      2,
-      741
-    ],
-    [
-      2,
-      756
-    ],
-    [
-      2,
-      763
-    ],
-    [
-      2,
-      766
-    ],
-    [
-      2,
-      742
-    ],
-    [
-      2,
-      740
-    ],
-    [
-      3,
-      758
-    ],
-    [
-      3,
-      765
-    ],
-    [
-      3,
-      768
-    ],
-    [
-      3,
-      757
-    ],
-    [
-      3,
-      764
-    ],
-    [
-      3,
-      767
-    ],
-    [
-      3,
-      754
-    ],
-    [
-      3,
-      755
-    ],
-    [
-      3,
-      761
-    ],
-    [
-      3,
-      762
-    ],
-    [
-      3,
-      1190
-    ],
-    [
-      3,
-      1191
-    ],
-    [
-      1,
-      564
-    ]
-  ],
+  "hp_favorites": [],
   "theme": "Monochrome",
   "notif_no_mail": false,
   "notif_no_chat": false,
@@ -308,7 +138,7 @@
   "do_not_disturb": false,
   "clock_hidden": false,
   "notif_event_minutes": 0,
-  "language": "French",
+  "language": "System",
   "show_hotkey": {
     "ctrl": true,
     "shift": true,
@@ -324,6 +154,6 @@
   "spell_off": false,
   "spell_no_fr": false,
   "spell_no_en": false,
-  "giphy_key": "DzAwUhXFEx41VY7VmRPgg1GYJTKWCOQf",
+  "giphy_key": "",
   "chat_gif_favorites": []
 }

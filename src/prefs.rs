@@ -162,6 +162,8 @@ pub struct Prefs {
     pub mail_list_hidden: bool,
     /// Section « Groupes » repliée dans l'onglet Mail.
     pub groups_collapsed: bool,
+    /// Adresses en spam (minuscules) : leurs mails ne passent plus par la boîte de réception.
+    pub spam_senders: Vec<String>,
     /// Agendas masqués dans l'onglet Calendrier (identifiants Google).
     pub hidden_calendars: Vec<String>,
     /// Agendas déjà vus (pour reprendre une seule fois l'état « affiché » de Google Agenda).

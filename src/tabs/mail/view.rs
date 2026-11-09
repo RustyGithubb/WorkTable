@@ -80,7 +80,7 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
     let list_shown = mail.directory || !prefs.mail_list_hidden;
     let list_w = list_full * liquid::animate(ui.ctx(), "mail_list_width", list_shown);
     let has_list = list_w >= 40.0;
-    let fixed: Vec<f32> = if has_list { vec![240.0, list_w] } else { vec![240.0] };
+    let fixed: Vec<f32> = if has_list { vec![widgets::SIDE_W, list_w] } else { vec![widgets::SIDE_W] };
     let mut toggle_list = false;
     let mut toggle_cats = false;
     mail.groups = prefs.groups.clone();
@@ -162,7 +162,16 @@ pub fn show(ui: &mut egui::Ui, mail: &mut MailState, acc: &mut Account, prefs: &
             Action::Open(id) => mail.open_message(acc, &id),
             Action::Star(m) => mail.toggle_star(acc, &m),
             Action::Pin(m) => mail.toggle_pin(&m),
-            Action::Spam(id, spam) => mail.mark_spam(acc, &id, spam),
+            Action::Spam(id, spam) => {
+                // L'adresse rejoint (ou quitte) la liste des adresses en spam.
+                if let Some(sender) = mail.sender_of(&id) {
+                    prefs.spam_senders.retain(|s| *s != sender);
+                    if spam {
+                        prefs.spam_senders.push(sender);
+                    }
+                }
+                mail.mark_spam(acc, &id, spam);
+            }
             Action::Trash(id, trash) => mail.trash(acc, &id, trash),
             Action::Move(id, l) => mail.move_to(acc, &id, &l),
             Action::StartCategory => mail.new_category = Some(String::new()),

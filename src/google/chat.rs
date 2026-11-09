@@ -137,6 +137,11 @@ pub enum ChatEvent {
     /// `None` : lecture impossible (à réessayer plus tard).
     Members(Vec<SpaceMembers>),
     People(Vec<Person>),
+    /// Personnes de l'annuaire de l'organisation trouvées pour une recherche (`query`).
+    Directory {
+        query: String,
+        list: Vec<Person>,
+    },
     /// Personnes que l'annuaire n'a pas pu lire (erreur, quota) : à redemander plus tard.
     PeopleFailed(Vec<String>),
     /// Message envoyé : remplace l'aperçu local `local`.
@@ -484,6 +489,24 @@ pub fn set_reaction(s: &Session, name: &str, emoji: &str, add: bool, me: Option<
         }
     }
     Ok(false)
+}
+
+/// Recherche par nom ou adresse dans l'annuaire de l'organisation (au plus 10 personnes).
+pub fn search_directory(s: &Session, query: &str) -> Result<Vec<Person>, String> {
+    let q = [("query", query), ("readMask", "names,emailAddresses,photos"), ("sources", "DIRECTORY_SOURCE_TYPE_DOMAIN_PROFILE"), ("pageSize", "10")];
+    let v = s.get(&format!("{PEOPLE}/people:searchDirectoryPeople"), &q)?;
+    Ok(v["people"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            let id = p["resourceName"].as_str()?.replace("people/", "users/");
+            let email = p["emailAddresses"][0]["value"].as_str()?.to_string();
+            let name = p["names"][0]["displayName"].as_str().unwrap_or_default().to_string();
+            let photo = p["photos"].as_array().and_then(|a| a.iter().find(|x| !x["default"].as_bool().unwrap_or(false))).and_then(|x| x["url"].as_str()).map(|u| photo_size(u, 96));
+            Some(Person { id, name, email, photo })
+        })
+        .collect())
 }
 
 /// Conversation privée avec une adresse : retrouvée si elle existe, sinon créée.

@@ -21,7 +21,7 @@ use crate::tabs::messages::ChatState;
 use crate::tasks::Tasks;
 use crate::{theme, widgets};
 
-const LIST_W: f32 = 270.0;
+const LIST_W: f32 = widgets::SIDE_W;
 const COLUMN_W: f32 = 760.0;
 
 pub enum NotesAction {

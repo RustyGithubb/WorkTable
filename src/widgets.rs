@@ -382,6 +382,9 @@ pub fn ghost_row(ui: &mut egui::Ui, width_ratio: f32) {
     ui.painter().rect_filled(bar, CornerRadius::same(5), theme::SURFACE_HI());
 }
 
+/// Largeur de la colonne de gauche de tous les onglets (celle des groupes de Google Chat).
+pub const SIDE_W: f32 = 260.0;
+
 /// Découpe l'espace restant en colonnes de largeurs fixes (la dernière prend le reste)
 /// et affiche un panneau dans chacune, en disposition verticale.
 pub fn pane_columns(ui: &mut egui::Ui, fixed: &[f32], mut body: impl FnMut(usize, &mut egui::Ui)) {
