@@ -5,6 +5,8 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.5.0
+
 ### Ajouté
 - Réglages › Compte NAS : synchronisation des données avec le serveur NAS (Mac mini) pour les
   retrouver sur chaque poste. Premier login avec le code d'invitation de la console du NAS (code de
