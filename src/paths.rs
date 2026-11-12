@@ -104,7 +104,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
     std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)
+    std::fs::rename(&tmp, path)?;
+    // Synchronisation avec le NAS : envoi dans quelques secondes.
+    crate::sync::poke();
+    Ok(())
 }
 
 /// Enregistre une valeur en JSON lisible (réglages, listes…), de façon atomique.

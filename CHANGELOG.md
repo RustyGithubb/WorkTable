@@ -5,6 +5,19 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+### Ajouté
+- Réglages › Compte NAS : synchronisation des données avec le serveur NAS (Mac mini) pour les
+  retrouver sur chaque poste. Premier login avec le code d'invitation de la console du NAS (code de
+  récupération affiché une fois), puis identifiant + mot de passe. Notes, tâches, Blueprints,
+  réglages, contacts, onglets perso et caches (messages, contacts, plannings) sont chiffrés sur le
+  poste avant l'envoi. Les changements des autres postes s'appliquent au démarrage (bouton
+  « Redémarrer et appliquer ») ; un même fichier JSON modifié sur deux postes est fusionné, sinon
+  la version d'ici est gardée en copie « conflit ». Postes connectés et « Révoquer ».
+
+### Corrigé
+- Tâches, rappels et bases de surlignage : identifiants uniques (date + hasard) au lieu de 1, 2,
+  3…, pour que deux postes synchronisés ne créent pas le même.
+
 ## 0.4.51
 
 ### Ajouté

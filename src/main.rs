@@ -23,6 +23,7 @@ mod search;
 mod sidebar;
 mod sound;
 mod spell;
+mod sync;
 mod tabs;
 mod tasks;
 mod theme;
@@ -90,6 +91,9 @@ fn main() -> eframe::Result<()> {
     if !background::single_instance() {
         return Ok(());
     }
+    // Synchronisation avec le NAS : changements des autres postes appliqués avant le chargement
+    // des données (quelques secondes au plus si le serveur est injoignable).
+    sync::startup();
     // Windows : DirectX 12 avec une chaîne d'affichage « DirectComposition », la seule qui gère la
     // vraie transparence (bandeau de notification sans fond, avec son ombre). Si DirectX 12 n'est pas
     // disponible, repli sur OpenGL (le bandeau est alors découpé à sa forme, sans ombre).

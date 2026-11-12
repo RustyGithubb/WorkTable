@@ -104,7 +104,7 @@ pub fn toggle_in(prefs: &mut Prefs, b: Option<u64>, e: &CalEvent) {
 
 /// Nouvelle base (vide) : son identifiant.
 pub fn new_base(prefs: &mut Prefs, name: &str) -> u64 {
-    let id = prefs.highlight_sets.iter().map(|s| s.id).max().unwrap_or(0) + 1;
+    let id = crate::tasks::unique_id().max(prefs.highlight_sets.iter().map(|s| s.id).max().unwrap_or(0) + 1);
     prefs.highlight_sets.push(crate::prefs::HighlightSet { id, name: name.trim().to_string(), highlights: Vec::new() });
     id
 }

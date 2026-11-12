@@ -49,6 +49,7 @@ pub fn show(ui: &mut egui::Ui, acc: &mut Account, hp: &mut crate::hyperplanning:
                 google_account_form(ui, acc);
             });
             ui.add_space(12.0);
+            crate::sync::ui::card(ui);
             hyperplanning_card(ui, hp);
             notifications(ui, prefs);
             section(ui, t!("À propos", "About"), &[("Version", "WorkTable", Value::Text(env!("CARGO_PKG_VERSION")))]);

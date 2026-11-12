@@ -36,4 +36,5 @@ Utilise-les systématiquement pendant le dev :
   - blueprint/ : graphs de nodes façon UE5 (editor, nodes, canvas, runtime, sim, store, library). Intégration étape par étape avec validation.
 - google/ : auth, gmail, calendar, drive, chat, compose, html
 - notes_store.rs, tasks.rs, people.rs, prefs.rs, paths.rs : données
+- sync/ : synchronisation avec le NAS (crate `nas-sync-client` du dépôt NAS) — mod.rs (compte, coffre, fil, `startup()` appelé dans main avant le chargement), engine.rs (fichiers synchronisés, réception mise de côté, application et fusion au démarrage, envoi), merge.rs (fusion JSON à trois voies), ui.rs (Réglages › Compte NAS). `paths::write_atomic` appelle `sync::poke()`
 - search.rs, notify.rs, spell.rs, update.rs, background.rs : services

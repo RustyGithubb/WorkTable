@@ -43,6 +43,10 @@ self-replace = "1.5.0"
 # Correcteur d'orthographe (dictionnaires Hunspell français et anglais dans assets/dict).
 spellbook = "0.4"
 
+# Synchronisation avec le NAS (dépôt RustyGithubb/NAS) : chiffrement de bout en bout et client.
+nas-sync-client = { git = "https://github.com/RustyGithubb/NAS" }
+nas-proto = { git = "https://github.com/RustyGithubb/NAS" }
+
 [target.'cfg(windows)'.dependencies]
 # Bordure de la fenêtre du bandeau de notification, sons, langue de Windows, protection de clé (DPAPI),
 # arrière-plan (fenêtre cachée, raccourci global, instance unique).

@@ -86,6 +86,14 @@ fn now() -> i64 {
     Local::now().timestamp_millis()
 }
 
+/// Identifiant unique, y compris entre plusieurs postes synchronisés par le NAS : date (ms) et
+/// hasard. (Des numéros 1, 2, 3… créés sur deux PC à la fois se mélangeraient à la fusion.)
+pub fn unique_id() -> u64 {
+    let mut b = [0u8; 2];
+    let r = getrandom::fill(&mut b).map(|_| u16::from_le_bytes(b) % 1000).unwrap_or(0);
+    now().max(0) as u64 * 1000 + r as u64
+}
+
 fn day_of(ms: i64) -> chrono::NaiveDate {
     Local.timestamp_millis_opt(ms).single().map(|d| d.date_naive()).unwrap_or_default()
 }
@@ -133,7 +141,7 @@ impl Tasks {
         if title.is_empty() {
             return None;
         }
-        self.next_id = self.next_id.max(self.list.iter().chain(&self.archive).map(|t| t.id).max().unwrap_or(0)) + 1;
+        self.next_id = unique_id().max(self.next_id + 1);
         let n = now();
         self.list.push(Task { id: self.next_id, title: title.to_string(), status: Status::Todo, created: n, since: n, summary: String::new() });
         self.dirty = true;
@@ -145,7 +153,7 @@ impl Tasks {
     /// Programme le rappel d'une tâche à l'échéance `due` (ms) ; renvoie son identifiant.
     pub fn add_timer(&mut self, task: u64, due: i64) -> Option<u64> {
         let title = self.list.iter().find(|t| t.id == task)?.title.clone();
-        self.next_timer = self.next_timer.max(self.timers.iter().map(|t| t.id).max().unwrap_or(0)) + 1;
+        self.next_timer = unique_id().max(self.next_timer + 1);
         self.timers.push(Timer { id: self.next_timer, task, title, due, created: now(), fired: false });
         self.timers.sort_by_key(|t| t.due);
         self.dirty = true;
