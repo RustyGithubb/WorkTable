@@ -5,6 +5,8 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.5.2
+
 ### Ajouté
 - Pastille « Compte » en haut de la barre latérale, avec l'image du compte : photo Google par défaut, initiales (prénom et nom Google) ou image importée. Le choix et l'image suivent le compte NAS.
 - Panneau Compte (clic sur la pastille), sur fond flouté comme Ctrl+Espace : image de profil, compte NAS (connexion, poids total et quota, PC synchronisés avec « Révoquer »), compte Google et HyperPlanning. Ces connexions quittent les Réglages.
