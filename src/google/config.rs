@@ -20,6 +20,11 @@ impl Config {
         Some(crate::paths::secrets().join("google.json"))
     }
 
+    /// Identifiants enregistrés sur ce poste (pas ceux livrés avec l'installeur).
+    pub fn saved() -> bool {
+        Self::path().is_some_and(|p| p.exists())
+    }
+
     pub fn load() -> Self {
         let read = |p: PathBuf| std::fs::read_to_string(p).ok().and_then(|s| serde_json::from_str::<Config>(&s).ok());
         Self::path().and_then(read).filter(Config::is_complete).or_else(|| read(crate::paths::install_dir().join("google.json"))).unwrap_or_default()

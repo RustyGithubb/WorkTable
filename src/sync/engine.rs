@@ -511,6 +511,11 @@ mod tests {
     fn wanted_paths() {
         assert!(wanted("data/notes/abc.md"));
         assert!(wanted("config/tasks.json"));
+        // Compte : adresses HyperPlanning, image du compte, compte Google chiffré.
+        assert!(wanted("config/hyperplanning.json"));
+        assert!(wanted("config/avatar.png"));
+        assert!(wanted("config/google_account.bin"));
+        assert!(!wanted("secrets/hyperplanning.json"));
         // Clés (DPAPI, propres au poste) et caches : jamais synchronisés.
         assert!(!wanted("cache/chat.wtc"));
         assert!(!wanted("secrets/chat_cache.key"));

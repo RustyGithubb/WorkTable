@@ -18,6 +18,74 @@ pub struct AccountPanel {
     error: Option<String>,
     /// Remettre le défilement en haut (ouverture).
     scroll_top: bool,
+    /// Menu « Changer de compte » ouvert ; formulaire d'ajout affiché ; déconnexion à confirmer.
+    switcher: bool,
+    adding: bool,
+    confirm_logout: bool,
+}
+
+/// Menu « Changer de compte » : comptes de ce poste (chacun ses données), ajout, déconnexion.
+fn switcher(ui: &mut egui::Ui, adding: &mut bool, confirm_logout: &mut bool) {
+    section(ui, t!("Changer de compte", "Switch account"));
+    ui.label(
+        RichText::new(t!(
+            "Chaque compte a ses propres données sur ce PC (dossier à son nom). En changer redémarre WorkTable.",
+            "Each account has its own data on this computer (folder named after it). Switching restarts WorkTable."
+        ))
+        .small()
+        .color(theme::TEXT_FAINT()),
+    );
+    ui.add_space(6.0);
+    let current = crate::paths::profile().to_string();
+    for (login, signed_in) in crate::sync::known_accounts() {
+        let local = login == crate::paths::LOCAL_PROFILE;
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(if local { t!("Sans compte", "No account") } else { login.as_str() }).color(theme::TEXT()));
+            if !signed_in && !local {
+                ui.label(RichText::new(t!("à reconnecter", "sign in again")).small().color(theme::TEXT_FAINT()));
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if login == current {
+                    ui.label(RichText::new(t!("ouvert", "open")).small().color(theme::TEXT_MUTED()));
+                } else if ui.button(t!("Ouvrir", "Open")).clicked() {
+                    crate::sync::switch_to(ui.ctx(), &login);
+                }
+            });
+        });
+    }
+    ui.add_space(6.0);
+    // Pas connecté : le formulaire « Compte NAS » plus bas sert à ajouter un compte.
+    let configured = crate::sync::configured();
+    *adding &= configured;
+    ui.horizontal(|ui| {
+        if configured && ui.selectable_label(*adding, t!("Ajouter un compte", "Add an account")).clicked() {
+            *adding = !*adding;
+        }
+        if crate::sync::configured() && !*confirm_logout && ui.button(t!("Se déconnecter", "Sign out")).clicked() {
+            *confirm_logout = true;
+        }
+    });
+    // Confirmation sur sa propre ligne (texte long).
+    if *confirm_logout && crate::sync::configured() {
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(t!("Ce PC ne synchronisera plus ce compte (ses fichiers restent). Sûr ?", "This computer will stop syncing this account (its files stay). Sure?"))
+                .small(),
+        );
+        ui.horizontal(|ui| {
+            if ui.button(t!("Se déconnecter", "Sign out")).clicked() {
+                crate::sync::disconnect();
+                *confirm_logout = false;
+            }
+            if ui.button(t!("Annuler", "Cancel")).clicked() {
+                *confirm_logout = false;
+            }
+        });
+    }
+    if *adding {
+        ui.add_space(8.0);
+        crate::sync::ui::add_account(ui);
+    }
 }
 
 fn rule(ui: &mut egui::Ui) {
@@ -115,6 +183,9 @@ impl AccountPanel {
             self.open = true;
             self.error = None;
             self.scroll_top = true;
+            self.switcher = false;
+            self.adding = false;
+            self.confirm_logout = false;
             self.bg.start(ctx);
         }
     }
@@ -150,7 +221,14 @@ impl AccountPanel {
                         ui.add_space(6.0);
                         ui.label(RichText::new(t!("Compte", "Account")).small().color(theme::TEXT_FAINT()));
                         let name = if avatar.name.trim().is_empty() { t!("Non connecté", "Not signed in").to_string() } else { avatar.name.clone() };
-                        ui.label(RichText::new(name).font(theme::title_font(18.0)).color(theme::TEXT()));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(name).font(theme::title_font(18.0)).color(theme::TEXT()));
+                            ui.add_space(8.0);
+                            if ui.selectable_label(self.switcher, t!("Changer de compte", "Switch account")).clicked() {
+                                self.switcher = !self.switcher;
+                                self.scroll_top = true;
+                            }
+                        });
                     });
                 });
                 rule(ui);
@@ -164,6 +242,10 @@ impl AccountPanel {
                     scroll = scroll.vertical_scroll_offset(0.0);
                 }
                 scroll.show(ui, |ui| {
+                    if self.switcher {
+                        switcher(ui, &mut self.adding, &mut self.confirm_logout);
+                        rule(ui);
+                    }
                     picture(ui, avatar, chat, &mut self.error);
                     rule(ui);
                     section(ui, t!("Compte NAS", "NAS account"));

@@ -378,8 +378,7 @@ fn web_space(ui: &mut egui::Ui, hp: &mut crate::hyperplanning::HyperPlanning) {
     ui.add_space(6.0);
     let testing = hp.web_status == Status::Testing;
     ui.add_enabled_ui(!testing, |ui| {
-        let url = widgets::field(ui, t!("Adresse", "Address"), 96.0, egui::TextEdit::singleline(&mut hp.config.web_url).hint_text(crate::hyperplanning::config::DEFAULT_WEB_URL));
-        if url.lost_focus() {
+        if widgets::locked_field(ui, "hp_web_url", t!("Adresse", "Address"), 96.0, &mut hp.config.web_url, crate::hyperplanning::config::DEFAULT_WEB_URL) {
             let _ = hp.config.save();
         }
         let same = hp.config.login.clone();
@@ -429,7 +428,9 @@ pub(crate) fn hyperplanning_form(ui: &mut egui::Ui, hp: &mut crate::hyperplannin
         ui.add_space(10.0);
         let testing = hp.status == Status::Testing;
         ui.add_enabled_ui(!testing, |ui| {
-            widgets::field(ui, t!("Adresse", "Address"), 96.0, egui::TextEdit::singleline(&mut hp.config.url).hint_text(crate::hyperplanning::config::DEFAULT_URL));
+            if widgets::locked_field(ui, "hp_url", t!("Adresse", "Address"), 96.0, &mut hp.config.url, crate::hyperplanning::config::DEFAULT_URL) {
+                let _ = hp.config.save();
+            }
             widgets::field(ui, t!("Identifiant", "Login"), 96.0, egui::TextEdit::singleline(&mut hp.config.login));
             let hint = if hp.config.has_password() { t!("enregistré — laisser vide pour le garder", "saved — leave empty to keep it") } else { "" };
             widgets::field(ui, t!("Mot de passe", "Password"), 96.0, egui::TextEdit::singleline(&mut hp.password_input).password(true).hint_text(hint));

@@ -83,19 +83,23 @@ fn app_creator() -> eframe::AppCreator<'static> {
 
 fn main() -> eframe::Result<()> {
     install_crash_log();
-    // Dossier des données de l'utilisateur (config, data, secrets, cache) créé dès le lancement ;
+    // Déjà lancée (en arrière-plan) : on la rouvre au lieu d'en démarrer une deuxième. Avant de
+    // toucher aux dossiers : après un changement de compte, l'instance précédente doit être fermée
+    // pour que ses données puissent être déplacées ou renommées.
+    if !background::single_instance() {
+        return Ok(());
+    }
+    // Dossier des données du compte ouvert (config, data, secrets, cache) créé dès le lancement ;
     // reprise de l'ancien emplacement.
     for d in paths::ensure_dirs() {
         eprintln!("WorkTable : impossible de créer le dossier {}", d.display());
     }
     paths::migrate();
-    // Déjà lancée (en arrière-plan) : on la rouvre au lieu d'en démarrer une deuxième.
-    if !background::single_instance() {
-        return Ok(());
-    }
     // Synchronisation avec le NAS : changements des autres postes appliqués avant le chargement
     // des données (quelques secondes au plus si le serveur est injoignable).
     sync::startup();
+    // Compte Google rattaché au compte NAS : repris d'un autre poste s'il manque ici (copie chiffrée).
+    google::account_sync::import_then_export();
     // Windows : DirectX 12 avec une chaîne d'affichage « DirectComposition », la seule qui gère la
     // vraie transparence (bandeau de notification sans fond, avec son ombre). Si DirectX 12 n'est pas
     // disponible, repli sur OpenGL (le bandeau est alors découpé à sa forme, sans ombre).

@@ -6,6 +6,7 @@
 // `ureq::Error` est volumineux mais ne sert qu'à l'intérieur des appels réseau (jamais conservé).
 #![allow(clippy::result_large_err)]
 
+pub mod account_sync;
 pub mod auth;
 pub mod calendar;
 pub mod chat;
@@ -366,6 +367,8 @@ impl Account {
 
     pub fn disconnect(&mut self) {
         auth::forget_refresh_token();
+        // La copie chiffrée garde les identifiants, sans le jeton.
+        account_sync::export();
         self.session = None;
         self.status = Status::Disconnected;
     }

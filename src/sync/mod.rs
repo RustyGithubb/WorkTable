@@ -63,22 +63,69 @@ struct Secret {
     device_id: u64,
 }
 
-fn entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string())
+/// Entrée du coffre d'un compte (une par identifiant : un poste peut garder plusieurs comptes).
+fn entry(login: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYRING_SERVICE, &format!("{KEYRING_USER}:{login}")).map_err(|e| e.to_string())
 }
 
+/// Session du compte dont les données sont ouvertes. Reprend une fois l'entrée unique des
+/// versions précédentes (`nas-sync`).
 fn load_secret() -> Option<Secret> {
-    entry().ok()?.get_password().ok().and_then(|s| serde_json::from_str(&s).ok())
+    let login = Account::load()?.login;
+    let read = |e: keyring::Entry| e.get_password().ok().and_then(|s| serde_json::from_str::<Secret>(&s).ok());
+    if let Some(s) = entry(&login).ok().and_then(read) {
+        return Some(s);
+    }
+    // Ancienne entrée : reprise seulement si ce poste n'a qu'un compte (celui des données
+    // déplacées), jamais par un autre compte.
+    if known_accounts().iter().filter(|(l, signed_in)| *signed_in && l != crate::paths::LOCAL_PROFILE).count() > 1 {
+        return None;
+    }
+    let old = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()?;
+    let s = read(old)?;
+    if save_secret(&login, &s).is_ok()
+        && let Ok(old) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+    {
+        let _ = old.delete_credential();
+    }
+    Some(s)
 }
 
-fn save_secret(s: &Secret) -> Result<(), String> {
-    entry()?.set_password(&serde_json::to_string(s).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+fn save_secret(login: &str, s: &Secret) -> Result<(), String> {
+    entry(login)?.set_password(&serde_json::to_string(s).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
 fn forget_secret() {
-    if let Ok(e) = entry() {
+    if let Some(a) = Account::load()
+        && let Ok(e) = entry(&a.login)
+    {
         let _ = e.delete_credential();
     }
+}
+
+/// Clé maître du compte connecté (chiffrement des données propres au compte, ex. Google).
+pub fn master_key() -> Option<nas_sync_client::MasterKey> {
+    let s = load_secret()?;
+    nas_sync_client::crypto::from_hex(&s.master).and_then(|v| <[u8; 32]>::try_from(v).ok()).map(nas_sync_client::MasterKey)
+}
+
+/// Données présentes sur ce poste, par compte : (identifiant, connecté ?). `_local` : données
+/// sans compte.
+pub fn known_accounts() -> Vec<(String, bool)> {
+    crate::paths::profiles()
+        .into_iter()
+        .map(|p| {
+            let signed_in = crate::paths::profile_root(&p).join("sync").join("account.json").exists();
+            (p, signed_in)
+        })
+        .collect()
+}
+
+/// Ouvre les données d'un autre compte de ce poste : noté pour le prochain lancement, puis
+/// redémarrage de l'application (rien de l'ancien compte ne reste en mémoire).
+pub fn switch_to(ctx: &eframe::egui::Context, login: &str) {
+    crate::paths::set_next_profile(login, None);
+    crate::update::restart(ctx);
 }
 
 /// Nom de ce poste, vu dans la console du NAS (« PC-ECOLE »).
@@ -123,6 +170,18 @@ pub struct Status {
     pub connect_error: Option<String>,
     /// Code de récupération à montrer une fois (premier login).
     pub recovery: Option<String>,
+    /// Connexion réussie à un autre compte : ses données s'ouvrent au redémarrage (après le code
+    /// de récupération s'il y en a un).
+    pub switch_to: Option<String>,
+}
+
+/// Redémarre sur le compte qui vient de se connecter, une fois le code de récupération noté.
+pub fn finish_switch(ctx: &eframe::egui::Context) {
+    let st = status();
+    if st.switch_to.is_some() && st.recovery.is_none() {
+        with_status(|s| s.switch_to = None);
+        crate::update::restart(ctx);
+    }
 }
 
 static STATUS: Mutex<Option<Status>> = Mutex::new(None);
@@ -214,22 +273,39 @@ pub fn connect(server: String, login: String, password: String, invite: Option<S
         match result {
             Ok((session, recovery)) => {
                 let secret = Secret { token: session.token, master: nas_sync_client::crypto::hex(&session.master.0), device_id: session.device_id };
-                if let Err(e) = save_secret(&secret) {
+                if let Err(e) = save_secret(&login, &secret) {
                     with_status(|s| {
                         s.connecting = false;
                         s.connect_error = Some(tf!("coffre du système inaccessible : {e}", "system vault unavailable: {e}"));
                     });
                     return;
                 }
-                let account = Account { server: server.trim().to_string(), login };
-                account.save();
-                // Filet de sécurité avant la première fusion avec les données d'autres postes.
-                engine::backup_before_first_sync();
-                with_status(|s| {
-                    *s = Status { recovery, device_id: secret.device_id, phase: Phase::Syncing, ..Default::default() };
-                });
-                engine::cycle(&account, &secret, false);
-                spawn();
+                let account = Account { server: server.trim().to_string(), login: login.clone() };
+                let current = crate::paths::profile();
+                if login == current {
+                    // Même compte (reconnexion) : sur ses données, sans redémarrer.
+                    account.save();
+                    // Filet de sécurité avant la première fusion avec les données d'autres postes.
+                    engine::backup_before_first_sync();
+                    with_status(|s| {
+                        *s = Status { recovery, device_id: secret.device_id, phase: Phase::Syncing, ..Default::default() };
+                    });
+                    engine::cycle(&account, &secret, false);
+                    spawn();
+                    return;
+                }
+                // Autre compte : ses propres données (dossier à son nom), ouvertes après un
+                // redémarrage. Les données sans compte sont reprises par le premier compte connecté
+                // qui n'a encore rien sur ce poste.
+                let adopt = current == crate::paths::LOCAL_PROFILE && !crate::paths::profile_root(&login).exists();
+                if adopt {
+                    engine::backup_before_first_sync();
+                    account.save();
+                } else {
+                    crate::paths::save_json(&crate::paths::profile_root(&login).join("sync").join("account.json"), &account);
+                }
+                crate::paths::set_next_profile(&login, adopt.then_some(crate::paths::LOCAL_PROFILE));
+                with_status(|s| *s = Status { recovery, switch_to: Some(login), ..Default::default() });
             }
             Err(e) => with_status(|s| {
                 s.connecting = false;
@@ -260,6 +336,18 @@ pub fn revoke(device: u64) {
         let _ = c.revoke_device(device);
         poke();
     });
+}
+
+/// Envoie l'image de profil du compte (copie en clair, affichée par la console du NAS) ;
+/// `None` la retire. Bloquant : à appeler hors de l'interface.
+pub fn upload_avatar(png: Option<&[u8]>) -> Result<(), String> {
+    let (Some(a), Some(s)) = (Account::load(), load_secret()) else { return Err("non connecté".into()) };
+    let c = nas_sync_client::Client::new(&a.server, nas_proto::sync::WORKTABLE, &device_name()).with_token(&s.token);
+    match png {
+        Some(p) => c.set_avatar(p),
+        None => c.clear_avatar(),
+    }
+    .map_err(|e| e.to_string())
 }
 
 /// Mémorise le contexte d'affichage (rafraîchir l'interface quand l'état change).

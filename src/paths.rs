@@ -14,6 +14,10 @@
 //! - **Développement** (`cargo run`) : le dossier `data\` du projet.
 //! - `WORKTABLE_DATA=<dossier>` force un dossier (tout dedans, comme en portable).
 //!
+//! **Un dossier par compte** : `profiles\<identifiant NAS>\` (`_local` sans compte) contient
+//! `config\`, `data\`, `secrets\` et `sync\` ; le cache aussi est rangé par compte. Le compte ouvert
+//! est noté dans `profiles.json` ; en changer relance l'application.
+//!
 //! Au premier lancement, les données de l'ancien emplacement (`%APPDATA%\WorkTable\WorkTable`) et
 //! le jeton du Gestionnaire d'identification Windows sont copiés (rien n'est supprimé).
 
@@ -32,43 +36,179 @@ pub enum Mode {
 }
 
 struct Layout {
-    mode: Mode,
+    /// Dossier de base (choix du compte, `profiles\`).
+    base: PathBuf,
+    /// Compte actif : son dossier `profiles\<nom>\` est la racine des données.
+    profile: String,
     root: PathBuf,
     cache: PathBuf,
 }
 
+/// Dossier des données sans compte NAS (`profiles\_local\`).
+pub const LOCAL_PROFILE: &str = "_local";
+
+/// Choix du compte actif (`profiles.json` dans le dossier de base). `rename_from` : dossier d'un
+/// compte à renommer au prochain lancement (données locales reprises par un compte qui se connecte).
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct Profiles {
+    active: String,
+    rename_from: Option<String>,
+}
+
+fn base_layout() -> (Mode, PathBuf, PathBuf) {
+    let one = |mode: Mode, root: PathBuf| (mode, root.clone(), root.join("cache"));
+    if let Some(p) = std::env::var_os("WORKTABLE_DATA").filter(|p| !p.is_empty()) {
+        return one(Mode::Forced, PathBuf::from(p));
+    }
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."));
+    // `cargo run` : exécutable dans target\release (ou debug, dist) → dossier du projet.
+    if let (Some("release" | "debug" | "dist"), Some(target)) = (exe_dir.file_name().and_then(|n| n.to_str()), exe_dir.parent())
+        && target.file_name().is_some_and(|n| n == "target")
+        && let Some(project) = target.parent()
+    {
+        return one(Mode::Development, project.join("data"));
+    }
+    // Version portable : `data\` (ou le fichier `portable`) à côté de l'exécutable.
+    if exe_dir.join("data").is_dir() || exe_dir.join("portable").exists() {
+        return one(Mode::Portable, exe_dir.join("data"));
+    }
+    // Version installée : profil de l'utilisateur.
+    match directories::BaseDirs::new() {
+        Some(b) => (Mode::Installed, b.data_dir().join(APP), b.data_local_dir().join(APP).join("cache")),
+        None => one(Mode::Portable, exe_dir.join("data")),
+    }
+}
+
+/// Mode et dossiers de base, sans rien toucher sur le disque (lu avant l'instance unique).
+fn base() -> &'static (Mode, PathBuf, PathBuf) {
+    static BASE: OnceLock<(Mode, PathBuf, PathBuf)> = OnceLock::new();
+    BASE.get_or_init(base_layout)
+}
+
+/// Dossiers du compte ouvert. Le premier appel range les données (déplacement, renommage) : à
+/// faire seulement une fois l'instance précédente fermée (voir `main`).
 fn layout() -> &'static Layout {
     static LAYOUT: OnceLock<Layout> = OnceLock::new();
     LAYOUT.get_or_init(|| {
-        let one = |mode: Mode, root: PathBuf| Layout { mode, cache: root.join("cache"), root };
-        if let Some(p) = std::env::var_os("WORKTABLE_DATA").filter(|p| !p.is_empty()) {
-            return one(Mode::Forced, PathBuf::from(p));
-        }
-        let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."));
-        // `cargo run` : exécutable dans target\release (ou debug, dist) → dossier du projet.
-        if let (Some("release" | "debug" | "dist"), Some(target)) = (exe_dir.file_name().and_then(|n| n.to_str()), exe_dir.parent())
-            && target.file_name().is_some_and(|n| n == "target")
-            && let Some(project) = target.parent()
-        {
-            return one(Mode::Development, project.join("data"));
-        }
-        // Version portable : `data\` (ou le fichier `portable`) à côté de l'exécutable.
-        if exe_dir.join("data").is_dir() || exe_dir.join("portable").exists() {
-            return one(Mode::Portable, exe_dir.join("data"));
-        }
-        // Version installée : profil de l'utilisateur.
-        match directories::BaseDirs::new() {
-            Some(b) => Layout { mode: Mode::Installed, root: b.data_dir().join(APP), cache: b.data_local_dir().join(APP).join("cache") },
-            None => one(Mode::Portable, exe_dir.join("data")),
-        }
+        let (_, base, cache) = base().clone();
+        let (profile, root, cache) = prepare_profile(&base, &cache);
+        Layout { root, cache, profile, base }
     })
 }
 
-pub fn mode() -> Mode {
-    layout().mode
+/// Données d'avant les comptes séparés (`config\`, `data\`, `secrets\`, `sync\` directement dans
+/// le dossier de base) : déplacées dans le dossier du compte connecté (sinon `_local`). Puis
+/// renommage éventuel demandé au lancement précédent. Renvoie (compte ouvert, dossier des
+/// données, dossier du cache). Un déplacement impossible (dossier verrouillé par OneDrive, un
+/// antivirus…) ne perd rien : tout reste ou revient en place, nouvel essai au lancement suivant.
+fn prepare_profile(base: &Path, cache: &Path) -> (String, PathBuf, PathBuf) {
+    const OLD: [&str; 4] = ["config", "data", "secrets", "sync"];
+    let profiles = base.join("profiles");
+    if OLD.iter().any(|d| base.join(d).exists()) {
+        let login = std::fs::read_to_string(base.join("sync").join("account.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v["login"].as_str().map(str::to_string))
+            .filter(|l| nas_proto::sync::valid_login(l))
+            .unwrap_or_else(|| LOCAL_PROFILE.into());
+        let dir = profiles.join(&login);
+        let mut moved = Vec::new();
+        let mut ok = std::fs::create_dir_all(&dir).is_ok();
+        if ok {
+            for d in OLD {
+                let (from, to) = (base.join(d), dir.join(d));
+                if !from.exists() {
+                    continue;
+                }
+                if to.exists() || std::fs::rename(&from, &to).is_err() {
+                    ok = false;
+                    break;
+                }
+                moved.push(d);
+            }
+        }
+        if !ok {
+            // Remis en place : l'ancien emplacement reste utilisé pour cette fois.
+            for d in moved {
+                let _ = std::fs::rename(dir.join(d), base.join(d));
+            }
+            return (login, base.to_path_buf(), cache.to_path_buf());
+        }
+        move_children(cache, &cache.join(&login));
+        write_profiles(base, &Profiles { active: login, rename_from: None });
+    }
+    let mut p = read_profiles(base);
+    if p.active.is_empty() {
+        p.active = LOCAL_PROFILE.into();
+    }
+    if let Some(from) = p.rename_from.clone() {
+        let (old, new) = (profiles.join(&from), profiles.join(&p.active));
+        if old.is_dir() && !new.exists() {
+            if std::fs::rename(&old, &new).is_err() {
+                // Pas encore possible : les données restent ouvertes là où elles sont (demande gardée).
+                return (from.clone(), old, cache.join(&from));
+            }
+            let _ = std::fs::rename(cache.join(&from), cache.join(&p.active));
+        }
+        p.rename_from = None;
+        write_profiles(base, &p);
+    }
+    (p.active.clone(), profiles.join(&p.active), cache.join(&p.active))
 }
 
-/// Dossier racine des données de l'utilisateur.
+/// Déplace le contenu d'un dossier (sauf `to`, s'il est dedans) vers `to`.
+fn move_children(from: &Path, to: &Path) {
+    let Ok(rd) = std::fs::read_dir(from) else { return };
+    if std::fs::create_dir_all(to).is_err() {
+        return;
+    }
+    for e in rd.flatten() {
+        if e.path() != to {
+            let _ = std::fs::rename(e.path(), to.join(e.file_name()));
+        }
+    }
+}
+
+fn read_profiles(base: &Path) -> Profiles {
+    std::fs::read_to_string(base.join("profiles.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+fn write_profiles(base: &Path, p: &Profiles) {
+    if let Ok(s) = serde_json::to_string_pretty(p) {
+        let _ = std::fs::write(base.join("profiles.json"), s);
+    }
+}
+
+/// Compte dont les données sont ouvertes (`_local` sans compte NAS).
+pub fn profile() -> &'static str {
+    &layout().profile
+}
+
+/// Comptes dont les données sont sur ce poste (noms des dossiers `profiles\…`).
+pub fn profiles() -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(layout().base.join("profiles"))
+        .map(|rd| rd.flatten().filter(|e| e.path().is_dir()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+/// Dossier des données d'un compte (qu'il existe ou non).
+pub fn profile_root(name: &str) -> PathBuf {
+    layout().base.join("profiles").join(name)
+}
+
+/// Compte à ouvrir au prochain lancement (`rename_from` : dossier à renommer en `name`).
+pub fn set_next_profile(name: &str, rename_from: Option<&str>) {
+    write_profiles(&layout().base, &Profiles { active: name.into(), rename_from: rename_from.map(str::to_string) });
+}
+
+pub fn mode() -> Mode {
+    base().0
+}
+
+/// Dossier racine des données du compte ouvert (`profiles\<compte>\`).
 pub fn root() -> &'static Path {
     &layout().root
 }
@@ -167,7 +307,8 @@ fn create_tree(root: &Path, cache: &Path) -> Vec<PathBuf> {
 /// Rassemble une fois les données de l'ancien emplacement dans le dossier des données.
 pub fn migrate() {
     let root = root();
-    let marker = root.join(".migrated");
+    // Marqueur dans le dossier de base : la reprise ne se fait qu'une fois, pas par compte.
+    let marker = layout().base.join(".migrated");
     if marker.exists() {
         return;
     }
@@ -223,6 +364,29 @@ mod tests {
             assert!(dir.join(sub).is_dir(), "{sub} manquant");
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn old_data_moves_into_account_folder() {
+        let base = std::env::temp_dir().join("wt_profiles_test");
+        let _ = std::fs::remove_dir_all(&base);
+        let cache = base.join("cache");
+        std::fs::create_dir_all(base.join("config")).unwrap();
+        std::fs::create_dir_all(base.join("sync")).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(base.join("config").join("a.json"), "{}").unwrap();
+        std::fs::write(base.join("sync").join("account.json"), r#"{"server":"s","login":"dorian"}"#).unwrap();
+        std::fs::write(cache.join("x.bin"), "x").unwrap();
+        assert_eq!(prepare_profile(&base, &cache).0, "dorian");
+        assert!(base.join("profiles").join("dorian").join("config").join("a.json").exists());
+        assert!(!base.join("config").exists());
+        assert!(cache.join("dorian").join("x.bin").exists());
+        // Données locales reprises par un compte : renommées au lancement suivant.
+        write_profiles(&base, &Profiles { active: "lea".into(), rename_from: Some("dorian".into()) });
+        assert_eq!(prepare_profile(&base, &cache).0, "lea");
+        assert!(base.join("profiles").join("lea").join("config").join("a.json").exists());
+        assert!(read_profiles(&base).rename_from.is_none());
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]

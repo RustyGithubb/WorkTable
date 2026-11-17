@@ -1,13 +1,17 @@
 //! Image du compte (pastille « Compte » en haut de la barre latérale) : photo Google, initiale
 //! ou image importée. Choix dans `config\avatar.json`, image importée dans `config\avatar.png`
-//! (256 × 256) : tous deux synchronisés avec le compte.
+//! (256 × 256) : tous deux synchronisés avec le compte. Une petite copie en clair de l'image
+//! affichée est aussi envoyée au NAS, pour la console (onglet Synchro).
 
 use eframe::egui::{self, Color32, CornerRadius, Pos2, Rect, TextureHandle, vec2};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::google::Account;
+use crate::tabs::mail::inline::ImgState;
 use crate::tabs::messages::ChatState;
 
 /// Origine de l'image du compte.
@@ -37,6 +41,35 @@ pub struct Avatar {
     /// Dates des fichiers lus : relus s'ils changent (reçus d'un autre poste, par exemple).
     stamps: (Option<SystemTime>, Option<SystemTime>),
     checked: Option<Instant>,
+    /// Copie pour la console du NAS : à envoyer (image ou compte changés), envoi en cours,
+    /// échec (nouvel essai dans une minute), compte NAS connu.
+    upload_due: bool,
+    sending: Arc<AtomicBool>,
+    failed: Arc<AtomicBool>,
+    retry_at: Option<Instant>,
+    login: Option<String>,
+    photo_ready: bool,
+}
+
+/// Image envoyée à la console du NAS : carré de 96 px (moins de 64 Ko en PNG, même au pire).
+const UPLOAD_PX: u32 = 96;
+
+/// Ce qu'il faut envoyer à la console du NAS.
+enum Upload {
+    /// Photo Google pas encore chargée : attendre.
+    Wait,
+    /// Image à envoyer, ou `None` : la retirer (la console affiche alors les initiales).
+    Send(Option<Vec<u8>>),
+}
+
+/// Recadre au centre en carré, réduit à `UPLOAD_PX` et encode en PNG.
+fn upload_png(img: image::DynamicImage) -> Option<Vec<u8>> {
+    let (w, h) = (img.width(), img.height());
+    let side = w.min(h).max(1);
+    let out = img.crop_imm((w - side) / 2, (h - side) / 2, side, side).resize_exact(UPLOAD_PX, UPLOAD_PX, image::imageops::FilterType::Lanczos3);
+    let mut png = Vec::new();
+    out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+    Some(png)
 }
 
 fn json_path() -> PathBuf {
@@ -68,15 +101,85 @@ impl Avatar {
                 self.stamps = stamps;
                 self.source = std::fs::read_to_string(json_path()).ok().and_then(|s| serde_json::from_str::<Saved>(&s).ok()).unwrap_or_default().source;
                 self.texture = load_texture(ctx);
+                self.upload_due = true;
             }
+            let login = crate::sync::Account::load().map(|a| a.login);
             // Prénom et nom du compte Google (fiche de l'annuaire, pas « Vous »).
             let google = chat.me.as_ref().and_then(|me| chat.people.get(me)).map(|p| p.name.clone()).filter(|n| !n.trim().is_empty());
-            self.name = google.or_else(|| crate::sync::Account::load().map(|a| a.login)).unwrap_or_default();
+            self.name = google.or_else(|| login.clone()).unwrap_or_default();
+            // Connexion au NAS (ou autre compte) : la copie de l'image est renvoyée.
+            if login != self.login {
+                self.login = login;
+                self.upload_due = true;
+            }
+            // Photo Google arrivée (ou perdue) : renvoyée si c'est elle qui est affichée.
+            let photo = chat.me.as_ref().and_then(|me| chat.photo_key(me)).is_some_and(|k| matches!(chat.images.peek(&k), Some(ImgState::Ready { .. })));
+            if photo != self.photo_ready {
+                self.photo_ready = photo;
+                self.upload_due |= self.source == Source::Google;
+            }
+            self.upload(chat);
         }
         // Fiche Google (nom pour les initiales) et photo, quel que soit le choix.
         if let Some(me) = chat.me.clone() {
             chat.request_photo(acc, &me);
             let _ = chat.images.get(ctx, &format!("photo:{me}"));
+        }
+    }
+
+    /// Envoie au NAS, en arrière-plan, une copie en clair de l'image affichée (la console du NAS
+    /// ne peut pas lire les fichiers synchronisés, chiffrés). Au lancement, puis à chaque
+    /// changement d'image ou de compte ; nouvel essai une minute après un échec.
+    fn upload(&mut self, chat: &ChatState) {
+        if self.failed.swap(false, Ordering::Relaxed) {
+            self.upload_due = true;
+            self.retry_at = Some(Instant::now() + Duration::from_secs(60));
+        }
+        if !self.upload_due || self.login.is_none() || self.sending.load(Ordering::Relaxed) || self.retry_at.is_some_and(|t| Instant::now() < t) {
+            return;
+        }
+        let png = match self.payload(chat) {
+            Upload::Wait => return,
+            Upload::Send(png) => png,
+        };
+        self.upload_due = false;
+        self.retry_at = None;
+        self.sending.store(true, Ordering::Relaxed);
+        let (sending, failed) = (self.sending.clone(), self.failed.clone());
+        std::thread::spawn(move || {
+            if crate::sync::upload_avatar(png.as_deref()).is_err() {
+                failed.store(true, Ordering::Relaxed);
+            }
+            sending.store(false, Ordering::Relaxed);
+        });
+    }
+
+    fn payload(&self, chat: &ChatState) -> Upload {
+        match self.source {
+            Source::Initial => Upload::Send(None),
+            // Image illisible (en cours d'écriture…) : on attend plutôt que de la retirer du NAS.
+            Source::Image => match image::open(image_path()).ok().and_then(upload_png) {
+                Some(png) => Upload::Send(Some(png)),
+                None => Upload::Wait,
+            },
+            Source::Google => {
+                // Compte Google ou fiche pas encore chargés (lancement) : attendre.
+                let Some(person) = chat.me.as_ref().and_then(|me| chat.people.get(me)) else { return Upload::Wait };
+                if person.photo.is_none() {
+                    return Upload::Send(None);
+                }
+                let Some(key) = chat.photo_key(&person.id) else { return Upload::Send(None) };
+                match chat.images.peek(&key) {
+                    Some(ImgState::Ready { image, .. }) => {
+                        let [w, h] = image.size;
+                        let rgba: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_srgba_unmultiplied()).collect();
+                        let img = image::RgbaImage::from_raw(w as u32, h as u32, rgba).map(image::DynamicImage::ImageRgba8);
+                        Upload::Send(img.and_then(upload_png))
+                    }
+                    Some(ImgState::Failed) => Upload::Send(None),
+                    _ => Upload::Wait,
+                }
+            }
         }
     }
 

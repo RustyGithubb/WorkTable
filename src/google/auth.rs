@@ -69,7 +69,7 @@ pub fn stored_refresh_token() -> Option<String> {
     std::fs::read_to_string(token_path()).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
 }
 
-fn store_refresh_token(token: &str) -> Result<(), String> {
+pub(crate) fn store_refresh_token(token: &str) -> Result<(), String> {
     crate::paths::write_atomic(&token_path(), token.as_bytes()).map_err(|e| e.to_string())
 }
 
@@ -126,6 +126,8 @@ pub fn login(agent: &ureq::Agent, cfg: &Config) -> Result<Tokens, String> {
 
     let refresh = resp.refresh_token.ok_or(t!("Google n'a pas renvoyé de jeton de rafraîchissement", "Google did not return a refresh token"))?;
     store_refresh_token(&refresh)?;
+    // Copie chiffrée pour les autres postes du compte NAS.
+    super::account_sync::export();
 
     Ok(Tokens { access: resp.access_token, expires_at: Instant::now() + Duration::from_secs(resp.expires_in.saturating_sub(60)), refresh })
 }

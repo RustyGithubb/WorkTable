@@ -42,6 +42,9 @@ pub fn form(ui: &mut egui::Ui) {
             recovery(ui, code);
             ui.add_space(10.0);
         }
+        if switching(ui, &st) {
+            return;
+        }
         match &account {
             None => sign_in(ui, form, &st),
             Some(a) => connected(ui, form, a, &st),
@@ -49,10 +52,42 @@ pub fn form(ui: &mut egui::Ui) {
     }
 }
 
+/// Ajout d'un compte (menu « Changer de compte ») : formulaire de connexion, même si ce poste est
+/// déjà connecté. Le compte ajouté s'ouvre dans ses propres données, après redémarrage.
+pub fn add_account(ui: &mut egui::Ui) {
+    super::set_ctx(ui.ctx());
+    let mut guard = FORM.lock().unwrap_or_else(|e| e.into_inner());
+    let form = guard.get_or_insert_with(Form::default);
+    let st = super::status();
+    if form.server.trim().is_empty()
+        && let Some(a) = Account::load()
+    {
+        form.server = a.server;
+    }
+    if let Some(code) = &st.recovery {
+        recovery(ui, code);
+        ui.add_space(10.0);
+    }
+    if !switching(ui, &st) {
+        sign_in(ui, form, &st);
+    }
+}
+
+/// Connexion à un autre compte réussie : redémarrage sur ses données (après le code de récupération).
+fn switching(ui: &mut egui::Ui, st: &super::Status) -> bool {
+    let Some(login) = &st.switch_to else { return false };
+    ui.horizontal(|ui| {
+        ui.add(egui::Spinner::new().size(14.0));
+        ui.label(tf!("Ouverture des données de {login}…", "Opening {login}'s data…"));
+    });
+    super::finish_switch(ui.ctx());
+    true
+}
+
 fn sign_in(ui: &mut egui::Ui, form: &mut Form, st: &super::Status) {
     let busy = st.connecting;
     ui.add_enabled_ui(!busy, |ui| {
-        widgets::field(ui, t!("Serveur", "Server"), 110.0, egui::TextEdit::singleline(&mut form.server).hint_text("sync.exemple.fr"));
+        widgets::locked_field(ui, "sync_server", t!("Serveur", "Server"), 110.0, &mut form.server, "sync.exemple.fr");
         widgets::field(ui, t!("Identifiant", "Login"), 110.0, egui::TextEdit::singleline(&mut form.login));
         widgets::field(ui, t!("Mot de passe", "Password"), 110.0, egui::TextEdit::singleline(&mut form.password).password(true));
         ui.checkbox(&mut form.first, t!("Premier login (code d'invitation donné par la console du NAS)", "First sign-in (invitation code from the NAS console)"));

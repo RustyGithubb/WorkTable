@@ -48,7 +48,7 @@ Utilise-les systématiquement pendant le dev :
   - notes/ (editor, links, inline)
   - files/, timeline.rs, settings.rs, custom.rs
   - blueprint/ : graphs de nodes façon UE5 (editor, nodes, canvas, runtime, sim, store, library). Intégration étape par étape avec validation.
-- google/ : auth, gmail, calendar, drive, chat, compose, html
-- notes_store.rs, tasks.rs, people.rs, prefs.rs, paths.rs : données
+- google/ : auth, gmail, calendar, drive, chat, compose, html ; account_sync.rs (compte Google rattaché au compte NAS : identifiants OAuth et jeton copiés chiffrés dans `config\google_account.bin`, repris sur un autre poste)
+- notes_store.rs, tasks.rs, people.rs, prefs.rs : données ; paths.rs : un dossier `profiles\<identifiant>\` par compte (config, data, secrets, sync ; `_local` sans compte ; `profiles.json` = compte ouvert)
 - sync/ : synchronisation avec le NAS (crate `nas-sync-client` du dépôt NAS) — mod.rs (compte, coffre, fil, `startup()` appelé dans main avant le chargement), engine.rs (fichiers synchronisés, réception mise de côté, application et fusion au démarrage, envoi), merge.rs (fusion JSON à trois voies), ui.rs (partie Compte NAS du panneau Compte). `paths::write_atomic` appelle `sync::poke()`
 - search.rs, notify.rs, spell.rs, update.rs, background.rs : services
