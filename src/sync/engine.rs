@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use nas_proto::sync::DocMeta;
+use nas_proto::sync::{DocMeta, PushResult};
 use nas_sync_client::crypto::sha256_hex;
 use nas_sync_client::{AppKey, Client, Error, MasterKey};
 use serde::{Deserialize, Serialize};
@@ -12,10 +12,6 @@ use super::{Account, Phase, Secret, dir, merge, with_status};
 
 /// Taille maximale d'un fichier synchronisé (le serveur refuse au-delà de 8 Mo chiffrés).
 const MAX_FILE: u64 = 7 * 1024 * 1024;
-
-/// Fichiers des dossiers `secrets` et `cache` synchronisés (les autres restent propres au poste).
-const SECRETS: [&str; 2] = ["chat_cache.key", "hyperplanning_cache.key"];
-const CACHES: [&str; 3] = ["chat.wtc", "people.wtc", "hyperplanning.wtc"];
 
 /// État d'un fichier à la dernière synchronisation.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -91,13 +87,16 @@ fn is_json(rel: &str) -> bool {
 
 // ───────────────────────────── Fichiers synchronisés ─────────────────────────────
 
-/// Dossier réel d'un premier élément de chemin (`config/…`, `data/…`, `secrets/…`, `cache/…`).
+/// Dossiers synchronisés. `secrets` et `cache` restent propres à chaque poste : leurs clés sont
+/// protégées par Windows (DPAPI, illisibles sur un autre PC) et les caches, réécrits à chaque
+/// rafraîchissement, se reconstruisent depuis Google et Hyperplanning.
+const TOPS: [&str; 2] = ["config", "data"];
+
+/// Dossier réel d'un premier élément de chemin (`config/…`, `data/…`).
 fn root_of(top: &str) -> Option<PathBuf> {
     match top {
         "config" => Some(crate::paths::config()),
         "data" => Some(crate::paths::data()),
-        "secrets" => Some(crate::paths::secrets()),
-        "cache" => Some(crate::paths::cache()),
         _ => None,
     }
 }
@@ -118,8 +117,6 @@ fn wanted(rel: &str) -> bool {
         "config" => name != "crash.log",
         // Journal des automatisations : propre au poste qui les a lancées (réécrit souvent).
         "data" => rel != "data/blueprint_runs.json",
-        "secrets" => rest.len() == 1 && SECRETS.contains(&name),
-        "cache" => rest.len() == 1 && CACHES.contains(&name),
         _ => false,
     }
 }
@@ -152,7 +149,7 @@ fn local_files() -> BTreeMap<String, (PathBuf, u64, i64)> {
         }
     }
     let mut out = BTreeMap::new();
-    for top in ["config", "data", "secrets", "cache"] {
+    for top in TOPS {
         if let Some(d) = root_of(top) {
             walk(&d, top, &mut out);
         }
@@ -210,7 +207,8 @@ fn conflict_rel(rel: &str, device: &str) -> Option<String> {
 
 // ───────────────────────────── Cycle ─────────────────────────────
 
-/// Un échange complet. `startup` : l'app n'a encore rien chargé, on peut écrire les fichiers.
+/// Un échange complet. `startup` : l'app n'a encore rien chargé, on peut écrire les fichiers ;
+/// seulement recevoir et appliquer (l'envoi se fait ensuite en arrière-plan, fenêtre ouverte).
 pub fn cycle(account: &Account, secret: &Secret, startup: bool) {
     let Some(master) = nas_sync_client::crypto::from_hex(&secret.master).and_then(|v| <[u8; 32]>::try_from(v).ok()).map(MasterKey) else {
         with_status(|s| s.phase = Phase::Error(t!("clé du compte illisible : reconnectez-vous", "account key unreadable: sign in again").into()));
@@ -234,13 +232,9 @@ pub fn cycle(account: &Account, secret: &Secret, startup: bool) {
         receive(&client, &key, &mut m, &mut incoming)?;
         if startup {
             apply(&mut m, &mut incoming, &mut conflicts);
+            return Ok(());
         }
         let skipped = send(&client, &key, &mut m, &mut incoming)?;
-        if startup && !incoming.is_empty() {
-            // Conflits apparus pendant l'envoi : réglés tout de suite, puis renvoyés.
-            apply(&mut m, &mut incoming, &mut conflicts);
-            send(&client, &key, &mut m, &mut incoming)?;
-        }
         let st = client.status().ok();
         let devices = client.devices().unwrap_or_default();
         with_status(|s| {
@@ -291,7 +285,7 @@ fn receive(client: &Client, key: &AppKey, m: &mut Manifest, incoming: &mut BTree
     }
 }
 
-fn stage(client: &Client, key: &AppKey, m: &Manifest, incoming: &mut BTreeMap<String, Incoming>, known: &BTreeMap<String, String>, meta: &DocMeta) -> Result<(), Error> {
+fn stage(client: &Client, key: &AppKey, m: &mut Manifest, incoming: &mut BTreeMap<String, Incoming>, known: &BTreeMap<String, String>, meta: &DocMeta) -> Result<(), Error> {
     // Notre propre envoi, ou version déjà en attente.
     if let Some(rel) = known.get(&meta.doc)
         && (m.files.get(rel).is_some_and(|e| e.version >= meta.version) || incoming.get(rel).is_some_and(|i| i.version >= meta.version))
@@ -308,7 +302,14 @@ fn stage(client: &Client, key: &AppKey, m: &Manifest, incoming: &mut BTreeMap<St
         let (rel, c) = client.fetch(key, meta)?;
         (rel, Some(c))
     };
+    // Clé ou cache envoyé par un poste resté sur une ancienne version : noté pour que `send` le
+    // supprime du serveur (une fois par version reçue), jamais écrit ici.
     if !wanted(&rel) {
+        if meta.deleted {
+            m.files.remove(&rel);
+        } else {
+            m.files.entry(rel).or_default().version = meta.version;
+        }
         return Ok(());
     }
     match &content {
@@ -328,9 +329,18 @@ fn stage(client: &Client, key: &AppKey, m: &Manifest, incoming: &mut BTreeMap<St
 /// Applique les changements mis de côté (au démarrage seulement), en fusionnant avec ceux d'ici.
 fn apply(m: &mut Manifest, incoming: &mut BTreeMap<String, Incoming>, conflicts: &mut Vec<String>) {
     for (rel, inc) in std::mem::take(incoming) {
+        // Fichier qui n'est plus synchronisé (clés et caches reçus d'une ancienne version).
+        // Gardé dans le manifeste avec la version reçue : `send` le supprimera du serveur.
+        if !wanted(&rel) {
+            m.files.entry(rel.clone()).or_default().version = inc.version;
+            let _ = std::fs::remove_file(staged_path(&rel));
+            continue;
+        }
         let remote = if inc.deleted { None } else { std::fs::read(staged_path(&rel)).ok() };
         if !inc.deleted && remote.is_none() {
-            continue; // contenu perdu : il reviendra au prochain échange complet
+            // Contenu perdu : curseur reculé pour le recevoir de nouveau au prochain échange.
+            m.cursor = m.cursor.min(inc.version.saturating_sub(1));
+            continue;
         }
         let local = abs(&rel).and_then(|p| std::fs::read(p).ok());
         let entry = m.files.get(&rel).cloned();
@@ -408,6 +418,22 @@ fn keep_both(m: &mut Manifest, rel: &str, local: &[u8], remote: &[u8], inc: &Inc
 
 /// Envoie ce qui a changé ici. Renvoie les fichiers trop gros.
 fn send(client: &Client, key: &AppKey, m: &mut Manifest, incoming: &mut BTreeMap<String, Incoming>) -> Result<Vec<String>, Error> {
+    // Fichiers qui ne sont plus synchronisés : supprimés du serveur (place libérée), puis oubliés.
+    // Conflit (version plus récente envoyée entre-temps) : suppression refaite sur cette version.
+    let unwanted: Vec<(String, u64)> = m.files.iter().filter(|(rel, _)| !wanted(rel)).map(|(r, e)| (r.clone(), e.version)).collect();
+    for (rel, version) in unwanted {
+        let mut r = client.push(key, &rel, version, None);
+        if let Ok(PushResult { conflict: Some(c), .. }) = &r
+            && !c.deleted
+        {
+            r = client.push(key, &rel, c.version, None);
+        }
+        if let Err(e @ (Error::Offline(_) | Error::SignedOut)) = r {
+            return Err(e);
+        }
+        m.files.remove(&rel);
+        save_quiet(&manifest_path(), &*m);
+    }
     let local = local_files();
     let mut skipped = Vec::new();
     for (rel, (path, size, mtime)) in &local {
@@ -485,8 +511,9 @@ mod tests {
     fn wanted_paths() {
         assert!(wanted("data/notes/abc.md"));
         assert!(wanted("config/tasks.json"));
-        assert!(wanted("cache/chat.wtc"));
-        assert!(wanted("secrets/chat_cache.key"));
+        // Clés (DPAPI, propres au poste) et caches : jamais synchronisés.
+        assert!(!wanted("cache/chat.wtc"));
+        assert!(!wanted("secrets/chat_cache.key"));
         assert!(!wanted("secrets/google_refresh_token"));
         assert!(!wanted("cache/emoji/1f600.png"));
         assert!(!wanted("config/crash.log"));

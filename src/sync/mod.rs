@@ -4,7 +4,8 @@
 //!
 //! Fonctionnement :
 //! - au **démarrage** (avant le chargement des données) : les changements reçus des autres postes
-//!   sont appliqués, fusionnés avec ceux d'ici si besoin, puis on envoie ce qui a changé ici ;
+//!   sont appliqués, fusionnés avec ceux d'ici si besoin ; l'envoi suit, fenêtre ouverte ;
+//! - synchronisés : `config/` et `data/` ; `secrets/` et `cache/` restent propres à chaque poste ;
 //! - **pendant** que l'app tourne : un fil envoie les fichiers modifiés (quelques secondes après
 //!   chaque enregistrement, et chaque minute) et reçoit ceux des autres postes. Ces derniers sont
 //!   mis de côté (l'app a ses données en mémoire et les réécrirait) : Réglages › Compte NAS
@@ -153,13 +154,14 @@ pub fn configured() -> bool {
     Account::load().is_some() && load_secret().is_some()
 }
 
-/// Démarrage de l'app, **avant** le chargement des données : applique ce qui est arrivé des
-/// autres postes, puis échange avec le serveur (court délai si hors ligne). Lance ensuite le fil
-/// de synchronisation.
+/// Démarrage de l'app, **avant** le chargement des données : reçoit et applique ce qui est arrivé
+/// des autres postes (court délai si hors ligne). Lance ensuite le fil de synchronisation, qui
+/// envoie les changements d'ici quelques secondes après l'ouverture de la fenêtre.
 pub fn startup() {
     let (Some(account), Some(secret)) = (Account::load(), load_secret()) else { return };
     with_status(|s| s.device_id = secret.device_id);
     engine::cycle(&account, &secret, true);
+    poke();
     spawn();
 }
 

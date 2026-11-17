@@ -5,6 +5,11 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+### Corrigé
+- Synchro : les clés et les caches (messages, Hyperplanning, personnes) ne sont plus synchronisés. Les clés sont protégées par Windows et illisibles sur un autre PC : chaque poste en recréait sans cesse, ce qui renvoyait aussi les caches et faisait grossir l'espace utilisé sur le NAS. Au premier échange, ils sont supprimés du serveur ; chaque poste garde les siens.
+- Synchro : la fenêtre s'ouvre sans attendre l'envoi des changements, fait en arrière-plan juste après.
+- Synchro : un changement reçu dont le contenu a été perdu est redemandé au serveur au lieu d'être ignoré.
+
 ## 0.5.1
 
 ### Corrigé
