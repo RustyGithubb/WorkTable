@@ -235,8 +235,8 @@ fn emoji_runs(galley: &egui::Galley) -> Vec<(Vec<(usize, usize)>, String)> {
     // Texte reconstitué à partir des glyphes (le « \n » n'a pas de glyphe).
     let mut chars = Vec::new();
     for (ri, row) in galley.rows.iter().enumerate() {
-        for gi in 0..row.glyphs.len() {
-            chars.push((ri, gi, row.glyphs[gi].chr));
+        for (gi, g) in row.glyphs.iter().enumerate() {
+            chars.push((ri, gi, g.chr));
         }
     }
     let text: String = chars.iter().map(|c| c.2).collect();
