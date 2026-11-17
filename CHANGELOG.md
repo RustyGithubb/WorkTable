@@ -5,6 +5,11 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.5.1
+
+### Corrigé
+- Synchro : WorkTable ne se lançait plus (boucle au démarrage) quand une clé ou un cache synchronisé était différent d'un poste à l'autre. La version reçue l'emporte désormais, et les caches se reconstruisent.
+
 ## 0.5.0
 
 ### Ajouté

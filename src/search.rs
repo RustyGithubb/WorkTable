@@ -1170,7 +1170,7 @@ fn seances(d: &crate::hyperplanning::cache::Snapshot, words: &[String], must: &[
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for (cours, c) in &d.cours {
         let ok = |s: &&crate::hyperplanning::cache::Seance| must.iter().all(|(kind, k)| involves(d, s, *kind, *k));
-        let Some(s) = c.seances.iter().filter(ok).find(|s| end_of(s) >= now).or(c.seances.iter().filter(ok).last()) else { continue };
+        let Some(s) = c.seances.iter().filter(ok).find(|s| end_of(s) >= now).or(c.seances.iter().rfind(ok)) else { continue };
         let title = matiere(d, s);
         let groups: [(Kind, &[u32]); 5] = [
             (Kind::Enseignant, &s.enseignants),

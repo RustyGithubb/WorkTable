@@ -188,7 +188,7 @@ impl Grid {
     /// (n° de semaine HYPERPLANNING, place dans la semaine, durée en places).
     fn place(&self, first_monday: NaiveDate, date: NaiveDate, start: u32, end: u32) -> Result<(i64, u32, u32), String> {
         let grid_end = self.start_min + self.step_min * self.places_per_day;
-        if end <= start || start < self.start_min || end > grid_end || (start - self.start_min) % self.step_min != 0 || (end - start) % self.step_min != 0 {
+        if end <= start || start < self.start_min || end > grid_end || !(start - self.start_min).is_multiple_of(self.step_min) || !(end - start).is_multiple_of(self.step_min) {
             return Err(tf!(
                 "Créneau hors de la grille de l'espace web ({} – {}, par pas de {} min)",
                 "Time slot outside the web space grid ({} – {}, {} min steps)",

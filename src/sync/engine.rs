@@ -190,8 +190,9 @@ fn save_base(rel: &str, content: Option<&[u8]>) {
     }
 }
 
-/// Copie de conflit : `notes/abc.md` → `notes/abc-conflit-PC-ECOLE.md`.
-fn conflict_rel(rel: &str, device: &str) -> String {
+/// Copie de conflit : `notes/abc.md` → `notes/abc-conflit-PC-ECOLE.md`. `None` si ce dossier
+/// n'accepte pas d'autre nom (clés et caches de `secrets/` et `cache/`).
+fn conflict_rel(rel: &str, device: &str) -> Option<String> {
     let (dir, name) = rel.rsplit_once('/').unwrap_or(("", rel));
     let (stem, ext) = name.split_once('.').map(|(s, e)| (s, format!(".{e}"))).unwrap_or((name, String::new()));
     let device: String = device.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
@@ -199,10 +200,11 @@ fn conflict_rel(rel: &str, device: &str) -> String {
     loop {
         let suffix = if n == 0 { String::new() } else { format!("-{n}") };
         let candidate = format!("{dir}/{stem}-conflit-{device}{suffix}{ext}");
-        if abs(&candidate).is_some_and(|p| !p.exists()) {
-            return candidate;
+        match abs(&candidate) {
+            None => return None,
+            Some(p) if !p.exists() => return Some(candidate),
+            Some(_) => n += 1,
         }
-        n += 1;
     }
 }
 
@@ -390,8 +392,12 @@ fn set(m: &mut Manifest, rel: &str, e: Option<Entry>) {
 }
 
 /// Garde la version reçue sous le nom d'origine et celle d'ici dans une copie « conflit ».
+/// Clés et caches (pas de copie possible) : la version reçue l'emporte, ils se reconstruisent.
 fn keep_both(m: &mut Manifest, rel: &str, local: &[u8], remote: &[u8], inc: &Incoming, conflicts: &mut Vec<String>) {
-    let copy = conflict_rel(rel, &super::device_name());
+    let Some(copy) = conflict_rel(rel, &super::device_name()) else {
+        set(m, rel, write_file(rel, Some(remote), inc.version));
+        return;
+    };
     if let Some(p) = abs(&copy)
         && crate::paths::write_atomic(&p, local).is_ok()
     {
@@ -493,8 +499,15 @@ mod tests {
 
     #[test]
     fn conflict_names() {
-        let c = conflict_rel("data/notes/abc.locked.json", "PC ECOLE");
+        let c = conflict_rel("data/notes/abc.locked.json", "PC ECOLE").unwrap();
         assert!(c.starts_with("data/notes/abc-conflit-PC_ECOLE"));
         assert!(c.ends_with(".locked.json"));
+    }
+
+    #[test]
+    fn no_conflict_copy_for_keys_and_caches() {
+        // Ces noms sont fixes : pas de copie possible (ne doit pas boucler).
+        assert!(conflict_rel("secrets/chat_cache.key", "PC").is_none());
+        assert!(conflict_rel("cache/chat.wtc", "PC").is_none());
     }
 }

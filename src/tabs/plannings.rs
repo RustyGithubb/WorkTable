@@ -122,6 +122,7 @@ fn toggle_fav(favs: &mut Favs, kind: Kind, k: u32) {
     }
 }
 
+#[allow(clippy::type_complexity)]
 #[derive(Default)]
 struct RangeCache {
     key: Option<(Vec<(Kind, u32)>, NaiveDate, NaiveDate, i64)>,
@@ -820,13 +821,7 @@ fn item_button(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &
         t!("Ajouter aux favoris", "Add to favourites")
     });
     if fav || ui.rect_contains_pointer(resp.rect) {
-        let color = if fav {
-            theme::TEXT()
-        } else if star_resp.hovered() {
-            theme::TEXT()
-        } else {
-            theme::TEXT_FAINT()
-        };
+        let color = if fav || star_resp.hovered() { theme::TEXT() } else { theme::TEXT_FAINT() };
         // Fond sous l'étoile pour masquer la fin d'un nom long.
         let bg = if on {
             ui.visuals().selection.bg_fill
@@ -851,6 +846,7 @@ fn item_button(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot, favs: &
 
 /// Liste rangée par famille › rubrique (sections repliables) ; un élément peut figurer dans
 /// plusieurs rubriques. Une seule famille : ses rubriques directement.
+#[allow(clippy::type_complexity)]
 fn grouped_list(
     ui: &mut egui::Ui,
     st: &mut PlanningsState,
@@ -990,6 +986,7 @@ fn selection_chips(ui: &mut egui::Ui, st: &mut PlanningsState, d: &Snapshot) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_seance(p: &egui::Painter, r: Rect, d: &Snapshot, s: &Seance, viewing: Option<Kind>, color: egui::Color32, hl: bool, past: bool) {
     let ink = if past { theme::TEXT_MUTED() } else { theme::TEXT() };
     let color = if past { color.gamma_multiply(0.55) } else { color };
