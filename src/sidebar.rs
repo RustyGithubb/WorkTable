@@ -61,9 +61,9 @@ pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usi
     let n = Tab::ALL.len() as f32;
     let inner_h = BUTTON + 17.0 + n * BUTTON + (n - 1.0) * 8.0;
     let pill_h = inner_h + 16.0;
-    // Centrée, mais sans jamais chevaucher la pilule Blueprint + Réglages en bas.
+    // Centrée, mais sans jamais chevaucher la pilule Compte en haut ni Blueprint + Réglages en bas.
     let max_y = window.bottom() - 2.0 * SCREEN_MARGIN - BOTTOM_H - pill_h;
-    let y = (window.center().y - pill_h / 2.0).min(max_y).max(window.top() + SCREEN_MARGIN);
+    let y = (window.center().y - pill_h / 2.0).min(max_y).max(window.top() + ACCOUNT_TOP + ACCOUNT_H + SCREEN_MARGIN);
     let pos = Pos2::new(window.left() + SCREEN_MARGIN, y);
 
     let mut clicked = None;
@@ -553,6 +553,38 @@ pub fn bottom_buttons(ctx: &egui::Context, window: Rect, current: Tab, dot: bool
             if let Some(r) = dot_rect {
                 update_dot(ui.painter(), r);
             }
+        });
+    });
+    clicked
+}
+
+/// Haut de la pilule Compte : à hauteur des en-têtes de page.
+const ACCOUNT_TOP: f32 = 36.0;
+/// Hauteur de la pilule Compte : un rond de la largeur des pilules.
+const ACCOUNT_H: f32 = PILL_WIDTH;
+
+/// Pilule « Compte », en haut à gauche, au premier plan : image ronde du compte, dessinée par
+/// `paint` (centre, rayon). `open` : panneau Compte ouvert (anneau). Renvoie `true` au clic.
+pub fn account_button(ctx: &egui::Context, window: Rect, open: bool, paint: impl FnOnce(&Painter, Pos2, f32)) -> bool {
+    let pos = Pos2::new(window.left() + SCREEN_MARGIN, window.top() + ACCOUNT_TOP);
+    let mut clicked = false;
+    egui::Area::new(egui::Id::unique("worktable_account")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
+        // L'image remplit toute la pastille (même taille et même ombre que les autres pilules).
+        pill_frame().inner_margin(Margin::ZERO).show(ui, |ui| {
+            let (rect, resp) = ui.allocate_exact_size(vec2(PILL_WIDTH, ACCOUNT_H), Sense::click());
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(t!("Compte", "Account"));
+            let phase = click_phase(ui, "account", resp.clicked());
+            let press = 1.0 - 0.09 * (std::f32::consts::PI * phase.min(1.0)).sin().max(0.0) * (1.0 - phase).max(0.0).sqrt();
+            paint(ui.painter(), rect.center(), PILL_WIDTH / 2.0 * press);
+            let ring = if open {
+                theme::TEXT()
+            } else if resp.hovered() {
+                theme::TEXT_MUTED()
+            } else {
+                theme::BORDER()
+            };
+            ui.painter().circle_stroke(rect.center(), PILL_WIDTH / 2.0 - 0.5, Stroke::new(if open { 2.0 } else { 1.0 }, ring));
+            clicked = resp.clicked();
         });
     });
     clicked

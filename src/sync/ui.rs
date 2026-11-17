@@ -1,4 +1,4 @@
-//! Réglages › Compte NAS : connexion au serveur de synchronisation, état, postes.
+//! Panneau Compte › Compte NAS : connexion au serveur de synchronisation, état.
 
 use std::sync::Mutex;
 
@@ -20,13 +20,14 @@ struct Form {
 
 static FORM: Mutex<Option<Form>> = Mutex::new(None);
 
-pub fn card(ui: &mut egui::Ui) {
+/// Connexion et état (panneau Compte ; poids et postes y sont affichés à part).
+pub fn form(ui: &mut egui::Ui) {
     super::set_ctx(ui.ctx());
     let mut guard = FORM.lock().unwrap_or_else(|e| e.into_inner());
     let form = guard.get_or_insert_with(Form::default);
     let st = super::status();
     let account = Account::load().filter(|_| super::configured());
-    widgets::card(ui, t!("Compte NAS", "NAS account"), 0.0, |ui| {
+    {
         ui.label(
             RichText::new(t!(
                 "Synchronise notes, tâches, Blueprints, réglages et caches avec ton serveur, chiffrés sur ce poste avant l'envoi.",
@@ -45,8 +46,7 @@ pub fn card(ui: &mut egui::Ui) {
             None => sign_in(ui, form, &st),
             Some(a) => connected(ui, form, a, &st),
         }
-    });
-    ui.add_space(12.0);
+    }
 }
 
 fn sign_in(ui: &mut egui::Ui, form: &mut Form, st: &super::Status) {
@@ -107,10 +107,6 @@ fn connected(ui: &mut egui::Ui, form: &mut Form, a: &Account, st: &super::Status
                 Phase::Error(e) => (e.clone(), true),
             };
             ui.add(egui::Label::new(RichText::new(text).small().color(if alert { theme::TODAY() } else { theme::TEXT_FAINT() })).wrap());
-            if st.quota > 0 {
-                let size = |b: u64| if b >= 1 << 30 { format!("{:.1} Go", b as f64 / (1u64 << 30) as f64) } else { crate::tabs::mail::attachments::human_size(b.max(1)) };
-                ui.label(RichText::new(tf!("{} fichiers · {} sur {}", "{} files · {} of {}", st.files, size(st.used), size(st.quota))).small().color(theme::TEXT_FAINT()));
-            }
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let busy = st.phase == Phase::Syncing;
@@ -170,29 +166,6 @@ fn connected(ui: &mut egui::Ui, form: &mut Form, a: &Account, st: &super::Status
         ui.label(RichText::new(tf!("Non synchronisés (plus de 7 Mo) : {}", "Not synced (over 7 MB): {}", st.skipped.join(", "))).small().color(theme::TEXT_FAINT()));
     }
 
-    // Postes du compte.
-    if !st.devices.is_empty() {
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(6.0);
-        ui.label(RichText::new(t!("Postes connectés", "Signed-in computers")).strong());
-        for d in &st.devices {
-            ui.horizontal(|ui| {
-                let me = d.id == st.device_id;
-                let name = if me { tf!("{} (ce poste)", "{} (this computer)", d.name) } else { d.name.clone() };
-                ui.label(name);
-                ui.label(RichText::new(when(d.last_seen as i64 * 1000)).small().color(theme::TEXT_FAINT()));
-                if !me {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button(t!("Révoquer", "Revoke")).clicked() {
-                            super::revoke(d.id);
-                        }
-                    });
-                }
-            });
-        }
-    }
-
     ui.add_space(8.0);
     ui.separator();
     ui.add_space(6.0);
@@ -239,7 +212,7 @@ fn recovery(ui: &mut egui::Ui, code: &str) {
 }
 
 /// « aujourd'hui 14:05 », ou la date.
-fn when(ms: i64) -> String {
+pub(crate) fn when(ms: i64) -> String {
     use chrono::TimeZone;
     let Some(d) = chrono::Local.timestamp_millis_opt(ms).single() else { return String::new() };
     if d.date_naive() == chrono::Local::now().date_naive() { tf!("aujourd'hui {}", "today {}", d.format("%H:%M")) } else { d.format("%d/%m %H:%M").to_string() }

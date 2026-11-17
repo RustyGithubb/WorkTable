@@ -7,7 +7,7 @@ use crate::liquid::Liquid;
 use crate::prefs::{Animation, Curve, Prefs};
 use crate::{theme, widgets};
 
-pub fn show(ui: &mut egui::Ui, acc: &mut Account, hp: &mut crate::hyperplanning::HyperPlanning, prefs: &mut Prefs, update: &crate::update::Updater) {
+pub fn show(ui: &mut egui::Ui, prefs: &mut Prefs, update: &crate::update::Updater) {
     widgets::page_header_with(ui, t!("Application", "Application"), t!("Réglages", "Settings"), |ui| {
         ui.add_space(8.0);
         // Icône « marche / arrêt » dessinée (le caractère ⏻ manque dans les polices de Windows).
@@ -39,18 +39,6 @@ pub fn show(ui: &mut egui::Ui, acc: &mut Account, hp: &mut crate::hyperplanning:
             crate::tabs::timeline::settings(ui, prefs);
             group_colors(ui, prefs);
             spam_senders(ui, prefs);
-            widgets::card(ui, t!("Compte Google", "Google account"), 0.0, |ui| {
-                ui.label(
-                    RichText::new(t!("Gmail (Calendar, Docs et Sheets utiliseront ce même compte)", "Gmail (Calendar, Docs and Sheets use this same account)"))
-                        .small()
-                        .color(theme::TEXT_FAINT()),
-                );
-                ui.add_space(10.0);
-                google_account_form(ui, acc);
-            });
-            ui.add_space(12.0);
-            crate::sync::ui::card(ui);
-            hyperplanning_card(ui, hp);
             notifications(ui, prefs);
             section(ui, t!("À propos", "About"), &[("Version", "WorkTable", Value::Text(env!("CARGO_PKG_VERSION")))]);
         });
@@ -426,10 +414,10 @@ fn web_space(ui: &mut egui::Ui, hp: &mut crate::hyperplanning::HyperPlanning) {
     }
 }
 
-/// Compte HyperPlanning (service web de l'école) : identifiants et test de connexion.
-fn hyperplanning_card(ui: &mut egui::Ui, hp: &mut crate::hyperplanning::HyperPlanning) {
+/// Compte HyperPlanning (service web de l'école) : identifiants et test de connexion (panneau Compte).
+pub(crate) fn hyperplanning_form(ui: &mut egui::Ui, hp: &mut crate::hyperplanning::HyperPlanning) {
     use crate::hyperplanning::{Status, SyncStatus};
-    widgets::card(ui, "HyperPlanning", 0.0, |ui| {
+    {
         ui.label(
             RichText::new(t!(
                 "HPP de l'école (lecture seule). Connexion en HTTP : identifiants non chiffrés sur le réseau.",
@@ -521,8 +509,7 @@ fn hyperplanning_card(ui: &mut egui::Ui, hp: &mut crate::hyperplanning::HyperPla
                 }
             });
         });
-    });
-    ui.add_space(12.0);
+    }
 }
 
 fn section(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str, Value)]) {

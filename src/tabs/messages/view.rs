@@ -1083,7 +1083,7 @@ pub(crate) fn image_avatar(p: &egui::Painter, chat: &ChatState, key: &str, c: Po
 }
 
 /// Pastille ronde avec initiales, couleur dérivée du nom (carrée arrondie pour un espace).
-fn avatar(p: &egui::Painter, c: Pos2, r: f32, name: &str, square: bool) {
+pub(crate) fn avatar(p: &egui::Painter, c: Pos2, r: f32, name: &str, square: bool) {
     const PALETTE: [[u8; 3]; 8] =
         [[0x5B, 0x8D, 0xEF], [0xD0, 0x6A, 0x4E], [0x4C, 0xAF, 0x7A], [0xA3, 0x6A, 0xD6], [0xE0, 0xA4, 0x3A], [0x3F, 0xA7, 0xB5], [0xC9, 0x5B, 0x8F], [0x7D, 0x8A, 0x99]];
     let h = name.bytes().fold(7u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));

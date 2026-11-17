@@ -5,7 +5,9 @@
 
 #[macro_use]
 mod i18n;
+mod account_panel;
 mod app;
+mod avatar;
 mod background;
 mod emoji_img;
 mod gallery;

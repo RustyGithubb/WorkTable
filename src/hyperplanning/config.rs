@@ -1,6 +1,6 @@
-//! Identifiants HyperPlanning : `secrets\hyperplanning.json` du dossier des données.
-//! Le mot de passe y est protégé par Windows (DPAPI) : seule la session Windows qui l'a
-//! enregistré peut le relire (à ressaisir sur un autre poste).
+//! Identifiants HyperPlanning. Adresses et identifiants : `config\hyperplanning.json` (synchronisé
+//! avec le compte). Mots de passe : `secrets\hyperplanning.json`, protégés par Windows (DPAPI) :
+//! seule la session Windows qui les a enregistrés peut les relire (à ressaisir sur un autre poste).
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -16,20 +16,19 @@ fn default_web_url() -> String {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub url: String,
     pub login: String,
     /// Espace web HyperPlanning.net, ouvert pour les demandes de réservation.
-    #[serde(default = "default_web_url")]
     pub web_url: String,
-    /// Mot de passe protégé (DPAPI), en base64.
-    #[serde(default)]
+    /// Mot de passe protégé (DPAPI), en base64. Seulement dans `secrets\`.
+    #[serde(skip_serializing_if = "String::is_empty")]
     password: String,
     /// Identifiant de l'espace web (vide : celui du service web).
-    #[serde(default)]
     pub web_login: String,
     /// Mot de passe de l'espace web, protégé comme `password` (vide : celui du service web).
-    #[serde(default)]
+    #[serde(skip_serializing_if = "String::is_empty")]
     web_password: String,
 }
 
@@ -41,20 +40,47 @@ impl Default for Config {
 
 impl Config {
     fn path() -> PathBuf {
+        crate::paths::config().join("hyperplanning.json")
+    }
+
+    fn secret_path() -> PathBuf {
         crate::paths::secrets().join("hyperplanning.json")
     }
 
     pub fn load() -> Self {
-        std::fs::read_to_string(Self::path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        let read = |p: PathBuf| std::fs::read_to_string(p).ok().and_then(|s| serde_json::from_str::<Config>(&s).ok());
+        let sealed = read(Self::secret_path());
+        let Some(mut c) = read(Self::path()) else {
+            // Ancienne version : tout était dans `secrets\` ; on le range en deux fichiers.
+            let c = sealed.unwrap_or_default();
+            if !c.login.trim().is_empty() {
+                let _ = c.save();
+            }
+            return c;
+        };
+        if let Some(s) = sealed {
+            c.password = s.password;
+            c.web_password = s.web_password;
+        }
+        c
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        crate::paths::write_atomic(&Self::path(), json.as_bytes()).map_err(|e| e.to_string())
+        let open = Config { password: String::new(), web_password: String::new(), ..self.clone() };
+        let json = serde_json::to_string_pretty(&open).map_err(|e| e.to_string())?;
+        crate::paths::write_atomic(&Self::path(), json.as_bytes()).map_err(|e| e.to_string())?;
+        if self.password.is_empty() && self.web_password.is_empty() {
+            let _ = std::fs::remove_file(Self::secret_path());
+            return Ok(());
+        }
+        let sealed = serde_json::json!({ "password": self.password, "web_password": self.web_password });
+        let json = serde_json::to_string_pretty(&sealed).map_err(|e| e.to_string())?;
+        crate::paths::write_atomic(&Self::secret_path(), json.as_bytes()).map_err(|e| e.to_string())
     }
 
     pub fn clear() {
         let _ = std::fs::remove_file(Self::path());
+        let _ = std::fs::remove_file(Self::secret_path());
     }
 
     pub fn has_password(&self) -> bool {

@@ -18,7 +18,7 @@ pub mod pins;
 pub mod store;
 mod view;
 // Photos de profil, aussi pour la recherche Ctrl+Espace.
-pub(crate) use view::{image_avatar, prepare_photos};
+pub(crate) use view::{avatar as initials_avatar, image_avatar, prepare_photos};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -1541,6 +1541,30 @@ impl ChatState {
             return Vec::new();
         }
         self.directory.1.iter().filter(|p| !p.email.is_empty()).map(|p| (if p.name.is_empty() { p.email.clone() } else { p.name.clone() }, p.email.clone())).collect()
+    }
+
+    /// Photo de profil d'une seule personne (pastille Compte) : fiche demandée à l'annuaire si
+    /// elle manque, puis photo téléchargée (copie locale chiffrée d'abord, puis Google).
+    pub(crate) fn request_photo(&mut self, acc: &Account, user: &str) {
+        let key = format!("photo:{user}");
+        if self.images.peek(&key).is_some() {
+            return;
+        }
+        let Some(person) = self.people.get(user) else {
+            // Annuaire en échec : essais espacés, pas à chaque image.
+            if retry_due(self.people_retry.get(user)) {
+                self.request_people(acc, vec![user.to_string()]);
+            }
+            return;
+        };
+        let Some(url) = person.photo.clone() else { return };
+        self.images.start(&key);
+        self.photos_in_flight += 1;
+        let agent = acc.agent();
+        acc.spawn(move || {
+            let image = cached_photo(&url, || chat::fetch_photo(&agent, &url));
+            Ok(Event::Chat(ChatEvent::Image { key, image }))
+        });
     }
 
     /// Télécharge les photos de profil manquantes (copie locale chiffrée d'abord, puis Google).

@@ -66,6 +66,9 @@ pub struct WorkTableApp {
     prefs: Prefs,
     /// Mises à jour publiées sur GitHub (vérifiées au lancement).
     update: crate::update::Updater,
+    /// Image du compte (pastille Compte) et panneau Compte ouvert.
+    avatar: crate::avatar::Avatar,
+    account_panel: crate::account_panel::AccountPanel,
 }
 
 impl WorkTableApp {
@@ -137,6 +140,8 @@ impl WorkTableApp {
             card: Default::default(),
             prefs,
             update,
+            avatar: Default::default(),
+            account_panel: Default::default(),
         }
     }
 }
@@ -492,7 +497,7 @@ impl eframe::App for WorkTableApp {
                 }
                 Tab::Plannings => tabs::plannings::show(ui, &mut self.plannings, &mut self.hyperplanning, &mut self.prefs.hp_favorites),
                 Tab::Blueprint => tabs::blueprint::show(ui, &mut self.blueprint, &mut self.prefs),
-                Tab::Settings => tabs::settings::show(ui, &mut self.account, &mut self.hyperplanning, &mut self.prefs, &self.update),
+                Tab::Settings => tabs::settings::show(ui, &mut self.prefs, &self.update),
                 Tab::Custom(id) => {
                     let mut d = tabs::dashboard::Deps {
                         cal: &self.calendar,
@@ -596,6 +601,15 @@ impl eframe::App for WorkTableApp {
         if let Some(tab) = sidebar::bottom_buttons(ui.ctx(), window_rect, self.current, self.update.badge()) {
             self.current = tab;
         }
+
+        // Pilule Compte, en haut à gauche : image du compte.
+        self.avatar.tick(ui.ctx(), &mut self.chat, &self.account);
+        let (avatar, chat) = (&self.avatar, &self.chat);
+        if sidebar::account_button(ui.ctx(), window_rect, self.account_panel.is_open(), |p, c, r| avatar.paint(p, chat, c, r)) {
+            self.account_panel.toggle(ui.ctx());
+        }
+        // Panneau Compte (fond flouté, par-dessus tout le reste).
+        self.account_panel.show(ui.ctx(), &mut self.avatar, &self.chat, &mut self.account, &mut self.hyperplanning);
 
         // Barre de titre intégrée : déplacement, réduire / agrandir / fermer, redimensionnement.
         crate::titlebar::show(ui.ctx(), window_rect);

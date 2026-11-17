@@ -5,6 +5,11 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+### Ajouté
+- Pastille « Compte » en haut de la barre latérale, avec l'image du compte : photo Google par défaut, initiales (prénom et nom Google) ou image importée. Le choix et l'image suivent le compte NAS.
+- Panneau Compte (clic sur la pastille), sur fond flouté comme Ctrl+Espace : image de profil, compte NAS (connexion, poids total et quota, PC synchronisés avec « Révoquer »), compte Google et HyperPlanning. Ces connexions quittent les Réglages.
+- Synchro : l'adresse et l'identifiant HyperPlanning suivent le compte (`config\hyperplanning.json`) ; les mots de passe restent propres à chaque poste. L'ancien fichier est repris tout seul.
+
 ### Corrigé
 - Synchro : les clés et les caches (messages, Hyperplanning, personnes) ne sont plus synchronisés. Les clés sont protégées par Windows et illisibles sur un autre PC : chaque poste en recréait sans cesse, ce qui renvoyait aussi les caches et faisait grossir l'espace utilisé sur le NAS. Au premier échange, ils sont supprimés du serveur ; chaque poste garde les siens.
 - Synchro : la fenêtre s'ouvre sans attendre l'envoi des changements, fait en arrière-plan juste après.

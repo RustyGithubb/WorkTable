@@ -1,8 +1,8 @@
 //! HyperPlanning (logiciel de planning de l'école), via son service web SOAP.
 //!
 //! - **Lecture seule** : aucune opération d'écriture n'est envoyée au serveur (voir `soap`).
-//! - Identifiants saisis dans Réglages › HyperPlanning, gardés dans `secrets\hyperplanning.json`
-//!   (mot de passe protégé par Windows, voir `config`).
+//! - Identifiants saisis dans Réglages › HyperPlanning, gardés dans `config\hyperplanning.json`
+//!   (mots de passe à part dans `secrets\`, protégés par Windows, voir `config`).
 //! - Copie locale chiffrée (`cache`), relue au lancement puis tenue à jour en arrière-plan
 //!   toutes les [`SYNC_EVERY`] (`sync`) : les lectures ne font aucune requête.
 
