@@ -5,7 +5,10 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.5.3
+
 ### Ajouté
+- Réglages : ce n'est plus un onglet mais un panneau sur fond flouté, comme Ctrl+Espace, ouvert et fermé par la pilule ⚙️ (Échap ou un clic à côté le ferment). Tous les réglages y sont, en sections séparées par des filets ; le panneau laisse le même écart à gauche et à droite (16 % de la fenêtre).
 - Comptes séparés : chaque compte NAS a ses propres données sur le PC (`profiles\<identifiant>\` : réglages, notes, secrets, état de synchro, cache). Au premier lancement, les données actuelles sont rangées dans le dossier du compte connecté (sinon `_local`).
 - Panneau Compte : bouton « Changer de compte » à droite du nom (comptes de ce PC, ajout d'un compte, déconnexion). Ouvrir un autre compte redémarre WorkTable sur ses données.
 - Compte Google rattaché au compte NAS : identifiants et connexion synchronisés, chiffrés avec une clé tirée de la clé du compte NAS ; repris tout seuls sur un autre PC.

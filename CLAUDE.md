@@ -17,7 +17,8 @@ Tout panneau ouvert par-dessus l'app (recherche Ctrl+Espace, panneau Compte, fic
 - Fermeture : Échap ou clic sur le fond (un clic sur le bouton qui l'a ouvert compte comme un clic sur le fond).
 - Largeur et position : 640 px (`min(largeur − 40)`), centrée ; haut à 16 % de la hauteur de la fenêtre, glissement de 12 px pendant le fondu.
 - Étirement en hauteur : même écart sous le panneau qu'au-dessus (16 % de la hauteur), quelle que soit la taille de la fenêtre. Le contenu défile dans une `ScrollArea` de hauteur imposée : `min_scrolled_height(h).max_height(h).auto_shrink([false, false])`, avec `h` = bas visé − marge du cadre (14 px) − `ui.cursor().top()`. Sans `min_scrolled_height`, egui tasse la zone et le panneau s'arrête n'importe où.
-- En-tête fixe (hors de la zone qui défile) ; sections = titre en gras + filets `theme::BORDER()` (8 px avant et après), pas de `widgets::card` dans un panneau (les cartes sont réservées aux Réglages).
+- En-tête fixe (hors de la zone qui défile) ; sections = titre en gras + filets `theme::BORDER()` (8 px avant et après), pas de `widgets::card` dans un panneau, Réglages compris.
+- Réglages : panneau superposé (`tabs::settings::SettingsPanel`), ouvert/fermé par la pilule ⚙️ seulement, jamais un onglet ; sections via `settings::group`.
 - Image ronde dans une pastille (ex. pastille Compte) : l'image remplit toute la pastille (pas de marge intérieure), liseré `BORDER`, `TEXT_MUTED` au survol, `TEXT` et plus épais quand son panneau est ouvert.
 - Nom de l'utilisateur affiché : celui de sa fiche (prénom et nom Google), jamais « Vous ».
 
@@ -46,7 +47,8 @@ Utilise-les systématiquement pendant le dev :
   - mail/ (view, composer, contacts, drafts…) — mail/view.rs = 85 Ko
   - messages/ (view, emoji, gif…) — messages/view.rs = 100 Ko
   - notes/ (editor, links, inline)
-  - files/, timeline.rs, settings.rs, custom.rs
+  - files/, timeline.rs, custom.rs
+  - settings.rs : panneau Réglages (overlay façon Ctrl+Espace, pilule ⚙️), sections `group`
   - blueprint/ : graphs de nodes façon UE5 (editor, nodes, canvas, runtime, sim, store, library). Intégration étape par étape avec validation.
 - google/ : auth, gmail, calendar, drive, chat, compose, html ; account_sync.rs (compte Google rattaché au compte NAS : identifiants OAuth et jeton copiés chiffrés dans `config\google_account.bin`, repris sur un autre poste)
 - notes_store.rs, tasks.rs, people.rs, prefs.rs : données ; paths.rs : un dossier `profiles\<identifiant>\` par compte (config, data, secrets, sync ; `_local` sans compte ; `profiles.json` = compte ouvert)

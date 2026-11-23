@@ -5,49 +5,151 @@ use eframe::egui::{self, RichText};
 use crate::google::{Account, Status};
 use crate::liquid::Liquid;
 use crate::prefs::{Animation, Curve, Prefs};
+use crate::search::{Backdrop, overlay_frame};
 use crate::{theme, widgets};
 
-pub fn show(ui: &mut egui::Ui, prefs: &mut Prefs, update: &crate::update::Updater) {
-    widgets::page_header_with(ui, t!("Application", "Application"), t!("Réglages", "Settings"), |ui| {
-        ui.add_space(8.0);
-        // Icône « marche / arrêt » dessinée (le caractère ⏻ manque dans les polices de Windows).
-        let quit = egui::Button::new(RichText::new(t!("       Quitter WorkTable", "       Quit WorkTable")).strong().color(egui::Color32::WHITE))
-            .fill(theme::TODAY())
-            .corner_radius(egui::CornerRadius::same(10))
-            .min_size(egui::vec2(0.0, 32.0));
-        let resp = ui.add(quit).on_hover_text(t!(
-            "Arrête vraiment l'application (fermer la fenêtre la laisse tourner en arrière-plan)",
-            "Really stops the app (closing the window keeps it running in the background)"
-        ));
-        power_icon(ui.painter(), egui::pos2(resp.rect.left() + 20.0, resp.rect.center().y), 6.0, egui::Color32::WHITE);
-        if resp.clicked() {
-            crate::background::quit(ui.ctx());
+/// Panneau Réglages (clic sur la pilule ⚙️) : même boîte que la recherche Ctrl+Espace, sur fond
+/// flouté ; fermé par Échap ou un clic à côté (la pilule comprise).
+#[derive(Default)]
+pub struct SettingsPanel {
+    open: bool,
+    bg: Backdrop,
+    /// Remettre le défilement en haut (ouverture).
+    scroll_top: bool,
+    /// Ouverture demandée sans `Context` sous la main (depuis la recherche).
+    pending: bool,
+    /// Faire passer le fond devant les pilules (ouverture).
+    raise: bool,
+}
+
+impl SettingsPanel {
+    /// Ouvre le panneau à la prochaine image.
+    pub fn open_soon(&mut self) {
+        self.pending = true;
+    }
+
+    pub fn toggle(&mut self, ctx: &egui::Context) {
+        if self.open {
+            self.close();
+        } else {
+            self.open = true;
+            self.scroll_top = true;
+            self.raise = true;
+            self.bg.start(ctx);
         }
-    });
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        let width = ui.available_width().min(760.0);
-        ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
-            general(ui, prefs, update);
-            background_card(ui, prefs);
-            spelling_card(ui, prefs);
-            data_card(ui);
-            themes(ui, prefs);
-            fonts(ui, prefs);
-            animations(ui, prefs);
-            blueprint(ui, prefs);
-            dashboard_card(ui, prefs);
-            crate::tabs::timeline::settings(ui, prefs);
-            group_colors(ui, prefs);
-            spam_senders(ui, prefs);
-            notifications(ui, prefs);
-            section(ui, t!("À propos", "About"), &[("Version", "WorkTable", Value::Text(env!("CARGO_PKG_VERSION")))]);
+    }
+
+    fn close(&mut self) {
+        self.open = false;
+        self.bg.clear();
+    }
+
+    pub fn show(&mut self, ctx: &egui::Context, prefs: &mut Prefs, update: &crate::update::Updater) {
+        if std::mem::take(&mut self.pending) && !self.open {
+            self.toggle(ctx);
+        }
+        if !self.open {
+            return;
+        }
+        // Niveau Foreground (comme la fenêtre de rédaction) : les listes déroulantes (Langue,
+        // Polices…) s'ouvrent au-dessus du panneau, pas dessous.
+        let (k, mut close) = self.bg.show_in(ctx, "settings_backdrop", egui::Order::Foreground);
+        // Liste ouverte ou raccourci en cours de saisie : Échap et le clic à côté sont pour eux.
+        let busy = egui::Popup::is_any_open(ctx) || ctx.data(|d| d.get_temp::<Option<usize>>(egui::Id::unique("wt_hotkey_recording"))).flatten().is_some();
+        if busy {
+            close = false;
+        } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            close = true;
+        }
+
+        let screen = ctx.content_rect();
+        // Même écart à gauche et à droite : 16 % de la largeur de la fenêtre (comme le haut et le
+        // bas, 16 % de la hauteur). Même haut que la recherche Ctrl+Espace.
+        let w = screen.width() * (1.0 - 2.0 * 0.16);
+        let top = screen.top() + screen.height() * 0.16 - (1.0 - k) * 12.0;
+        egui::Area::new(egui::Id::unique("settings_box")).order(egui::Order::Foreground).fixed_pos(egui::pos2(screen.center().x - w / 2.0, top)).show(ctx, |ui| {
+            ui.multiply_opacity(k);
+            overlay_frame().show(ui, |ui| {
+                ui.set_width(w - 28.0);
+                // En-tête fixe : titre et « Quitter WorkTable ».
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(t!("Application", "Application")).small().color(theme::TEXT_FAINT()));
+                        ui.label(RichText::new(t!("Réglages", "Settings")).font(theme::title_font(18.0)).color(theme::TEXT()));
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), quit_button);
+                });
+                // Étiré vers le bas : même écart sous le panneau qu'au-dessus (comme Ctrl+Espace),
+                // quelle que soit la hauteur de la fenêtre (14 px : marge du cadre).
+                let bottom = screen.bottom() - screen.height() * 0.16;
+                let h = (bottom - 14.0 - ui.cursor().top()).max(120.0);
+                let mut scroll = egui::ScrollArea::vertical().min_scrolled_height(h).max_height(h).auto_shrink([false, false]);
+                // Réouverture : de nouveau en haut.
+                if std::mem::take(&mut self.scroll_top) {
+                    scroll = scroll.vertical_scroll_offset(0.0);
+                }
+                scroll.show(ui, |ui| {
+                    general(ui, prefs, update);
+                    background_card(ui, prefs);
+                    spelling_card(ui, prefs);
+                    data_card(ui);
+                    themes(ui, prefs);
+                    fonts(ui, prefs);
+                    animations(ui, prefs);
+                    blueprint(ui, prefs);
+                    dashboard_card(ui, prefs);
+                    crate::tabs::timeline::settings(ui, prefs);
+                    group_colors(ui, prefs);
+                    spam_senders(ui, prefs);
+                    notifications(ui, prefs);
+                    section(ui, t!("À propos", "About"), &[("Version", "WorkTable", Value::Text(env!("CARGO_PKG_VERSION")))]);
+                });
+            });
         });
-    });
+        let backdrop = egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("settings_backdrop"));
+        // À l'ouverture, le fond passe devant les pilules (même niveau) ; ensuite les listes
+        // déroulantes ouvertes plus tard restent devant lui.
+        if std::mem::take(&mut self.raise) {
+            ctx.move_to_top(backdrop);
+        }
+        // La boîte reste juste au-dessus de son fond, même après un clic sur le fond.
+        ctx.set_sublayer(backdrop, egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("settings_box")));
+        if close {
+            self.close();
+        }
+    }
+}
+
+/// « Quitter WorkTable ». Icône « marche / arrêt » dessinée (le caractère ⏻ manque dans les
+/// polices de Windows).
+fn quit_button(ui: &mut egui::Ui) {
+    let quit = egui::Button::new(RichText::new(t!("       Quitter WorkTable", "       Quit WorkTable")).strong().color(egui::Color32::WHITE))
+        .fill(theme::TODAY())
+        .corner_radius(egui::CornerRadius::same(10))
+        .min_size(egui::vec2(0.0, 32.0));
+    let resp = ui.add(quit).on_hover_text(t!(
+        "Arrête vraiment l'application (fermer la fenêtre la laisse tourner en arrière-plan)",
+        "Really stops the app (closing the window keeps it running in the background)"
+    ));
+    power_icon(ui.painter(), egui::pos2(resp.rect.left() + 20.0, resp.rect.center().y), 6.0, egui::Color32::WHITE);
+    if resp.clicked() {
+        crate::background::quit(ui.ctx());
+    }
+}
+
+/// Section des Réglages : filet `BORDER` (8 px avant et après), titre en gras, contenu.
+pub fn group<R>(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    ui.add_space(8.0);
+    ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top(), egui::Stroke::new(1.0, theme::BORDER()));
+    ui.add_space(8.0);
+    ui.label(RichText::new(title).strong().color(theme::TEXT()));
+    ui.add_space(4.0);
+    body(ui)
 }
 
 /// Orthographe : activation, langues, dictionnaire personnel.
 fn spelling_card(ui: &mut egui::Ui, prefs: &mut Prefs) {
-    widgets::card(ui, t!("Orthographe", "Spelling"), 0.0, |ui| {
+    group(ui, t!("Orthographe", "Spelling"), |ui| {
         ui.label(
             RichText::new(t!(
                 "Les mots inconnus sont soulignés en rouge pendant la saisie (mails, notes, messages, tâches, événements). Clic droit sur un mot souligné : corrections, ajout au dictionnaire.",
@@ -92,7 +194,6 @@ fn spelling_card(ui: &mut egui::Ui, prefs: &mut Prefs) {
             });
         });
     });
-    ui.add_space(12.0);
 }
 
 /// Icône « marche / arrêt » : cercle ouvert en haut, trait vertical au centre.
@@ -112,7 +213,7 @@ fn power_icon(p: &egui::Painter, c: egui::Pos2, r: f32, color: egui::Color32) {
 
 /// Arrière-plan : raccourci global qui rouvre l'app.
 fn background_card(ui: &mut egui::Ui, prefs: &mut Prefs) {
-    widgets::card(ui, t!("Arrière-plan", "Background"), 0.0, |ui| {
+    group(ui, t!("Arrière-plan", "Background"), |ui| {
         ui.label(
             RichText::new(t!(
                 "Fermer la fenêtre laisse WorkTable tourner (mails, notifications, rappels, Blueprint). Pour la rouvrir : le raccourci ci-dessous, une notification, ou relancer l'app. « Quitter WorkTable » (en haut) l'arrête pour de bon.",
@@ -151,7 +252,6 @@ fn background_card(ui: &mut egui::Ui, prefs: &mut Prefs) {
         crate::background::set_recording(recording.is_some());
         ui.data_mut(|d| d.insert_temp(id, recording));
     });
-    ui.add_space(12.0);
 }
 
 /// Ligne d'un raccourci global : nom, état, bouton « taper le raccourci », « Par défaut ».
@@ -208,7 +308,7 @@ fn hotkey_row(ui: &mut egui::Ui, index: usize, title: &str, hint: &str, value: &
 /// Langue de l'interface, onglet au démarrage et mises à jour.
 fn general(ui: &mut egui::Ui, prefs: &mut Prefs, update: &crate::update::Updater) {
     use crate::i18n::Language;
-    widgets::card(ui, t!("Général", "General"), 0.0, |ui| {
+    group(ui, t!("Général", "General"), |ui| {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.label(t!("Langue", "Language"));
@@ -239,7 +339,6 @@ fn general(ui: &mut egui::Ui, prefs: &mut Prefs, update: &crate::update::Updater
         ui.add_space(4.0);
         updates(ui, update);
     });
-    ui.add_space(12.0);
 }
 
 /// Mises à jour : vérifier sur GitHub, installer, redémarrer.
@@ -514,7 +613,7 @@ pub(crate) fn hyperplanning_form(ui: &mut egui::Ui, hp: &mut crate::hyperplannin
 }
 
 fn section(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str, Value)]) {
-    widgets::card(ui, title, 0.0, |ui| {
+    group(ui, title, |ui| {
         for (i, (label, hint, value)) in rows.iter().enumerate() {
             if i > 0 {
                 ui.add_space(4.0);
@@ -537,13 +636,12 @@ fn section(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str, Value)]) {
             });
         }
     });
-    ui.add_space(12.0);
 }
 
 /// Où sont enregistrées les données de l'utilisateur (selon le mode de lancement).
 fn data_card(ui: &mut egui::Ui) {
     use crate::paths::{self, Mode};
-    widgets::card(ui, t!("Données", "Data"), 0.0, |ui| {
+    group(ui, t!("Données", "Data"), |ui| {
         let mode = match paths::mode() {
             Mode::Installed => t!("Application installée : données dans votre profil Windows.", "Installed app: data stored in your Windows profile."),
             Mode::Portable => {
@@ -561,12 +659,9 @@ fn data_card(ui: &mut egui::Ui) {
             );
         }
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.add(egui::Label::new(RichText::new(paths::root().display().to_string()).monospace().color(theme::TEXT_MUTED())).truncate());
-            if ui.button(t!("Ouvrir le dossier", "Open folder")).clicked() {
-                let _ = std::fs::create_dir_all(paths::root());
-                let _ = open::that_detached(paths::root());
-            }
+        // Boutons calés à droite d'abord, puis le chemin tronqué dans la place restante (sinon il
+        // prend toute la largeur et les boutons élargissent le panneau).
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .button(t!("Importer…", "Import…"))
                 .on_hover_text(t!(
@@ -580,6 +675,13 @@ fn data_card(ui: &mut egui::Ui) {
                 let id = egui::Id::unique("wt_import_result");
                 ui.ctx().data_mut(|d| d.insert_temp(id, n));
             }
+            if ui.button(t!("Ouvrir le dossier", "Open folder")).clicked() {
+                let _ = std::fs::create_dir_all(paths::root());
+                let _ = open::that_detached(paths::root());
+            }
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(RichText::new(paths::root().display().to_string()).monospace().color(theme::TEXT_MUTED())).truncate());
+            });
         });
         // Copie locale chiffrée des conversations Google Chat récentes.
         ui.add_space(8.0);
@@ -626,12 +728,11 @@ fn data_card(ui: &mut egui::Ui) {
             });
         });
     });
-    ui.add_space(12.0);
 }
 
 /// Notifications : types actifs, avance des rappels, son.
 fn notifications(ui: &mut egui::Ui, prefs: &mut Prefs) {
-    widgets::card(ui, "Notifications", 0.0, |ui| {
+    group(ui, "Notifications", |ui| {
         ui.label(
             RichText::new(t!(
                 "Bandeau en haut au centre de l'écran, par-dessus les autres fenêtres (un clic y mène).",
@@ -660,13 +761,12 @@ fn notifications(ui: &mut egui::Ui, prefs: &mut Prefs) {
         ui.add_space(4.0);
         toggle(ui, &mut prefs.notif_no_sound, t!("Petit son à l'arrivée d'un mail ou d'un message", "Short sound when a mail or message arrives"));
     });
-    ui.add_space(12.0);
 }
 
 /// Choix du thème (9 thèmes), chacun montré par un aperçu de ses couleurs.
 fn themes(ui: &mut egui::Ui, prefs: &mut Prefs) {
     use crate::theme::{ThemeId, rgb};
-    widgets::card(ui, t!("Apparence", "Appearance"), 0.0, |ui| {
+    group(ui, t!("Apparence", "Appearance"), |ui| {
         ui.label(
             RichText::new(t!("Thème de couleurs, appliqué immédiatement à toute l'application.", "Colour theme, applied immediately to the whole app."))
                 .small()
@@ -719,13 +819,12 @@ fn themes(ui: &mut egui::Ui, prefs: &mut Prefs) {
             ui.add_space(gap);
         }
     });
-    ui.add_space(12.0);
 }
 
 /// Police et taille de chaque groupe de textes, avec aperçu.
 fn fonts(ui: &mut egui::Ui, prefs: &mut Prefs) {
     use crate::theme::{FontChoice, FontGroup, FontPrefs};
-    widgets::card(ui, t!("Polices", "Fonts"), 0.0, |ui| {
+    group(ui, t!("Polices", "Fonts"), |ui| {
         ui.label(
             RichText::new(t!(
                 "Chaque groupe de textes a sa police et sa taille, appliquées dans tous les onglets.",
@@ -786,12 +885,11 @@ fn fonts(ui: &mut egui::Ui, prefs: &mut Prefs) {
             *f = FontPrefs::default();
         }
     });
-    ui.add_space(12.0);
 }
 
 /// Réglages de l'animation liquide (sélection d'onglets, de dossiers, de mails…).
 fn animations(ui: &mut egui::Ui, prefs: &mut Prefs) {
-    widgets::card(ui, "Animations", 0.0, |ui| {
+    group(ui, "Animations", |ui| {
         let a = &mut prefs.animation;
         let row = |ui: &mut egui::Ui, label: &str, hint: &str, add: &mut dyn FnMut(&mut egui::Ui)| {
             ui.horizontal(|ui| {
@@ -826,7 +924,6 @@ fn animations(ui: &mut egui::Ui, prefs: &mut Prefs) {
             *a = Animation::default();
         }
     });
-    ui.add_space(12.0);
 }
 
 fn preview(ui: &mut egui::Ui) {
@@ -856,7 +953,7 @@ fn preview(ui: &mut egui::Ui) {
 
 /// Disposition du tableau de bord.
 fn dashboard_card(ui: &mut egui::Ui, prefs: &mut Prefs) {
-    widgets::card(ui, t!("Tableau de bord", "Dashboard"), 0.0, |ui| {
+    group(ui, t!("Tableau de bord", "Dashboard"), |ui| {
         ui.label(
             RichText::new(t!(
                 "Glisse un panneau par sa barre de titre pour le déplacer ; tire son coin en bas à droite pour l'agrandir ou le rétrécir.",
@@ -882,12 +979,11 @@ fn dashboard_card(ui: &mut egui::Ui, prefs: &mut Prefs) {
             }
         });
     });
-    ui.add_space(12.0);
 }
 
 /// Réglages de l'onglet Blueprint.
 fn blueprint(ui: &mut egui::Ui, prefs: &mut Prefs) {
-    widgets::card(ui, "Blueprint", 0.0, |ui| {
+    group(ui, "Blueprint", |ui| {
         let b = &mut prefs.blueprint;
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
@@ -905,13 +1001,12 @@ fn blueprint(ui: &mut egui::Ui, prefs: &mut Prefs) {
             *b = crate::prefs::BlueprintPrefs::default();
         }
     });
-    ui.add_space(12.0);
 }
 
 /// Couleurs des mails reçus via une adresse de groupe (liste de diffusion, alias).
 /// Adresses en spam : liste, retrait.
 fn spam_senders(ui: &mut egui::Ui, prefs: &mut Prefs) {
-    widgets::card(ui, t!("Adresses en spam", "Spam addresses"), 0.0, |ui| {
+    group(ui, t!("Adresses en spam", "Spam addresses"), |ui| {
         ui.label(
             RichText::new(t!(
                 "Les mails de ces adresses vont directement dans les spams (aussi dans Gmail). Ajout avec « Spam » dans l'onglet Mail ; retirer une adresse ne sort pas ses mails déjà en spam.",
@@ -940,12 +1035,11 @@ fn spam_senders(ui: &mut egui::Ui, prefs: &mut Prefs) {
             prefs.spam_senders.remove(i);
         }
     });
-    ui.add_space(12.0);
 }
 
 fn group_colors(ui: &mut egui::Ui, prefs: &mut Prefs) {
     use crate::tabs::mail::groups;
-    widgets::card(ui, t!("Couleurs des groupes", "Group colours"), 0.0, |ui| {
+    group(ui, t!("Couleurs des groupes", "Group colours"), |ui| {
         ui.label(
             RichText::new(t!(
                 "Les mails reçus via ces adresses sont colorés dans la boîte de réception. Ajout depuis l'onglet Mail (section Groupes ou « Reçu via »).",
@@ -978,5 +1072,4 @@ fn group_colors(ui: &mut egui::Ui, prefs: &mut Prefs) {
             groups::apply(&mut prefs.groups, e);
         }
     });
-    ui.add_space(12.0);
 }

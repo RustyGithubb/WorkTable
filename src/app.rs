@@ -69,6 +69,7 @@ pub struct WorkTableApp {
     /// Image du compte (pastille Compte) et panneau Compte ouvert.
     avatar: crate::avatar::Avatar,
     account_panel: crate::account_panel::AccountPanel,
+    settings_panel: tabs::settings::SettingsPanel,
 }
 
 impl WorkTableApp {
@@ -142,6 +143,7 @@ impl WorkTableApp {
             update,
             avatar: Default::default(),
             account_panel: Default::default(),
+            settings_panel: Default::default(),
         }
     }
 }
@@ -497,7 +499,8 @@ impl eframe::App for WorkTableApp {
                 }
                 Tab::Plannings => tabs::plannings::show(ui, &mut self.plannings, &mut self.hyperplanning, &mut self.prefs.hp_favorites),
                 Tab::Blueprint => tabs::blueprint::show(ui, &mut self.blueprint, &mut self.prefs),
-                Tab::Settings => tabs::settings::show(ui, &mut self.prefs, &self.update),
+                // Les Réglages sont un panneau superposé (pilule ⚙️), jamais l'onglet affiché.
+                Tab::Settings => {}
                 Tab::Custom(id) => {
                     let mut d = tabs::dashboard::Deps {
                         cal: &self.calendar,
@@ -598,8 +601,11 @@ impl eframe::App for WorkTableApp {
         }
 
         // 3. Pilule Blueprint + Réglages, ancrée en bas à gauche, toujours visible.
-        if let Some(tab) = sidebar::bottom_buttons(ui.ctx(), window_rect, self.current, self.update.badge()) {
-            self.current = tab;
+        // ⚙️ ouvre ou ferme le panneau Réglages (pas un onglet).
+        match sidebar::bottom_buttons(ui.ctx(), window_rect, self.current, self.update.badge()) {
+            Some(Tab::Settings) => self.settings_panel.toggle(ui.ctx()),
+            Some(tab) => self.current = tab,
+            None => {}
         }
 
         // Pilule Compte, en haut à gauche : image du compte.
@@ -610,6 +616,8 @@ impl eframe::App for WorkTableApp {
         }
         // Panneau Compte (fond flouté, par-dessus tout le reste).
         self.account_panel.show(ui.ctx(), &mut self.avatar, &self.chat, &mut self.account, &mut self.hyperplanning);
+        // Panneau Réglages (fond flouté, par-dessus tout le reste).
+        self.settings_panel.show(ui.ctx(), &mut self.prefs, &self.update);
 
         // Barre de titre intégrée : déplacement, réduire / agrandir / fermer, redimensionnement.
         crate::titlebar::show(ui.ctx(), window_rect);
@@ -705,6 +713,7 @@ impl WorkTableApp {
                 self.drive.reveal(&self.account, f);
                 self.current = Tab::Files;
             }
+            Target::Tab(Tab::Settings) => self.settings_panel.open_soon(),
             Target::Tab(t) => self.current = t,
             Target::Planning(kind, key) => {
                 self.plannings.open(kind, key);

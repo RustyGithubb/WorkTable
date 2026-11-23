@@ -505,7 +505,7 @@ fn card(
 
 /// Carte « Quadrillage » des Réglages : titre, premier et dernier jour, mises en évidence.
 pub fn settings(ui: &mut egui::Ui, prefs: &mut Prefs) {
-    crate::widgets::card(ui, t!("Quadrillage (tableau de bord)", "Day grid (dashboard)"), 0.0, |ui| {
+    crate::tabs::settings::group(ui, t!("Quadrillage (tableau de bord)", "Day grid (dashboard)"), |ui| {
         let t = &mut prefs.timeline;
         ui.label(
             RichText::new(t!(
@@ -555,7 +555,6 @@ pub fn settings(ui: &mut egui::Ui, prefs: &mut Prefs) {
         );
         holidays_settings(ui, t);
     });
-    ui.add_space(12.0);
 }
 
 /// Vacances (Réglages › Quadrillage) : liste des périodes et ajout d'une période.
