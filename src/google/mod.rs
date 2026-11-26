@@ -225,6 +225,9 @@ pub enum Event {
     /// Le compte est prêt : les onglets peuvent charger leurs données.
     Ready,
     Labels(Vec<Label>),
+    /// Conversations non lues de la boîte de réception, compteur de Gmail (relu quand un autre
+    /// dossier est affiché).
+    InboxUnread(usize),
     Messages {
         label: String,
         list: Vec<Summary>,

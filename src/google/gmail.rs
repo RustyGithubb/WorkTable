@@ -196,6 +196,13 @@ pub fn mark_history(s: &Session) -> Result<(), String> {
     Ok(())
 }
 
+/// Conversations non lues de la boîte de réception (compteur tenu par Gmail, commun à tous les
+/// appareils).
+pub fn inbox_unread(s: &Session) -> Result<usize, String> {
+    let v = s.get(&format!("{API}/labels/INBOX"), &[])?;
+    Ok(v["threadsUnread"].as_u64().unwrap_or(0) as usize)
+}
+
 pub fn labels(s: &Session) -> Result<Vec<Label>, String> {
     let v = s.get(&format!("{API}/labels"), &[])?;
     let mut out: Vec<Label> = v["labels"].as_array().map(|a| a.iter().map(label_from_json).collect()).unwrap_or_default();

@@ -37,6 +37,10 @@ const POLL_HIDDEN: Duration = Duration::from_secs(45);
 const FULL_REFRESH: Duration = Duration::from_secs(60);
 /// Relecture des sections (dossiers) de Google Chat.
 const SECTIONS_EVERY: Duration = Duration::from_secs(300);
+/// Relecture chez Google de l'état de lecture des conversations non lues ici : au plus une fois
+/// par minute, et pas plus de 20 conversations à la fois.
+const READ_RECHECK: Duration = Duration::from_secs(60);
+const READ_RECHECK_MAX: usize = 20;
 /// Nombre de personnes dans la catégorie « Récents ».
 pub const RECENT_PEOPLE: usize = 8;
 /// Taille d'une page de messages.
@@ -155,6 +159,10 @@ pub struct ChatState {
     last_spaces: Option<Instant>,
     spaces_inflight: bool,
     read_requested: HashSet<String>,
+    /// Dernière relecture chez Google des conversations non lues ici, et demande en cours
+    /// (considérée perdue après 2 min).
+    read_rechecked: Option<Instant>,
+    read_inflight: Option<Instant>,
     last_full: Option<Instant>,
     /// Conversations ouvertes pendant un chargement : relues dès qu'il se termine.
     refresh_after: HashSet<String>,
@@ -214,6 +222,12 @@ impl ChatState {
         if !self.store_loaded {
             self.store_loaded = true;
             self.store_rx = Some(store::load_async());
+            // Lectures faites sur les autres postes (copie synchronisée par le NAS, reçue au
+            // démarrage) : connues avant même la réponse de Google, et hors ligne.
+            for (sp, t) in crate::read_state::load_chat() {
+                let e = self.last_read.entry(sp).or_insert(t);
+                *e = (*e).max(t);
+            }
         }
         if let Some(rx) = &self.store_rx {
             match rx.try_recv() {
@@ -436,6 +450,18 @@ impl ChatState {
                 if changed_open && let Some(o) = self.open.clone() {
                     self.fetch_new(acc, &o);
                 }
+                // Conversations non lues ici (hors sourdine) : leur état de lecture est redemandé à
+                // Google au plus une fois par minute, une série à la fois (lues entre-temps sur un
+                // autre PC, le téléphone ou le web).
+                let inflight = self.read_inflight.is_some_and(|t| t.elapsed() < Duration::from_secs(120));
+                if !inflight && self.read_rechecked.is_none_or(|t| t.elapsed() >= READ_RECHECK) {
+                    self.read_rechecked = Some(Instant::now());
+                    let stale: Vec<String> =
+                        self.spaces.iter().take(RECENT).filter(|s| self.unread(s) && !self.is_muted(&s.name)).take(READ_RECHECK_MAX).map(|s| s.name.clone()).collect();
+                    for s in &stale {
+                        self.read_requested.remove(s);
+                    }
+                }
                 self.request_read_states(acc);
                 self.request_members(acc);
             }
@@ -467,7 +493,18 @@ impl ChatState {
                     self.mark_read(acc, &space);
                 }
             }
-            ChatEvent::ReadStates(list) => self.last_read.extend(list),
+            // On garde la lecture la plus récente : une réponse de Google partie avant un marquage
+            // fait ici ne fait pas réapparaître la conversation en non lu.
+            ChatEvent::ReadStates(list) => {
+                self.read_inflight = None;
+                if !list.is_empty() {
+                    for (sp, t) in list {
+                        let e = self.last_read.entry(sp).or_insert(t);
+                        *e = (*e).max(t);
+                    }
+                    crate::read_state::save_chat(&self.last_read);
+                }
+            }
             ChatEvent::Members(list) => {
                 let mut users = Vec::new();
                 for (sp, m) in list {
@@ -869,6 +906,8 @@ impl ChatState {
             return;
         }
         self.last_read.insert(space.to_string(), now);
+        // Copie synchronisée par le NAS : les autres postes la connaissent dès leur démarrage.
+        crate::read_state::save_chat(&self.last_read);
         let sp = space.to_string();
         acc.run(move |s| {
             // Échec silencieux : l'état de lecture n'est qu'un confort.
@@ -1178,6 +1217,7 @@ impl ChatState {
             return;
         }
         self.read_requested.extend(todo.iter().cloned());
+        self.read_inflight = Some(Instant::now());
         run(acc, move |s| chat::read_states(s, &todo).map(ChatEvent::ReadStates));
     }
 

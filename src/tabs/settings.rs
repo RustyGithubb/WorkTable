@@ -390,7 +390,7 @@ fn updates(ui: &mut egui::Ui, update: &crate::update::Updater) {
             }
             State::Ready(_) => {
                 if ui.button(t!("Redémarrer", "Restart")).clicked() {
-                    update::restart(ui.ctx());
+                    update::restart_after_update(ui.ctx());
                 }
             }
             State::Checking | State::Downloading(_) => {}

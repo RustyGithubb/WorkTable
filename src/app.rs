@@ -135,7 +135,7 @@ impl WorkTableApp {
             prefs_dirty: None,
             prefs_print: prefs_fingerprint(&prefs),
             prefs_checked: now,
-            applied: (prefs.language, prefs.theme, prefs.fonts.clone()),
+            applied: (prefs.language, prefs.theme, prefs.fonts),
             timeline_due: true,
             timeline_checked: now,
             current: Tab::Dashboard,
@@ -706,7 +706,7 @@ impl eframe::App for WorkTableApp {
             theme::set_theme(ui.ctx(), self.prefs.theme);
         }
         if self.prefs.fonts != self.applied.2 {
-            self.applied.2 = self.prefs.fonts.clone();
+            self.applied.2 = self.prefs.fonts;
             theme::set_fonts(ui.ctx(), &self.prefs.fonts);
         }
         // Réglages modifiés ? Contrôlé après une action (clic, glisser, touche, molette…), sinon

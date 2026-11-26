@@ -209,6 +209,11 @@ impl MailState {
                 self.full_load(acc);
             }
             Event::Labels(l) => self.labels = l,
+            Event::InboxUnread(n) => {
+                if self.folder != INBOX {
+                    self.inbox_unread = n;
+                }
+            }
             Event::Messages { label, list } => {
                 self.ingest(acc, &list);
                 if let Some(addr) = label.strip_prefix("from:")
@@ -393,6 +398,11 @@ impl MailState {
                 gmail::HistoryResult::Expired => Event::Resync,
             })
         });
+        // Autre dossier affiché : la liste chargée n'est pas la boîte de réception, le compteur de
+        // la pastille est donc relu chez Gmail (mails lus sur un autre poste compris).
+        if self.folder != INBOX {
+            acc.run(|s| Ok(Event::InboxUnread(gmail::inbox_unread(s)?)));
+        }
     }
 
     /// Bouton « Actualiser ».

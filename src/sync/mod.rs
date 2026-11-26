@@ -33,11 +33,42 @@ fn dir() -> PathBuf {
     crate::paths::root().join("sync")
 }
 
-/// Compte enregistré (sans secret).
+/// Compte enregistré (sans secret). Propre à ce poste (le dossier `sync` n'est pas synchronisé).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Account {
     pub server: String,
     pub login: String,
+    /// « Retenir mon compte » décoché : le mot de passe est redemandé à chaque lancement (vérifié
+    /// sur ce poste avec `verifier`, même hors ligne).
+    #[serde(default)]
+    pub forget: bool,
+    /// Empreinte Argon2id du mot de passe (jamais le mot de passe), faite à la dernière connexion.
+    #[serde(default)]
+    pub verifier: Option<Verifier>,
+}
+
+/// Empreinte locale du mot de passe : sel aléatoire + SHA-256 de la clé Argon2id dérivée.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Verifier {
+    salt: String,
+    hash: String,
+}
+
+/// Paramètres Argon2id de l'empreinte locale (quelques dixièmes de seconde).
+const VERIFIER_M_KIB: u32 = 19 * 1024;
+const VERIFIER_T: u32 = 2;
+
+impl Verifier {
+    fn new(password: &str) -> Option<Verifier> {
+        let salt = nas_sync_client::crypto::hex(&nas_sync_client::crypto::random::<16>());
+        let keys = nas_sync_client::crypto::password_keys(password, &salt, VERIFIER_M_KIB, VERIFIER_T).ok()?;
+        Some(Verifier { hash: nas_sync_client::crypto::sha256_hex(keys.auth_key.as_bytes()), salt })
+    }
+
+    fn matches(&self, password: &str) -> bool {
+        nas_sync_client::crypto::password_keys(password, &self.salt, VERIFIER_M_KIB, VERIFIER_T)
+            .is_ok_and(|k| nas_sync_client::crypto::sha256_hex(k.auth_key.as_bytes()) == self.hash)
+    }
 }
 
 impl Account {
@@ -53,6 +84,69 @@ impl Account {
         crate::paths::save_json(&Self::path(), self);
         forget_configured();
     }
+}
+
+/// Mot de passe du compte ouvert vérifié sur ce poste (écran de connexion, compte non retenu).
+/// `None` : pas d'empreinte enregistrée, il faut se connecter au serveur.
+pub fn verify_password(password: &str) -> Option<bool> {
+    Account::load()?.verifier.map(|v| v.matches(password))
+}
+
+/// « Retenir mon compte » pour le compte ouvert ; `password` (s'il vient d'être vérifié)
+/// renouvelle l'empreinte locale.
+pub fn set_remember(remember: bool, password: Option<&str>) {
+    let Some(mut a) = Account::load() else { return };
+    a.forget = !remember;
+    if let Some(p) = password
+        && let Some(v) = Verifier::new(p)
+    {
+        a.verifier = Some(v);
+    }
+    a.save();
+}
+
+/// Fichier posé quand une connexion redémarre l'app sur un autre compte : l'écran de connexion
+/// ne se réaffiche pas juste après (valable 2 min, une seule fois).
+fn unlock_marker(login: &str) -> PathBuf {
+    crate::paths::profile_root(login).join("sync").join("unlocked")
+}
+
+/// « Retenir mon compte » coché ou non sur l'écran de connexion : enregistré avec le compte par
+/// toute connexion au serveur (`connect`).
+static REMEMBER_NEW: AtomicBool = AtomicBool::new(true);
+
+pub fn set_remember_new(remember: bool) {
+    REMEMBER_NEW.store(remember, Ordering::Relaxed);
+}
+
+/// « Continuer sans compte » : ouvre les données de ce poste sans compte (redémarrage si un compte
+/// est ouvert), sans repasser par l'écran de connexion.
+pub fn open_without_account(ctx: &eframe::egui::Context) {
+    let _ = crate::paths::write_atomic(&unlock_marker(crate::paths::LOCAL_PROFILE), LOCAL_MARK);
+    switch_to(ctx, crate::paths::LOCAL_PROFILE);
+}
+
+/// Redémarrage voulu par l'utilisateur déjà connecté (mise à jour) : l'écran de connexion est
+/// passé une fois.
+pub fn mark_unlocked() {
+    let _ = crate::paths::write_atomic(&unlock_marker(crate::paths::profile()), b"1");
+}
+
+/// Contenu du marqueur posé par « Continuer sans compte » (sinon : connexion réussie).
+const LOCAL_MARK: &[u8] = b"local";
+
+/// Marqueur à poser une fois la connexion terminée (code de récupération noté), juste avant le
+/// redémarrage sur le compte.
+static PENDING_MARKER: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// L'app vient de redémarrer après une connexion réussie (passe l'écran de connexion). Un marqueur
+/// « sans compte » n'ouvre jamais des données qui portent un compte.
+pub fn take_unlock_marker() -> bool {
+    let p = unlock_marker(crate::paths::profile());
+    let fresh = std::fs::metadata(&p).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|d| d < std::time::Duration::from_secs(120));
+    let local = std::fs::read(&p).is_ok_and(|b| b == LOCAL_MARK);
+    let _ = std::fs::remove_file(&p);
+    fresh && !(local && Account::load().is_some())
 }
 
 /// Secrets de la session : coffre du système.
@@ -192,6 +286,9 @@ pub fn finish_switch(ctx: &eframe::egui::Context) {
     let st = status();
     if st.switch_to.is_some() && st.recovery.is_none() {
         with_status(|s| s.switch_to = None);
+        if let Some(p) = PENDING_MARKER.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = crate::paths::write_atomic(&p, b"1");
+        }
         crate::update::restart(ctx);
     }
 }
@@ -299,7 +396,10 @@ pub fn connect(server: String, login: String, password: String, invite: Option<S
                     });
                     return;
                 }
-                let account = Account { server: server.trim().to_string(), login: login.clone() };
+                // Empreinte locale du mot de passe (écran de connexion, compte non retenu) ; le choix
+                // « retenir » déjà fait sur ce poste est gardé.
+                let forget = !REMEMBER_NEW.load(Ordering::Relaxed);
+                let account = Account { server: server.trim().to_string(), login: login.clone(), forget, verifier: Verifier::new(&password) };
                 let current = crate::paths::profile();
                 if login == current {
                     // Même compte (reconnexion) : sur ses données, sans redémarrer.
@@ -323,6 +423,9 @@ pub fn connect(server: String, login: String, password: String, invite: Option<S
                 } else {
                     crate::paths::save_json(&crate::paths::profile_root(&login).join("sync").join("account.json"), &account);
                 }
+                // Connexion faite : l'écran de connexion ne se réaffiche pas au redémarrage. Repris :
+                // posé dans les données actuelles, renommées au nom du compte au redémarrage.
+                *PENDING_MARKER.lock().unwrap_or_else(|e| e.into_inner()) = Some(unlock_marker(if adopt { crate::paths::LOCAL_PROFILE } else { &login }));
                 crate::paths::set_next_profile(&login, adopt.then_some(crate::paths::LOCAL_PROFILE));
                 with_status(|s| *s = Status { recovery, switch_to: Some(login), ..Default::default() });
             }

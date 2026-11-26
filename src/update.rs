@@ -127,6 +127,13 @@ pub fn install_blocker() -> Option<&'static str> {
     None
 }
 
+/// Mise à jour installée : relance sans repasser par l'écran de connexion (l'utilisateur est déjà
+/// connecté dans l'instance qui redémarre).
+pub fn restart_after_update(ctx: &egui::Context) {
+    crate::sync::mark_unlocked();
+    restart(ctx);
+}
+
 /// Relance l'application (nouvel exécutable) puis ferme celle-ci.
 pub fn restart(ctx: &egui::Context) {
     if let Ok(exe) = std::env::current_exe() {

@@ -5,6 +5,21 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.6.0
+
+### Ajouté
+- Écran de connexion à chaque lancement, avant le chargement des données. Si un compte est retenu, son image et son nom s'affichent : un clic sur « Se connecter » (ou Entrée) suffit. Sinon, le mot de passe est redemandé, et vérifié sur ce PC même hors ligne.
+- Sans compte sur ce PC, le formulaire de connexion au NAS s'affiche (code d'invitation au premier login). Liens « Autre compte » et « Continuer sans compte ». Case « Retenir mon compte ».
+- Après la connexion, le tableau de bord apparaît en fondu flou.
+- Non-lus partagés entre postes : une conversation Chat lue sur un autre PC, sur le téléphone ou sur le web n'affiche plus sa pastille.
+- Le compteur de la boîte de réception reste à jour même quand un autre dossier est affiché.
+
+### Modifié
+- Pas d'écran de connexion après un redémarrage dû à une connexion, à « Continuer sans compte » ou à une mise à jour.
+- Le mot de passe protège seulement l'accès à l'interface : les fichiers du PC ne sont pas chiffrés par lui.
+- La synchro de démarrage et la reprise du compte Google se font après l'écran de connexion.
+- L'état de lecture des conversations Chat est copié dans la synchro du NAS, pour être juste dès le démarrage.
+
 ## 0.5.4
 
 ### Ajouté

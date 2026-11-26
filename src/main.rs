@@ -16,11 +16,13 @@ mod hyperplanning;
 mod lightbox;
 mod links;
 mod liquid;
+mod login_screen;
 mod notes_store;
 mod notify;
 mod paths;
 mod people;
 mod prefs;
+mod read_state;
 mod search;
 mod sidebar;
 mod sound;
@@ -77,7 +79,8 @@ fn app_creator() -> eframe::AppCreator<'static> {
             notify::set_root_window(w.hwnd.get());
         }
         theme::apply(&cc.egui_ctx);
-        Ok(Box::new(app::WorkTableApp::new(&cc.egui_ctx)))
+        // Écran de connexion d'abord ; l'app est chargée après (voir login_screen.rs).
+        Ok(Box::new(login_screen::Gate::new(&cc.egui_ctx)))
     })
 }
 
@@ -95,11 +98,8 @@ fn main() -> eframe::Result<()> {
         eprintln!("WorkTable : impossible de créer le dossier {}", d.display());
     }
     paths::migrate();
-    // Synchronisation avec le NAS : changements des autres postes appliqués avant le chargement
-    // des données (quelques secondes au plus si le serveur est injoignable).
-    sync::startup();
-    // Compte Google rattaché au compte NAS : repris d'un autre poste s'il manque ici (copie chiffrée).
-    google::account_sync::import_then_export();
+    // La synchronisation de démarrage (changements des autres postes) et la reprise du compte
+    // Google se font après l'écran de connexion, avant le chargement des données (login_screen.rs).
     // Windows : DirectX 12 avec une chaîne d'affichage « DirectComposition », la seule qui gère la
     // vraie transparence (bandeau de notification sans fond, avec son ombre). Si DirectX 12 n'est pas
     // disponible, repli sur OpenGL (le bandeau est alors découpé à sa forme, sans ombre).
