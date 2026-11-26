@@ -1184,8 +1184,15 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
     let comp_id = egui::Id::unique("wt_chat_composer_h");
     let comp_h: f32 = ui.ctx().data(|d| d.get_temp(comp_id)).unwrap_or(110.0);
     let list_h = (ui.available_height() - comp_h - 8.0).max(120.0);
-    let msgs: Vec<ChatMessage> = chat.msgs.get(&space.name).cloned().unwrap_or_default();
     let scroll_bottom = std::mem::take(&mut chat.scroll_bottom);
+    // Lus sur place (pas de copie de toute la conversation à chaque image).
+    let no_msgs = Vec::new();
+    let msgs: &Vec<ChatMessage> = chat.msgs.get(&space.name).unwrap_or(&no_msgs);
+    // Hauteur de chaque message déjà affiché : ceux hors de la zone visible ne sont pas dessinés,
+    // seule leur place est réservée (dessinés à nouveau dès qu'ils réapparaissent).
+    let heights: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, f32>>> = ui.ctx().data_mut(|d| {
+        d.get_temp_mut_or_default::<std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, f32>>>>(egui::Id::unique(("wt_chat_heights", &space.name))).clone()
+    });
     egui::ScrollArea::vertical().id_salt(("chat_msgs", &space.name)).max_height(list_h).auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
         ui.set_min_height(list_h);
         if chat.has_more.get(&space.name).copied().unwrap_or(false) {
@@ -1210,6 +1217,17 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
             }
         }
         let top: Vec<&ChatMessage> = msgs.iter().filter(|m| !(space.threaded && m.thread_reply)).collect();
+        // Réponses par fil, regroupées en un passage (au lieu de parcourir tous les messages pour chacun).
+        let mut by_thread: std::collections::HashMap<&str, Vec<&ChatMessage>> = std::collections::HashMap::new();
+        if space.threaded {
+            for r in msgs.iter().filter(|r| r.thread_reply && !r.thread.is_empty()) {
+                by_thread.entry(r.thread.as_str()).or_default().push(r);
+            }
+        }
+        let clip = ui.clip_rect();
+        let gap = ui.spacing().item_spacing.y;
+        let width = ui.available_width().round() as i32;
+        let mut heights = heights.lock().unwrap_or_else(|e| e.into_inner());
         let mut prev: Option<&ChatMessage> = None;
         for m in &top {
             let new_day = prev.is_none_or(|p| day_of(p.created) != day_of(m.created));
@@ -1217,10 +1235,31 @@ fn center(ui: &mut egui::Ui, chat: &mut ChatState, acc: &Account, prefs: &Prefs,
                 day_separator(ui, m.created);
             }
             let compact = !new_day && prev.is_some_and(|p| p.sender == m.sender && m.created - p.created < 5 * 60_000 && !p.thread_reply);
-            let replies: Vec<&ChatMessage> =
-                if space.threaded { msgs.iter().filter(|r| r.thread_reply && r.thread == m.thread && !m.thread.is_empty()).collect() } else { Vec::new() };
-            message(ui, chat, m, compact, space.threaded, &replies, actions);
+            let replies: &[&ChatMessage] = if m.thread.is_empty() { &[] } else { by_thread.get(m.thread.as_str()).map(Vec::as_slice).unwrap_or(&[]) };
             prev = Some(m);
+            // Clé : le message tel qu'il s'affiche (modifié, réactions, réponses, largeur).
+            let key = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                (&m.name, m.edited, &m.text, &m.reactions, m.attachments.len(), &m.quote, compact, width).hash(&mut h);
+                for r in replies {
+                    (&r.name, r.edited, &r.text, &r.reactions, r.attachments.len()).hash(&mut h);
+                }
+                h.finish()
+            };
+            let y = ui.cursor().top();
+            if let Some(&h) = heights.get(&key)
+                && (y > clip.bottom() || y + h < clip.top())
+            {
+                ui.allocate_space(vec2(ui.available_width(), (h - gap).max(0.0)));
+                continue;
+            }
+            message(ui, chat, m, compact, space.threaded, replies, actions);
+            heights.insert(key, ui.cursor().top() - y);
+        }
+        // Mémoire bornée : les hauteurs d'anciennes versions sont oubliées de temps en temps.
+        if heights.len() > 4 * top.len() + 64 {
+            heights.clear();
         }
         if scroll_bottom {
             ui.scroll_to_cursor(Some(Align::Max));

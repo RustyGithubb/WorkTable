@@ -5,6 +5,21 @@ regroupe ce qui partira dans la prochaine version. Voir « Publier une version �
 
 ## Non publié
 
+## 0.5.4
+
+### Ajouté
+- Panneau Compte : les autres comptes déjà connectés sur ce PC apparaissent en bulles semi-transparentes derrière l'image du compte ; un clic sur une bulle ouvre ce compte.
+
+### Modifié
+- Panneau Compte : en-tête centré, image du compte plus grande, nom affiché dessous en plus grand. « Connecter un nouveau compte » et « Se déconnecter » sont centrés, séparés du reste par un filet. Le menu « Changer de compte » est remplacé par les bulles.
+- Ctrl+Espace, Compte et Réglages : les panneaux sur fond flouté disparaissent en fondu, et le flou se calcule sans bloquer WorkTable à l'ouverture.
+- Émojis en couleur : analysés une seule fois par texte, et non plus à chaque image.
+- Mails et conversations Chat : la liste ne dessine que ce qui est visible, plus fluide sur les longues listes.
+- Conversation Chat : n'est plus recopiée à chaque image.
+- Barre latérale : les aperçus ne sont calculés qu'au survol.
+- Réglages : plus recopiés à chaque image. L'état de connexion au NAS est gardé en mémoire 2 s (rien de secret).
+- Version distribuée mieux optimisée, et `cargo run` plus fluide.
+
 ## 0.5.3
 
 ### Ajouté

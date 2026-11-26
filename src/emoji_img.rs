@@ -246,70 +246,117 @@ fn emoji_runs(galley: &egui::Galley) -> Vec<(Vec<(usize, usize)>, String)> {
     find(&text).into_iter().map(|(i, n, e)| (chars[i..(i + n).min(chars.len())].iter().map(|(r, g, _)| (*r, *g)).collect(), e)).collect()
 }
 
-fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
+/// Émoji d'un texte dessiné, repéré une fois pour toutes (egui garde la même mise en page d'une
+/// image à l'autre tant que le texte ne change pas).
+struct Run {
+    emoji: String,
+    glyphs: Vec<(usize, usize)>,
+    /// Place de l'image, par rapport à la position du texte.
+    rect: Rect,
+    /// Émoji déjà dessiné en image par l'onglet (glyphe transparent) : rien à faire.
+    skip: bool,
+}
+
+/// Ce qu'on sait d'une mise en page : ses émojis, et sa copie aux glyphes masqués (refaite
+/// seulement quand d'autres images d'émojis deviennent prêtes).
+struct Entry {
+    galley: std::sync::Weak<egui::Galley>,
+    runs: Vec<Run>,
+    hidden: Option<(Vec<usize>, Arc<egui::Galley>)>,
+    frame: u64,
+}
+
+/// Mises en page vues, par adresse (la référence faible empêche une autre de prendre la même
+/// adresse tant que l'entrée existe) ; oubliées dès qu'elles ne sont plus affichées.
+fn galleys() -> &'static Mutex<HashMap<usize, Entry>> {
+    static G: OnceLock<Mutex<HashMap<usize, Entry>>> = OnceLock::new();
+    G.get_or_init(Default::default)
+}
+
+fn runs_of(galley: &egui::Galley) -> Vec<Run> {
+    if !maybe_emoji(&galley.job.text) {
+        return Vec::new();
+    }
+    emoji_runs(galley)
+        .into_iter()
+        .filter_map(|(glyphs, emoji)| {
+            let &(r0, g0) = glyphs.first()?;
+            let row = &galley.rows[r0];
+            let first = &row.glyphs[g0];
+            let color =
+                if first.uv_rect.is_nothing() { Color32::WHITE } else { row.visuals.mesh.vertices.get(first.first_vertex as usize).map(|v| v.color).unwrap_or(Color32::WHITE) };
+            let mut rect = first.logical_rect();
+            for &(r, g) in glyphs.iter().filter(|(r, _)| *r == r0) {
+                rect = rect.union(galley.rows[r].glyphs[g].logical_rect());
+            }
+            let rect = rect.translate(row.pos.to_vec2());
+            // Taille du glyphe remplacé (sans déborder sur les lettres voisines).
+            let s = (first.font_height.max(4.0) * 1.08).min(rect.width().max(4.0) * 1.12);
+            Some(Run { emoji, glyphs, rect: Rect::from_center_size(rect.center(), vec2(s, s)), skip: color.a() == 0 })
+        })
+        .collect()
+}
+
+fn entry<'a>(map: &'a mut HashMap<usize, Entry>, galley: &Arc<egui::Galley>, frame: u64) -> &'a mut Entry {
+    let key = Arc::as_ptr(galley) as usize;
+    let known = map.get(&key).is_some_and(|e| e.galley.upgrade().is_some_and(|g| Arc::ptr_eq(&g, galley)));
+    if !known {
+        map.insert(key, Entry { galley: Arc::downgrade(galley), runs: runs_of(galley), hidden: None, frame });
+    }
+    let e = map.get_mut(&key).expect("entrée insérée");
+    e.frame = frame;
+    e
+}
+
+fn collect(shape: &egui::Shape, map: &mut HashMap<usize, Entry>, frame: u64, out: &mut Vec<String>) {
     match shape {
-        egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
-        egui::Shape::Text(t) if t.angle == 0.0 && maybe_emoji(&t.galley.job.text) => {
-            out.extend(emoji_runs(&t.galley).into_iter().map(|(_, e)| e));
-        }
+        egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, map, frame, out)),
+        egui::Shape::Text(t) if t.angle == 0.0 => out.extend(entry(map, &t.galley, frame).runs.iter().map(|r| r.emoji.clone())),
         _ => {}
     }
 }
 
 /// Remplace le glyphe monochrome par l'image couleur ; renvoie les images à dessiner par-dessus.
-fn colorize(shape: &mut egui::Shape, tex: &HashMap<String, egui::TextureId>) -> Vec<egui::Shape> {
+fn colorize(shape: &mut egui::Shape, map: &mut HashMap<usize, Entry>, tex: &HashMap<String, egui::TextureId>, frame: u64) -> Vec<egui::Shape> {
     match shape {
         egui::Shape::Vec(v) => {
             let mut extra = Vec::new();
             for s in v.iter_mut() {
-                extra.extend(colorize(s, tex));
+                extra.extend(colorize(s, map, tex, frame));
             }
             v.extend(extra);
             Vec::new()
         }
-        egui::Shape::Text(t) if t.angle == 0.0 && maybe_emoji(&t.galley.job.text) => {
-            let runs = emoji_runs(&t.galley);
-            let mut images = Vec::new();
-            let mut hide: Vec<(usize, usize)> = Vec::new();
-            for (glyphs, e) in runs {
-                let Some(id) = tex.get(&e) else { continue };
-                let Some(&(r0, g0)) = glyphs.first() else { continue };
-                let row = &t.galley.rows[r0];
-                let first = &row.glyphs[g0];
-                // Émoji déjà dessiné en image par l'onglet (glyphe transparent) : rien à faire.
-                let color =
-                    if first.uv_rect.is_nothing() { Color32::WHITE } else { row.visuals.mesh.vertices.get(first.first_vertex as usize).map(|v| v.color).unwrap_or(Color32::WHITE) };
-                if color.a() == 0 || t.override_text_color.is_some_and(|c| c.a() == 0) {
-                    continue;
-                }
-                let mut rect = first.logical_rect();
-                for &(r, g) in glyphs.iter().filter(|(r, _)| *r == r0) {
-                    let gl = &t.galley.rows[r].glyphs[g];
-                    rect = rect.union(gl.logical_rect());
-                }
-                let rect = rect.translate(t.pos.to_vec2() + row.pos.to_vec2());
-                // Taille du glyphe remplacé (sans déborder sur les lettres voisines).
-                let s = (first.font_height.max(4.0) * 1.08).min(rect.width().max(4.0) * 1.12);
-                let r = Rect::from_center_size(rect.center(), vec2(s, s));
-                let tint = Color32::WHITE.gamma_multiply(t.opacity_factor);
-                images.push(egui::Shape::image(*id, r, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), tint));
-                hide.extend(glyphs);
+        egui::Shape::Text(t) if t.angle == 0.0 && !t.override_text_color.is_some_and(|c| c.a() == 0) => {
+            let e = entry(map, &t.galley, frame);
+            let applied: Vec<usize> = e.runs.iter().enumerate().filter(|(_, r)| !r.skip && tex.contains_key(&r.emoji)).map(|(i, _)| i).collect();
+            if applied.is_empty() {
+                return Vec::new();
             }
-            if !hide.is_empty() {
-                let galley = std::sync::Arc::make_mut(&mut t.galley);
-                for (r, g) in hide {
-                    let placed = &mut galley.rows[r];
-                    let row = std::sync::Arc::make_mut(&mut placed.row);
-                    let gl = &row.glyphs[g];
-                    if gl.uv_rect.is_nothing() {
-                        continue;
+            let tint = Color32::WHITE.gamma_multiply(t.opacity_factor);
+            let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+            let images = applied.iter().map(|&i| egui::Shape::image(tex[&e.runs[i].emoji], e.runs[i].rect.translate(t.pos.to_vec2()), uv, tint)).collect();
+            let hidden = match &e.hidden {
+                Some((done, g)) if *done == applied => g.clone(),
+                _ => {
+                    let mut g = t.galley.clone();
+                    let galley = Arc::make_mut(&mut g);
+                    for &(r, gi) in applied.iter().flat_map(|&i| e.runs[i].glyphs.iter()) {
+                        let row = Arc::make_mut(&mut galley.rows[r].row);
+                        let gl = &row.glyphs[gi];
+                        if gl.uv_rect.is_nothing() {
+                            continue;
+                        }
+                        let v0 = gl.first_vertex as usize;
+                        for v in row.visuals.mesh.vertices.iter_mut().skip(v0).take(4) {
+                            v.color = Color32::TRANSPARENT;
+                        }
                     }
-                    let v0 = gl.first_vertex as usize;
-                    for v in row.visuals.mesh.vertices.iter_mut().skip(v0).take(4) {
-                        v.color = Color32::TRANSPARENT;
-                    }
+                    e.hidden = Some((applied, g.clone()));
+                    g
                 }
-            }
+            };
+            t.galley = hidden;
             images
         }
         _ => Vec::new(),
@@ -318,49 +365,51 @@ fn colorize(shape: &mut egui::Shape, tex: &HashMap<String, egui::TextureId>) -> 
 
 /// À appeler une fois par image, après tout le dessin : chaque émoji affiché par l'application
 /// (titres, listes, champs de saisie, notes, mails, agenda…) devient l'image couleur du chat.
+/// Chaque texte n'est analysé (et sa copie aux glyphes masqués faite) qu'une fois, pas à chaque image.
 pub fn colorize_frame(ctx: &egui::Context) {
+    static FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let frame = FRAME.fetch_add(1, Ordering::Relaxed) + 1;
     let mut layers: Vec<egui::LayerId> = ctx.memory(|m| m.layer_ids().collect());
     if !layers.contains(&egui::LayerId::background()) {
         layers.push(egui::LayerId::background());
     }
+    let mut map = galleys().lock().unwrap_or_else(|e| e.into_inner());
     // 1. Émojis présents à l'écran.
     let mut found = Vec::new();
     ctx.graphics(|g| {
         for l in &layers {
             if let Some(list) = g.get(*l) {
                 for cs in list.all_entries() {
-                    collect(&cs.shape, &mut found);
+                    collect(&cs.shape, &mut map, frame, &mut found);
                 }
             }
         }
     });
-    if found.is_empty() {
-        return;
-    }
     found.sort();
     found.dedup();
     // 2. Textures (chargées en arrière-plan si besoin : le glyphe reste affiché en attendant).
     let tex: HashMap<String, egui::TextureId> = found.into_iter().filter_map(|e| texture(ctx, &e).map(|t| (e, t.id()))).collect();
-    if tex.is_empty() {
-        return;
-    }
     // 3. Remplacement, à la même place dans l'ordre de dessin.
-    ctx.graphics_mut(|g| {
-        for l in &layers {
-            let Some(list) = g.get_mut(*l) else { continue };
-            for i in 0..list.next_idx().0 {
-                list.mutate_shape(egui::layers::ShapeIdx(i), |cs| {
-                    let extra = colorize(&mut cs.shape, &tex);
-                    if !extra.is_empty() {
-                        let old = std::mem::replace(&mut cs.shape, egui::Shape::Noop);
-                        let mut v = vec![old];
-                        v.extend(extra);
-                        cs.shape = egui::Shape::Vec(v);
-                    }
-                });
+    if !tex.is_empty() {
+        ctx.graphics_mut(|g| {
+            for l in &layers {
+                let Some(list) = g.get_mut(*l) else { continue };
+                for i in 0..list.next_idx().0 {
+                    list.mutate_shape(egui::layers::ShapeIdx(i), |cs| {
+                        let extra = colorize(&mut cs.shape, &mut map, &tex, frame);
+                        if !extra.is_empty() {
+                            let old = std::mem::replace(&mut cs.shape, egui::Shape::Noop);
+                            let mut v = vec![old];
+                            v.extend(extra);
+                            cs.shape = egui::Shape::Vec(v);
+                        }
+                    });
+                }
             }
-        }
-    });
+        });
+    }
+    // Textes qui ne sont plus affichés : oubliés.
+    map.retain(|_, e| e.frame == frame);
 }
 
 #[cfg(test)]

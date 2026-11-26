@@ -45,6 +45,15 @@ pub struct WorkTableApp {
     /// Réglages modifiés, pas encore enregistrés : enregistrés quand l'édition est finie (pas à
     /// chaque image pendant le glisser d'un curseur).
     prefs_dirty: Option<std::time::Instant>,
+    /// Empreinte des réglages au dernier contrôle et date de ce contrôle : les réglages ne sont
+    /// plus copiés ni comparés en entier à chaque image (voir la fin de `ui`).
+    prefs_print: u64,
+    prefs_checked: std::time::Instant,
+    /// Langue, thème et polices appliqués (comparés à chaque image, c'est peu coûteux).
+    applied: (crate::i18n::Language, theme::ThemeId, theme::FontPrefs),
+    /// Copies des événements mis en évidence : à remettre à jour (nouvelles données Google).
+    timeline_due: bool,
+    timeline_checked: std::time::Instant,
     current: Tab,
     account: Account,
     /// Service web HyperPlanning (identifiants, test de connexion).
@@ -121,8 +130,14 @@ impl WorkTableApp {
         // Nouvelle version sur GitHub ? (en arrière-plan ; pastille sur le bouton Réglages)
         let update = crate::update::Updater::default();
         update.check(ctx);
+        let now = std::time::Instant::now();
         Self {
             prefs_dirty: None,
+            prefs_print: prefs_fingerprint(&prefs),
+            prefs_checked: now,
+            applied: (prefs.language, prefs.theme, prefs.fonts.clone()),
+            timeline_due: true,
+            timeline_checked: now,
             current: Tab::Dashboard,
             account: Account::new(ctx.clone()),
             hyperplanning: crate::hyperplanning::HyperPlanning::new(ctx.clone()),
@@ -146,6 +161,24 @@ impl WorkTableApp {
             settings_panel: Default::default(),
         }
     }
+}
+
+/// Empreinte des réglages, calculée sans les copier : sert à repérer une modification.
+fn prefs_fingerprint(p: &Prefs) -> u64 {
+    use std::hash::Hasher;
+    struct W(std::collections::hash_map::DefaultHasher);
+    impl std::io::Write for W {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.write(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut w = W(Default::default());
+    let _ = serde_json::to_writer(&mut w, p);
+    w.0.finish()
 }
 
 impl WorkTableApp {
@@ -348,7 +381,8 @@ impl eframe::App for WorkTableApp {
 
     /// Fermeture : dernier enregistrement de la copie locale des conversations.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        if self.prefs_dirty.take().is_some() {
+        // Aussi une modification pas encore repérée (faite sans action de l'utilisateur).
+        if self.prefs_dirty.take().is_some() || prefs_fingerprint(&self.prefs) != self.prefs_print {
             self.prefs.save();
         }
         self.chat.flush_store();
@@ -364,9 +398,6 @@ impl eframe::App for WorkTableApp {
         crate::background::on_frame(ui.ctx(), &self.prefs.show_hotkey, &self.prefs.quit_key());
         crate::spell::configure(!self.prefs.spell_off, !self.prefs.spell_no_fr, !self.prefs.spell_no_en);
         crate::liquid::set_settings(ui.ctx(), self.prefs.animation);
-        let prefs_before = self.prefs.clone();
-        // Événements mis en évidence dans le quadrillage : copies tenues à jour (enregistrées).
-        tabs::timeline::sync_all(&self.calendar, &mut self.prefs);
         // Visionneuse d'images (avant les onglets : elle prend Échap pour elle).
         crate::lightbox::show(ui.ctx());
 
@@ -374,6 +405,7 @@ impl eframe::App for WorkTableApp {
         self.hyperplanning.tick();
         // Résultats des requêtes Google arrivés depuis la dernière frame.
         for ev in self.account.poll() {
+            self.timeline_due = true;
             match ev {
                 Event::Ready => {
                     self.calendar.on_ready(&self.account);
@@ -446,6 +478,13 @@ impl eframe::App for WorkTableApp {
                 }
                 e => self.mail.handle(e, &self.account),
             }
+        }
+        // Événements mis en évidence dans le quadrillage : copies tenues à jour (enregistrées),
+        // dès l'arrivée de données Google, sinon toutes les 2 s (pas à chaque image).
+        if self.timeline_due || self.timeline_checked.elapsed() >= std::time::Duration::from_secs(2) {
+            self.timeline_due = false;
+            self.timeline_checked = std::time::Instant::now();
+            tabs::timeline::sync_all(&self.calendar, &mut self.prefs);
         }
         self.mail.tick(&self.account, ui.ctx());
         self.calendar.background(&self.account, &self.prefs);
@@ -577,7 +616,12 @@ impl eframe::App for WorkTableApp {
 
         // 2. Barre de navigation verticale en pilule, dessinée par-dessus (pastilles « non lus »).
         let badges = [(Tab::Mail, self.mail.inbox_unread), (Tab::Messages, self.chat.unread_count())];
-        let peeks = [(Tab::Mail, self.mail_peek()), (Tab::Messages, self.chat_peek())];
+        // Aperçus calculés seulement au survol de l'icône (pas à chaque image).
+        let peeks = |t: Tab| match t {
+            Tab::Mail => self.mail_peek(),
+            Tab::Messages => self.chat_peek(),
+            _ => Vec::new(),
+        };
         match sidebar::show(ui.ctx(), window_rect, self.current, &badges, &peeks) {
             Some(sidebar::Nav::Tab(tab)) => self.current = tab,
             Some(sidebar::Nav::Go(t)) => self.go_to(*t),
@@ -653,17 +697,28 @@ impl eframe::App for WorkTableApp {
         // 5. Émojis en couleur (même rendu que dans Google Chat) dans tous les onglets.
         crate::emoji_img::colorize_frame(ui.ctx());
 
-        if self.prefs.language != prefs_before.language {
+        if self.prefs.language != self.applied.0 {
+            self.applied.0 = self.prefs.language;
             crate::i18n::set(self.prefs.language);
         }
-        if self.prefs.theme != prefs_before.theme {
+        if self.prefs.theme != self.applied.1 {
+            self.applied.1 = self.prefs.theme;
             theme::set_theme(ui.ctx(), self.prefs.theme);
         }
-        if self.prefs.fonts != prefs_before.fonts {
+        if self.prefs.fonts != self.applied.2 {
+            self.applied.2 = self.prefs.fonts.clone();
             theme::set_fonts(ui.ctx(), &self.prefs.fonts);
         }
-        if self.prefs != prefs_before {
-            self.prefs_dirty = Some(std::time::Instant::now());
+        // Réglages modifiés ? Contrôlé après une action (clic, glisser, touche, molette…), sinon
+        // toutes les 0,5 s : le simple survol de la souris ne déclenche rien.
+        let acted = ui.input(|i| i.pointer.any_down() || i.events.iter().any(|e| !matches!(e, egui::Event::PointerMoved(_) | egui::Event::MouseMoved(_))));
+        if acted || self.prefs_checked.elapsed() >= std::time::Duration::from_millis(500) {
+            self.prefs_checked = std::time::Instant::now();
+            let print = prefs_fingerprint(&self.prefs);
+            if print != self.prefs_print {
+                self.prefs_print = print;
+                self.prefs_dirty = Some(std::time::Instant::now());
+            }
         }
         // Enregistrement une demi-seconde après la dernière modification, souris relâchée.
         if let Some(t) = self.prefs_dirty {

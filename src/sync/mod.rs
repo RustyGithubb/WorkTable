@@ -51,6 +51,7 @@ impl Account {
 
     fn save(&self) {
         crate::paths::save_json(&Self::path(), self);
+        forget_configured();
     }
 }
 
@@ -92,7 +93,9 @@ fn load_secret() -> Option<Secret> {
 }
 
 fn save_secret(login: &str, s: &Secret) -> Result<(), String> {
-    entry(login)?.set_password(&serde_json::to_string(s).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+    let r = entry(login)?.set_password(&serde_json::to_string(s).map_err(|e| e.to_string())?).map_err(|e| e.to_string());
+    forget_configured();
+    r
 }
 
 fn forget_secret() {
@@ -101,6 +104,15 @@ fn forget_secret() {
     {
         let _ = e.delete_credential();
     }
+    forget_configured();
+}
+
+/// Réponse de [`configured`] gardée 2 s : l'interface l'interroge plusieurs fois par image, et
+/// chaque réponse lit un fichier et le coffre du système. Seul ce oui/non est gardé (aucun secret).
+static CONFIGURED: Mutex<Option<(std::time::Instant, bool)>> = Mutex::new(None);
+
+fn forget_configured() {
+    *CONFIGURED.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 /// Clé maître du compte connecté (chiffrement des données propres au compte, ex. Google).
@@ -210,7 +222,14 @@ pub fn poke() {
 
 /// Connecté (compte et session présents) ?
 pub fn configured() -> bool {
-    Account::load().is_some() && load_secret().is_some()
+    if let Some((at, v)) = *CONFIGURED.lock().unwrap_or_else(|e| e.into_inner())
+        && at.elapsed() < std::time::Duration::from_secs(2)
+    {
+        return v;
+    }
+    let v = Account::load().is_some() && load_secret().is_some();
+    *CONFIGURED.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), v));
+    v
 }
 
 /// Démarrage de l'app, **avant** le chargement des données : reçoit et applique ce qui est arrivé

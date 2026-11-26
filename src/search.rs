@@ -254,33 +254,80 @@ pub struct Palette {
     cursor_end: bool,
 }
 
+/// Durée du fondu d'un overlay, à l'ouverture comme à la fermeture.
+const FADE: f32 = 0.14;
+
 /// Fond d'un overlay (recherche, fiche contact) : capture floutée de l'app, voile sombre,
-/// apparition en fondu ; un clic dessus ferme l'overlay.
+/// apparition en fondu (et, si demandé, disparition par le même fondu inversé) ; un clic dessus
+/// ferme l'overlay.
 #[derive(Default)]
 pub struct Backdrop {
     shot: Arc<Mutex<Option<Arc<ColorImage>>>>,
     texture: Option<egui::TextureHandle>,
     opened_at: Option<Instant>,
+    /// Fermeture en cours : début et avancement du fondu à ce moment (fermé en pleine ouverture).
+    closing: Option<(Instant, f32)>,
 }
 
 impl Backdrop {
     /// Ouverture : capture de l'image affichée (l'overlay est encore transparent).
     pub fn start(&mut self, ctx: &egui::Context) {
+        // Rouvert pendant la disparition : le fondu repart de là où il en est, avec la même capture
+        // (une nouvelle contiendrait le panneau à moitié effacé).
+        if self.closing.is_some() {
+            let k = self.progress();
+            self.closing = None;
+            self.opened_at = Instant::now().checked_sub(Duration::from_secs_f32(k * FADE));
+            ctx.request_repaint();
+            return;
+        }
         self.texture = None;
         self.opened_at = Some(Instant::now());
         let slot = self.shot.clone();
         let c = ctx.clone();
+        // Flou calculé dans un fil à part : l'interface ne se fige pas à l'ouverture (le fond
+        // flouté apparaît dès qu'il est prêt, pendant le fondu).
         ctx.request_screenshot(move |img| {
-            let blurred = blur(&img, 4, 3);
-            if let Ok(mut s) = slot.lock() {
-                *s = Some(Arc::new(blurred));
-            }
-            c.request_repaint();
+            std::thread::spawn(move || {
+                let blurred = blur(&img, 4, 3);
+                if let Ok(mut s) = slot.lock() {
+                    *s = Some(Arc::new(blurred));
+                }
+                c.request_repaint();
+            });
         });
     }
 
     pub fn clear(&mut self) {
         self.texture = None;
+        self.closing = None;
+    }
+
+    /// Avancement du fondu : 0 = invisible, 1 = ouvert.
+    fn progress(&self) -> f32 {
+        let opening = self.opened_at.map(|t| (t.elapsed().as_secs_f32() / FADE).min(1.0)).unwrap_or(1.0);
+        match self.closing {
+            Some((t, from)) => (from - t.elapsed().as_secs_f32() / FADE).max(0.0),
+            None => opening,
+        }
+    }
+
+    /// Lance la disparition : le même fondu qu'à l'ouverture, à l'envers.
+    pub fn close(&mut self, ctx: &egui::Context) {
+        if self.closing.is_none() {
+            self.closing = Some((Instant::now(), self.progress()));
+        }
+        // Sans nouvelle image demandée, la disparition attendrait le prochain mouvement de souris.
+        ctx.request_repaint();
+    }
+
+    pub fn is_closing(&self) -> bool {
+        self.closing.is_some()
+    }
+
+    /// Disparition terminée : l'overlay peut être retiré.
+    pub fn is_closed(&self) -> bool {
+        self.closing.is_some() && self.progress() <= 0.0
     }
 
     /// Dessine le fond ; renvoie (avancement du fondu 0..1, clic sur le fond).
@@ -294,12 +341,13 @@ impl Backdrop {
         if let Some(img) = self.shot.lock().ok().and_then(|mut s| s.take()) {
             self.texture = Some(ctx.load_texture(format!("{id}_tex"), img, egui::TextureOptions::LINEAR));
         }
-        let k = self.opened_at.map(|t| (t.elapsed().as_secs_f32() / 0.14).min(1.0)).unwrap_or(1.0);
+        let k = self.progress();
         if k < 1.0 {
             ctx.request_repaint();
         }
         let mut clicked = false;
-        egui::Area::new(egui::Id::unique(id)).order(order).fixed_pos(screen.min).show(ctx, |ui| {
+        // Pendant la disparition, le fond ne retient plus les clics : l'app redevient utilisable.
+        egui::Area::new(egui::Id::unique(id)).order(order).fixed_pos(screen.min).interactable(!self.is_closing()).show(ctx, |ui| {
             let (r, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
             let p = ui.painter();
             if let Some(t) = &self.texture {

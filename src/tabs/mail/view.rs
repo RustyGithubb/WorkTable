@@ -685,12 +685,23 @@ fn message_list(ui: &mut egui::Ui, mail: &MailState, actions: &mut Vec<Action>) 
         // Une ligne par conversation (le message le plus récent), comme Gmail.
         let mut threads_seen = std::collections::HashSet::new();
         let pinned_threads: std::collections::HashSet<&str> = if show_pins { mail.pinned.list.iter().map(|m| m.thread_id.as_str()).collect() } else { Default::default() };
+        let clip = ui.clip_rect();
         for m in &mail.messages {
             let pinned = mail.pinned.contains(&m.id);
             if (pinned && show_pins) || (!m.thread_id.is_empty() && pinned_threads.contains(m.thread_id.as_str())) {
                 continue; // déjà affiché en haut
             }
             if !m.thread_id.is_empty() && !threads_seen.insert(m.thread_id.as_str()) {
+                continue;
+            }
+            // Ligne hors de la zone visible : place réservée, rien n'est dessiné (la sélection
+            // liquide garde sa cible si c'est le mail ouvert).
+            let y = ui.cursor().top();
+            if y > clip.bottom() || y + ROW_H < clip.top() {
+                let (_, rect) = ui.allocate_space(vec2(ui.available_width(), ROW_H));
+                if open_id == Some(m.id.as_str()) {
+                    hl.target(rect, &m.id);
+                }
                 continue;
             }
             let group = groups::group_of(m, &mail.groups);
@@ -701,9 +712,12 @@ fn message_list(ui: &mut egui::Ui, mail: &MailState, actions: &mut Vec<Action>) 
     });
 }
 
+/// Hauteur d'une ligne de la liste des mails.
+const ROW_H: f32 = 66.0;
+
 #[allow(clippy::too_many_arguments)]
 fn message_row(ui: &mut egui::Ui, m: &Summary, active: bool, pinned: bool, count: usize, hl: &mut Liquid, group: Option<&GroupColor>, actions: &mut Vec<Action>) {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 66.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
     let star_rect = Rect::from_center_size(rect.right_bottom() + vec2(-16.0, -16.0), vec2(22.0, 22.0));
     let star = ui.interact(star_rect, resp.id.with("star"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if m.starred() {
         t!("Retirer des favoris", "Remove from starred")

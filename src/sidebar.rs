@@ -55,8 +55,9 @@ const SCREEN_MARGIN: f32 = 16.0;
 
 /// Affiche la barre et renvoie l'onglet cliqué (ou la notification choisie dans un aperçu).
 /// Survol d'une icône pendant 1 s avec des notifications en attente : petit panneau flottant à
-/// droite, avec un raccourci vers chacune.
-pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usize)], peeks: &[(Tab, Vec<PeekItem>)]) -> Option<Nav> {
+/// droite, avec un raccourci vers chacune. `peeks` (contenu de l'aperçu d'un onglet) n'est appelé
+/// qu'au survol d'une icône ou aperçu ouvert, pas à chaque image.
+pub fn show(ctx: &egui::Context, window: Rect, current: Tab, badges: &[(Tab, usize)], peeks: &dyn Fn(Tab) -> Vec<PeekItem>) -> Option<Nav> {
     // Hauteur : logo + séparateur + boutons.
     let n = Tab::ALL.len() as f32;
     let inner_h = BUTTON + 17.0 + n * BUTTON + (n - 1.0) * 8.0;
@@ -138,10 +139,23 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 
 /// Gère l'aperçu flottant : ouverture après un survol prolongé, fermeture quand la souris
 /// s'éloigne ou qu'un autre onglet est choisi. Renvoie la notification cliquée.
-fn peek(ctx: &egui::Context, x: f32, hovered: Option<(Tab, Rect)>, clicked: Option<Tab>, peeks: &[(Tab, Vec<PeekItem>)]) -> Option<Target> {
+fn peek(ctx: &egui::Context, x: f32, hovered: Option<(Tab, Rect)>, clicked: Option<Tab>, peeks: &dyn Fn(Tab) -> Vec<PeekItem>) -> Option<Target> {
     let now = ctx.input(|i| i.time);
     let pointer = ctx.input(|i| i.pointer.hover_pos());
-    let items = |t: Tab| peeks.iter().find(|(p, v)| *p == t && !v.is_empty()).map(|(_, v)| v);
+    // Calculé au plus une fois par onglet et par image, et seulement si besoin.
+    let memo: std::cell::RefCell<Vec<(Tab, std::rc::Rc<Vec<PeekItem>>)>> = Default::default();
+    let items = |t: Tab| {
+        let mut m = memo.borrow_mut();
+        let v = match m.iter().find(|(p, _)| *p == t) {
+            Some((_, v)) => v.clone(),
+            None => {
+                let v = std::rc::Rc::new(peeks(t));
+                m.push((t, v.clone()));
+                v
+            }
+        };
+        (!v.is_empty()).then_some(v)
+    };
     let mut guard = PEEK.lock().unwrap();
     let st = guard.get_or_insert_with(PeekState::default);
 
@@ -182,7 +196,7 @@ fn peek(ctx: &egui::Context, x: f32, hovered: Option<(Tab, Rect)>, clicked: Opti
         && let Some(list) = items(tab)
     {
         let t = (now - st.opened_at) as f32 * PEEK_SPEED;
-        let (panel, clicked_item) = draw_peek(ctx, x, anchor, tab, list, st.panel, Grow::Open(t));
+        let (panel, clicked_item) = draw_peek(ctx, x, anchor, tab, &list, st.panel, Grow::Open(t));
         st.panel = Some(panel);
         go = clicked_item;
         if t < 1.0 {
@@ -202,7 +216,7 @@ fn peek(ctx: &egui::Context, x: f32, hovered: Option<(Tab, Rect)>, clicked: Opti
         let t = (now - start) as f32 * PEEK_SPEED / 0.18;
         match items(tab) {
             Some(list) if t < 1.0 && st.open.is_none() => {
-                draw_peek(ctx, x, anchor, tab, list, Some(panel), Grow::Close(t));
+                draw_peek(ctx, x, anchor, tab, &list, Some(panel), Grow::Close(t));
                 ctx.request_repaint();
             }
             _ => st.closing = None,

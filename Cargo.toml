@@ -1,6 +1,6 @@
 [package]
 name = "worktable"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2024"
 # Version minimale de Rust : imposée par egui / eframe 0.37 (le code lui-même demande 1.88,
 # pour les chaînes `if let … && let …`). Vérifiée par la CI (.github/workflows/ci.yml).
@@ -59,8 +59,17 @@ winresource = "0.1"
 [profile.release]
 # Exécutable plus petit (symboles de débogage retirés).
 strip = true
+# Optimisation entre les crates à l'édition de liens (plus rapide, compilation un peu plus longue).
+lto = "thin"
 
-# Profil de la version distribuée (installeur, `dist`) : optimisations à l'édition de liens.
+# Profil de la version distribuée (installeur, `dist`) : optimisations à l'édition de liens,
+# code compilé d'un seul bloc (meilleures optimisations, compilation plus lente).
 [profile.dist]
 inherits = "release"
 lto = "thin"
+codegen-units = 1
+
+# Développement (`cargo run`) : les dépendances (egui, image, rendu…) sont optimisées, notre code
+# reste rapide à recompiler. L'app de test est bien plus fluide.
+[profile.dev.package."*"]
+opt-level = 2
